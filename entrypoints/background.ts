@@ -10,7 +10,7 @@
 // its exported `runTabAnalysis` for the page/selection cases.
 
 import { registerHandlers, sendMessage, sendTabMessage } from "@/src/shared/messages";
-import { runTabAnalysis, startEngineRouter } from "@/src/engine/router";
+import { runTabAnalysis, startEngineRouter, unloadIdleModels } from "@/src/engine/router";
 import { getSettings, watchSettings } from "@/src/shared/settings";
 import { clearBadge } from "@/src/ui/badge";
 import { registerProvenanceBackground } from "@/src/provenance/background";
@@ -38,6 +38,12 @@ async function analyzeEditableInTab(tabId: number): Promise<void> {
     console.warn("[Local AI Detector] 'Check text in this box' failed", err);
   }
 }
+
+// Exposed the same way src/engine/router.ts exposes __ladContextMenuSelection:
+// native context menus can't be clicked from automation (scripts/e2e/chrome.mjs),
+// so tests invoke the handler directly through this hook instead.
+(globalThis as unknown as { __ladContextMenuEditable?: (tabId: number) => Promise<void> }).__ladContextMenuEditable =
+  analyzeEditableInTab;
 
 /** "Check image for Content Credentials & watermarks" -- best-effort optional-permission
  * request from the click itself, then delegates to the content script's single-image check. */
@@ -128,7 +134,9 @@ function startIdleUnload(): void {
     void getSettings().then((settings) => {
       if (!isIdleTooLong(lastActiveMs, Date.now(), settings.battery.unloadAfterMinutes)) return;
       // Best-effort: the engine (T7) may not implement this handler yet.
-      void sendMessage("unloadIdleModels", undefined).catch(() => {});
+      // A background page doesn't receive its own runtime.sendMessage broadcasts,
+      // so this must call the engine directly rather than message itself.
+      void unloadIdleModels();
     });
   });
 }

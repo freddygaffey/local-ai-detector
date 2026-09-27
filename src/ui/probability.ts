@@ -33,13 +33,18 @@ export function displayProbability(score: number): number {
 
 /**
  * The number to show for a whole analysis: T7's own calibrated
- * `result.probability` when present (undefined means "too short to score" --
- * see `MIN_WORDS_FOR_SCORE`), otherwise `displayProbability(overall)` for
- * results that predate that field (e.g. a per-block adapter score, or an
- * older stored result).
+ * `result.probability` when present. When it's undefined, that means one of
+ * two things -- tell them apart via `words` (only ever set by the current
+ * engine):
+ *  - a modern result with `words` set: genuinely too short to score (below
+ *    `MIN_WORDS_FOR_SCORE`) -- show "—", never a number computed some other way.
+ *  - no `words` at all: a result that predates the `probability`/`words`
+ *    fields (e.g. a per-block adapter score, or an older stored result) --
+ *    fall back to `displayProbability(overall)`.
  */
-export function displayScore(result: Pick<AnalyzeResult, "probability" | "overall">): number | null {
+export function displayScore(result: Pick<AnalyzeResult, "probability" | "overall" | "words">): number | null {
   if (result.probability !== undefined) return result.probability;
+  if (result.words !== undefined) return null;
   return displayProbability(result.overall);
 }
 

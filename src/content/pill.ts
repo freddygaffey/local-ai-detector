@@ -23,7 +23,8 @@ export interface PillCallbacks {
 export interface PillApi {
   setIdle(): void;
   setAnalyzing(progress: PillProgress): void;
-  setDone(opts: { overall: number; flaggedCount: number; current: number; total: number; style: HighlightStyle }): void;
+  /** `overall` is the calibrated display probability (`displayScore(result)`), or null below MIN_WORDS_FOR_SCORE ("—"). */
+  setDone(opts: { overall: number | null; flaggedCount: number; current: number; total: number; style: HighlightStyle }): void;
   setError(message: string): void;
   updateCounter(current: number, total: number): void;
   setStale(): void;
@@ -280,15 +281,19 @@ export function createPill(callbacks: PillCallbacks): PillApi {
       pill.classList.add("expanded");
       const row = document.createElement("div");
       row.className = "row";
-      const pct = Math.round(overall * 100);
       const score = document.createElement("span");
       score.className = "score";
-      // Continuous colour + weight, not a flat per-band swatch, so a
-      // borderline score and a confident one look different even within
-      // the same band (docs/integration-notes.md "For T12").
-      score.style.color = scoreColor(overall, pillTheme());
-      score.style.fontWeight = String(bandWeight(overall));
-      score.textContent = `AI likelihood ${pct}%`;
+      if (overall === null) {
+        // Below MIN_WORDS_FOR_SCORE: no calibrated number to show at all (see src/ui/probability.ts).
+        score.textContent = "AI likelihood —";
+      } else {
+        // Continuous colour + weight, not a flat per-band swatch, so a
+        // borderline score and a confident one look different even within
+        // the same band (docs/integration-notes.md "For T12").
+        score.style.color = scoreColor(overall, pillTheme());
+        score.style.fontWeight = String(bandWeight(overall));
+        score.textContent = `AI likelihood ${Math.round(overall * 100)}%`;
+      }
       row.appendChild(score);
       const flagged = document.createElement("span");
       flagged.className = "muted";
@@ -331,7 +336,7 @@ export function createPill(callbacks: PillCallbacks): PillApi {
         iconButton("Clear all highlights", "✕", () => callbacks.onClear()),
       );
       pill.appendChild(navRow);
-      announce(`Done. AI likelihood ${pct}%. ${flaggedCount} flagged sentences.`);
+      announce(`Done. AI likelihood ${overall === null ? "—" : `${Math.round(overall * 100)}%`}. ${flaggedCount} flagged sentences.`);
     },
 
     setError(message: string) {

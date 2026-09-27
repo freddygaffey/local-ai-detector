@@ -48,7 +48,12 @@ describe("displayScore", () => {
   test("prefers result.probability when present", () => {
     expect(displayScore({ probability: 0.77, overall: 0.1 })).toBe(0.77);
   });
-  test("falls back to displayProbability(overall) when probability is absent", () => {
+  test("a modern result (words set) with no probability is genuinely too short -- null, never a computed number", () => {
+    // T7's AnalyzeResult leaves `probability` undefined below MIN_WORDS_FOR_SCORE
+    // but always sets `words`; the UI must show "—", not some other number.
+    expect(displayScore({ overall: 0.9, words: 5 })).toBeNull();
+  });
+  test("a legacy/adapter result (no words field at all) falls back to displayProbability(overall)", () => {
     const score = displayScore({ overall: 0.42 });
     expect(score).toBe(displayProbability(0.42));
   });

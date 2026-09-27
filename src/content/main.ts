@@ -326,7 +326,10 @@ async function maybeAutoRun(): Promise<void> {
     // pre-T9 behaviour); every other preset's automatic pass stays cheap.
     const mode = settings.surfaces.highlights && !decision.useLiteModel ? undefined : settings.autoRunFastMode;
     pill?.setAnalyzing({ phase: "download", loaded: 0, total: 0, message: "Starting…" });
-    await sendMessage("analyzeTab", { target: "page", mode });
+    // The service worker (and Firefox's event page) can't read the Battery
+    // Status API themselves, so this content script's own read has to be
+    // forwarded (docs/plan.md "T8: Battery saver").
+    await sendMessage("analyzeTab", { target: "page", mode, preferCpu: decision.preferCpu });
   } catch {
     // Auto-run is best-effort; a manual run still works.
   }
@@ -392,7 +395,7 @@ function applyResult(result: AnalyzeResult, style: HighlightStyle): void {
     flaggedCursor = -1;
 
     pill?.setDone({
-      overall: result.overall,
+      overall: displayScore(result),
       flaggedCount: countFlaggedSentences(result.sentences),
       current: flaggedCursor,
       total: flaggedOrder.length,
@@ -523,7 +526,7 @@ function changeStyle(style: HighlightStyle): void {
     hoverIndex = buildHoverIndex(activeSentences);
     if (lastResult) {
       pill?.setDone({
-        overall: lastResult.overall,
+        overall: displayScore(lastResult),
         flaggedCount: countFlaggedSentences(lastResult.sentences),
         current: flaggedCursor,
         total: flaggedOrder.length,

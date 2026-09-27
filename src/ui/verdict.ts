@@ -7,10 +7,11 @@
 
 import type { AnalyzeResult } from "../shared/messages";
 import type { Settings } from "../shared/settings";
+import { displayScore } from "./probability";
 
 export type Band = "human" | "mixed" | "ai" | "insufficient";
 
-import { FLAGGED_THRESHOLD as AI_MIN, HUMAN_MAX } from "../shared/thresholds";
+import { FLAGGED_THRESHOLD as AI_MIN, HUMAN_MAX, toDisplayProbability, type DisplayContext } from "../shared/thresholds";
 
 /** Word count under which a result is too thin to score meaningfully. */
 export function countWords(text: string): number {
@@ -19,28 +20,44 @@ export function countWords(text: string): number {
   return trimmed.split(/\s+/).length;
 }
 
-export interface BandInput {
-  overall: number;
-  /**
-   * Whether any sentence actually cleared the minWords threshold and got
-   * scored. When nothing did, the overall score isn't meaningful.
-   */
-  hasScoredSentences: boolean;
+/**
+ * The band boundaries, mapped through the *same* calibration curve as the
+ * number being shown (T7's `toDisplayProbability`, per `ctx`). HUMAN_MAX/
+ * FLAGGED_THRESHOLD are cut points on the raw engine score; running them
+ * through the curve keeps the band and the displayed percent from ever
+ * disagreeing (e.g. label "Mixed" next to "86%" -- the lead's finding after
+ * T7 merged: bands must derive from the *displayed* probability, not the
+ * raw score, since the two can differ a lot once a curve is non-linear).
+ */
+function bandCutoffs(ctx: DisplayContext): { humanMax: number; aiMin: number } {
+  return { humanMax: toDisplayProbability(HUMAN_MAX, ctx), aiMin: toDisplayProbability(AI_MIN, ctx) };
 }
 
-/** Maps an overall AI-likelihood score (plus enough context to know whether
- * there was even enough text) to one of four bands. */
+export interface BandInput {
+  /** The number actually shown to the user (0..1, e.g. from `displayScore()`), or null when nothing is shown ("—"). */
+  displayed: number | null;
+  ctx?: DisplayContext;
+}
+
+/** Maps the *displayed* AI-likelihood probability to one of four bands. */
 export function scoreToBand(input: BandInput): Band {
-  if (!input.hasScoredSentences) return "insufficient";
-  if (input.overall < HUMAN_MAX) return "human";
-  if (input.overall >= AI_MIN) return "ai";
+  if (input.displayed === null) return "insufficient";
+  const { humanMax, aiMin } = bandCutoffs(input.ctx ?? {});
+  if (input.displayed < humanMax) return "human";
+  if (input.displayed >= aiMin) return "ai";
   return "mixed";
 }
 
 export function bandFromResult(result: AnalyzeResult, _settings: Settings): Band {
+  if (result.sentences.length === 0) return "insufficient";
   return scoreToBand({
-    overall: result.overall,
-    hasScoredSentences: result.sentences.length > 0,
+    displayed: displayScore(result),
+    ctx: {
+      detectors: result.detectors?.map((d) => d.id),
+      method: result.fusion?.method,
+      device: result.device,
+      words: result.words,
+    },
   });
 }
 

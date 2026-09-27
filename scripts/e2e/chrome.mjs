@@ -133,8 +133,25 @@ async function shot(page, name, opts = {}) {
 const highlightCount = (page) =>
   page.evaluate(() => [...CSS.highlights.keys()].filter((k) => k.startsWith("ai-detector-hl")).reduce((n, k) => n + CSS.highlights.get(k).size, 0));
 const highlightNames = (page) => page.evaluate(() => [...CSS.highlights.keys()].filter((k) => k.startsWith("ai-detector-hl") && CSS.highlights.get(k).size));
+/** Merges a partial Settings object into storage.sync from the service worker (an extension context; fixture pages have no chrome.* APIs). */
+const mergeSettings = (partial) =>
+  sw.evaluate(async (partial) => {
+    const cur = (await chrome.storage.sync.get("settings")).settings ?? {};
+    await chrome.storage.sync.set({ settings: { ...cur, ...partial } });
+  }, partial);
+const getStoredSettings = () => sw.evaluate(async () => (await chrome.storage.sync.get("settings")).settings ?? null);
 
 // ---------------------------------------------------------------------------
+
+await step("presence: force Inspector for the fixture suite below (docs/plan.md 'T9' -- default is Status chip)", async (note) => {
+  // The pill/highlight assertions in this file predate presence modes and
+  // test the Inspector surface set specifically (auto pill + highlights on
+  // every page). The shipped *default* preset is "Status chip" (chip only,
+  // no auto pill/highlights) -- covered by the dedicated "presence modes"
+  // steps near the end of this file instead of changing the product default.
+  await mergeSettings({ presence: "inspector", autoRunPolicy: "always", surfaces: { popup: true, badge: true, chip: false, highlights: true, sidePanel: false } });
+  note("presence -> inspector (surfaces.highlights: true) for this run");
+});
 const pages = {};
 await step("open fixture pages (news, blog, spa, demo)", async (note) => {
   for (const name of ["news", "blog", "spa", "demo"]) {
@@ -600,6 +617,206 @@ await step("options: custom-model validation (open licence / no licence / missin
   const el = await options.$(".license-warning, .model-error-note");
   if (el) await el.scrollIntoView();
   await shot(options, "options-custom-model.jpg");
+});
+
+// ---- T12a: presence modes, chip, slop filter, toasts, checklist, new entry points ----
+
+await step("options: model download checklist (checkbox toggles fusion.detectors, running total)", async (note) => {
+  await mergeSettings({ mode: "ensemble" });
+  await options.reload();
+  await options.waitForSelector("::-p-text(Download checklist)");
+  const rowsBefore = await options.$$eval(".model-checklist-row", (els) => els.length);
+  const totalBefore = await options.$eval(".model-checklist-footer .value", (e) => e.textContent);
+  note(`${rowsBefore} rows, total ${totalBefore}`);
+  // Uncheck a non-locked detector row (Fusion's default set has 3+, so this never hits the "keep at least one" floor).
+  const checkable = await options.$$(".model-checklist-row input[type=checkbox]:not([disabled])");
+  if (!checkable.length) throw new Error("no uncheckable checklist row (mode has only one detector?)");
+  await checkable[0].click();
+  await waitFor(async () => (await options.$eval(".model-checklist-footer .value", (e) => e.textContent)) !== totalBefore, {
+    what: "checklist total to change after unchecking a row",
+  });
+  const totalAfter = await options.$eval(".model-checklist-footer .value", (e) => e.textContent);
+  note(`after unchecking one row: total ${totalAfter}`);
+  await shot(options, "options-checklist.jpg");
+  await checkable[0].click(); // put it back for later steps
+  await waitFor(async () => (await options.$eval(".model-checklist-footer .value", (e) => e.textContent)) === totalBefore, { what: "checklist total restored" });
+});
+
+await step("toasts: 'Analyze selection' dims with no selection, toasts instead of erroring", async (note) => {
+  await pages.spa.bringToFront();
+  await pages.spa.evaluate(() => getSelection().removeAllRanges());
+  await popup.reload();
+  await popup.waitForSelector("button::-p-text(Analyze page)");
+  await sleep(400); // popup's getSelectionInfo round-trip to the content script
+  const dimmed = await popup.$eval("button::-p-text(Selection)", (b) => ({ ariaDisabled: b.getAttribute("aria-disabled"), title: b.title }));
+  note(`Selection button: aria-disabled=${dimmed.ariaDisabled}, title="${dimmed.title}"`);
+  if (dimmed.ariaDisabled !== "true" || dimmed.title !== "Select text first") throw new Error("Selection button should be dimmed with a tooltip when nothing is selected");
+  const stateBefore = await ext(popup, "getTabStatus", { tabId: await tabIdOf(pages.spa.url()) });
+  await popup.click("button::-p-text(Selection)");
+  await popup.waitForSelector(".lad-toast.is-visible", { timeout: 3000 });
+  const toastText = await popup.$eval(".lad-toast", (e) => e.textContent);
+  note(`toast: "${toastText}"`);
+  if (toastText !== "No text selected") throw new Error(`unexpected toast text: "${toastText}"`);
+  await shot(popup, "popup-toast.png");
+  const stateAfter = await ext(popup, "getTabStatus", { tabId: await tabIdOf(pages.spa.url()) });
+  if (JSON.stringify(stateAfter) !== JSON.stringify(stateBefore)) throw new Error("clicking a dimmed Selection button should leave popup/tab state untouched");
+  // Now make a real selection and confirm the button re-enables and works.
+  await pages.spa.evaluate(() => {
+    const p = document.querySelector("article p");
+    const r = document.createRange();
+    r.selectNodeContents(p);
+    getSelection().removeAllRanges();
+    getSelection().addRange(r);
+  });
+  await popup.reload();
+  await popup.waitForSelector("button::-p-text(Analyze page)");
+  await sleep(400);
+  const enabled = await popup.$eval("button::-p-text(Selection)", (b) => b.getAttribute("aria-disabled"));
+  note(`after a real selection: aria-disabled=${enabled}`);
+  if (enabled === "true") throw new Error("Selection button should re-enable once there's a selection");
+});
+
+await step("presence modes: onClick / badge / statusChip / inspector / sidePanel", async (note) => {
+  const presenceTab = await newTab(`${BASE}/blog.html`);
+  const tabId = await tabIdOf(`${BASE}/blog.html`);
+  const results = {};
+  for (const presence of ["onClick", "badge", "statusChip", "inspector", "sidePanel"]) {
+    await mergeSettings({ presence, autoRunPolicy: "always" });
+    // Options' own preset select is the product path for switching presets (round-trips through presenceDefaults()).
+    await options.bringToFront();
+    await options.select('select[aria-label="Presence"]', presence).catch(async () => {
+      // Fallback: some builds label it differently; the storage merge above already set it either way.
+      await mergeSettings({ presence });
+    });
+    await presenceTab.reload({ waitUntil: "load" });
+    await sleep(1500); // autoRun (classifierLite) + surface reconciliation
+    const settings = await getStoredSettings();
+    const pillVisible = (await piercedCenter(presenceTab, (tag, a) => a.role === "region" && a["aria-label"] === "AI text detector")).length > 0;
+    const chipVisible = (await piercedTexts(presenceTab, (tag, a) => a["aria-label"]?.startsWith("AI detection"))).length > 0;
+    results[presence] = { surfaces: settings.surfaces, pillVisible, chipVisible };
+    note(`${presence}: surfaces=${JSON.stringify(settings.surfaces)}, pill=${pillVisible}, chip=${chipVisible}`);
+  }
+  report.facts.presenceModes = results;
+  if (results.onClick.pillVisible) throw new Error("onClick preset should show no pill automatically");
+  if (results.badge.pillVisible || results.badge.chipVisible) throw new Error("badge preset should show neither pill nor chip");
+  if (!results.inspector.pillVisible) throw new Error("inspector preset should auto-show the pill");
+  await shot(presenceTab, "page-presence-inspector.jpg");
+
+  // Back to onClick: "Show on page" should turn the pill on for this visit only.
+  await mergeSettings({ presence: "onClick" });
+  await presenceTab.reload({ waitUntil: "load" });
+  await sleep(800);
+  const onClickTabId = await tabIdOf(`${BASE}/blog.html`);
+  await popup.evaluate((id) => { location.search = `?tabId=${id}`; }, onClickTabId);
+  await popup.waitForNavigation().catch(() => {});
+  await popup.waitForSelector("button::-p-text(Show on page)", { timeout: 5000 });
+  await popup.click("button::-p-text(Show on page)");
+  await sleep(600);
+  const shown = (await piercedCenter(presenceTab, (tag, a) => a.role === "region" && a["aria-label"] === "AI text detector")).length > 0;
+  note(`onClick + "Show on page": pill visible = ${shown}`);
+  if (!shown) throw new Error(`"Show on page" should reveal the pill for this visit`);
+
+  // "toggle-visibility" command path: same handler as the keyboard shortcut, via the tab message directly.
+  await ext(presenceTab, undefined, undefined).catch(() => {}); // no-op; presenceTab isn't an extension page
+  await sw.evaluate((id) => chrome.tabs.sendMessage(id, { kind: "request", id: "e2e-toggle", type: "toggleVisibility", payload: undefined }), onClickTabId);
+  await sleep(500);
+  const hiddenAfterToggle = (await piercedCenter(presenceTab, (tag, a) => a.role === "region" && a["aria-label"] === "AI text detector")).length === 0;
+  note(`toggleVisibility once: pill hidden = ${hiddenAfterToggle}`);
+  if (!hiddenAfterToggle) throw new Error("toggleVisibility should hide a pill that 'Show on page' revealed");
+
+  await mergeSettings({ presence: "inspector" });
+  await presenceTab.close();
+});
+
+await step("status chip: label, colour graduation, expand/collapse", async (note) => {
+  await mergeSettings({ presence: "statusChip", autoRunPolicy: "always" });
+  await pages.news.reload({ waitUntil: "load" });
+  await sleep(1500); // autoRun classifierLite pass
+  const chip = await piercedCenter(pages.news, (tag, a) => a["aria-label"]?.startsWith("AI detection"));
+  if (!chip.length) throw new Error("chip not found on the default (Status chip) preset");
+  const before = await piercedTexts(pages.news, (tag, a) => a["aria-label"]?.startsWith("AI detection"));
+  note(`chip label: "${before.join("")}"`);
+  await shot(pages.news, "page-chip.jpg");
+  await pages.news.mouse.click(chip[0].x, chip[0].y);
+  await sleep(500);
+  const pillAfterExpand = (await piercedCenter(pages.news, (tag, a) => a.role === "region" && a["aria-label"] === "AI text detector")).length > 0;
+  note(`chip click -> pill visible: ${pillAfterExpand}`);
+  if (!pillAfterExpand) throw new Error("clicking the chip should expand the full inspector");
+  const collapse = await piercedCenter(pages.news, (tag, a) => a["aria-label"] === "Hide the AI detection panel");
+  await pages.news.mouse.click(collapse[0].x, collapse[0].y);
+  await sleep(500);
+  const pillAfterCollapse = (await piercedCenter(pages.news, (tag, a) => a.role === "region" && a["aria-label"] === "AI text detector")).length > 0;
+  note(`collapse control -> pill visible: ${pillAfterCollapse}`);
+  if (pillAfterCollapse) throw new Error("the collapse control should hide the pill again");
+  await mergeSettings({ presence: "inspector" });
+  await pages.news.reload({ waitUntil: "load" });
+  await sleep(800);
+});
+
+await step("slop filter: dims/collapses AI-scored forum comments, 'Show' reveals one", async (note) => {
+  await mergeSettings({ presence: "inspector", autoRunPolicy: "always" });
+  await mergeSettings({ slopFilter: { enabled: true, threshold: 0.5, style: "dim", sites: { reddit: true, hackernews: true, youtube: true, twitter: true, forum: true, review: true }, searchMarkers: true } });
+  const commentsPage = await newTab(`${BASE}/comments.html`);
+  await sleep(2500); // autoRun classifierLite over 5 comment blocks
+  const badges = await commentsPage.$$eval(".ai-detector-slop-badge", (els) => els.map((e) => e.textContent));
+  note(`slop badges ("Show" affordance): ${badges.join(" | ")}`);
+  if (!badges.length) throw new Error("expected at least one comment dimmed by the slop filter");
+  await shot(commentsPage, "page-slop-filter.jpg");
+  const dimmedCountBefore = await commentsPage.$$eval('[data-ai-detector-slop]', (els) => els.filter((e) => e.style.opacity === "0.35").length);
+  const badgeHandle = (await commentsPage.$$(".ai-detector-slop-badge"))[0];
+  await badgeHandle.click();
+  await sleep(200);
+  const dimmedCountAfter = await commentsPage.$$eval('[data-ai-detector-slop]', (els) => els.filter((e) => e.style.opacity === "0.35").length);
+  note(`dimmed before "Show" click: ${dimmedCountBefore}, after: ${dimmedCountAfter}`);
+  if (dimmedCountAfter !== dimmedCountBefore - 1) throw new Error("clicking a slop-filter badge should reveal exactly that one item");
+  await mergeSettings({ slopFilter: { enabled: false, threshold: 0.5, style: "dim", sites: { reddit: true, hackernews: true, youtube: true, twitter: true, forum: true, review: true }, searchMarkers: true } });
+  await commentsPage.close();
+});
+
+await step("context menu 'Check text in this box' (editable, via hook)", async (note) => {
+  await pages.spa.bringToFront();
+  await pages.spa.evaluate(() => {
+    const ta = document.createElement("textarea");
+    ta.id = "lad-e2e-editable";
+    ta.value =
+      "Learning a new skill as an adult can be challenging, but it is absolutely achievable with the right approach. Consistency matters far more than intensity: a little practice every day beats a long cram session once a week, and it keeps the habit from turning into a chore.";
+    ta.style.cssText = "position:fixed;top:8px;left:8px;width:300px;height:80px;z-index:999999";
+    document.body.appendChild(ta);
+    ta.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
+  });
+  const spaTab = await tabIdOf(pages.spa.url());
+  await sw.evaluate((id) => globalThis.__ladContextMenuEditable(id), spaTab);
+  const s = await waitFor(
+    async () => {
+      const st = await ext(popup, "getTabStatus", { tabId: spaTab });
+      return st.state === "done" || st.state === "error" ? st : null;
+    },
+    { timeout: 60_000, what: "editable-box analysis" },
+  );
+  if (s.state === "error") throw new Error(s.error);
+  note(`editable box: overall ${s.result.overall.toFixed(3)}, ${s.result.sentences.length} sentences`);
+  await pages.spa.evaluate(() => document.getElementById("lad-e2e-editable")?.remove());
+});
+
+await step("side panel: follows the active tab, lists flagged sentences, scroll-to-sentence", async (note) => {
+  await pages.news.bringToFront();
+  await ext(popup, "analyzeTab", { tabId: await tabIdOf(pages.news.url()), target: "page" });
+  const sidepanel = await newTab(`${EXT_ORIGIN}/sidepanel.html`, { width: 380, height: 700 });
+  await sidepanel.waitForSelector(".sp-summary, .sp-empty", { timeout: 10_000 });
+  await sleep(500);
+  const score = await sidepanel.$eval(".sp-score", (e) => e.textContent).catch(() => null);
+  const items = await sidepanel.$$eval(".sp-item", (els) => els.length);
+  note(`side panel: score "${score}", ${items} flagged items listed`);
+  await shot(sidepanel, "sidepanel.jpg");
+  if (items > 0) {
+    await pages.news.evaluate(() => window.scrollTo(0, 0));
+    await sidepanel.click(".sp-item");
+    await sleep(500);
+    const y = await pages.news.evaluate(() => window.scrollY);
+    note(`scrollY after clicking a flagged item: ${y}`);
+    if (y === 0) throw new Error("clicking a side-panel item should scroll the page to that sentence");
+  }
+  await sidepanel.close();
 });
 
 // ---- network: only huggingface.co / *.hf.co (+ the local fixture server) ----

@@ -222,8 +222,8 @@ function renderDetectionSection(): HTMLElement {
       toggleControl(s.checkImages, (checked) => void updateSettings({ checkImages: checked })),
     ),
     fieldRow(
-      "Use GPU (WebGPU)",
-      "Faster; scores differ slightly from CPU. Binoculars stays on CPU.",
+      "Use GPU (WebGPU) — faster",
+      "On by default. Binoculars stays on CPU.",
       toggleControl(s.useWebGPU, (checked) => void updateSettings({ useWebGPU: checked })),
     ),
     fieldRow(
@@ -336,6 +336,7 @@ function renderPresenceSection(): HTMLElement {
       void updateSettings({ presence: preset, autoRunPolicy: d.autoRunPolicy, surfaces: { ...d.surfaces } });
     },
   );
+  presetSelect.setAttribute("aria-label", "Presence");
   const list = h(
     "div",
     { class: "settings-list" },
