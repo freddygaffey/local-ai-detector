@@ -66,9 +66,19 @@ function copy(src, destDir, destName = undefined) {
 }
 
 // ---- 3. LICENSE files for bundled runtime deps -> public/licenses/ ----
+//
+// A few packages (onnxruntime-web, c2pa-text, at the pinned versions here)
+// declare a licence in package.json but don't ship the licence *text* in the
+// published npm tarball. For those, this script falls back to the real
+// upstream LICENSE text committed under licenses/vendor/<pkg>/ (fetched from
+// the matching upstream GitHub commit/tag; see licenses/vendor/README.md).
+// If neither the npm package nor licenses/vendor/ has a licence file for a
+// bundled dependency, this is a packaging bug and the build must fail rather
+// than ship an unknown-licence dependency or a placeholder.
 {
   const destDir = join(root, "public", "licenses");
   ensureDir(destDir);
+  const vendorLicenseDir = join(root, "licenses", "vendor");
   const packages = [
     "@huggingface/transformers",
     "onnxruntime-web",
@@ -79,6 +89,7 @@ function copy(src, destDir, destName = undefined) {
     "exifreader",
     "c2pa-text",
   ];
+  const missing = [];
   for (const pkg of packages) {
     const pkgDir = join(nodeModules, ...pkg.split("/"));
     const pkgJsonPath = join(pkgDir, "package.json");
@@ -94,25 +105,45 @@ function copy(src, destDir, destName = undefined) {
       }
     }
     const safeName = pkg.replace("/", "__");
-    const licenseSrc = ["LICENSE", "LICENSE.txt", "LICENSE.md", "license"]
+    const npmLicenseSrc = ["LICENSE", "LICENSE.txt", "LICENSE.md", "license"]
       .map((f) => join(pkgDir, f))
       .find((p) => existsSync(p));
-    if (licenseSrc) {
-      copy(licenseSrc, destDir, `${safeName}.LICENSE.txt`);
-    } else {
-      // Some packages (e.g. onnxruntime-web, c2pa-text as of the pinned
-      // versions here) declare a licence in package.json but don't ship the
-      // licence text in the published tarball. Record what we know so T6
-      // can fetch the real text from upstream before store submission.
+    // Bare package name (last path segment) is the folder name under
+    // licenses/vendor/, e.g. "onnxruntime-web" and "c2pa-text".
+    const vendorPkgDir = join(vendorLicenseDir, pkg.split("/").pop());
+    const vendorLicenseSrc = ["LICENSE", "LICENSE.txt", "LICENSE.md"]
+      .map((f) => join(vendorPkgDir, f))
+      .find((p) => existsSync(p));
+
+    if (npmLicenseSrc) {
+      copy(npmLicenseSrc, destDir, `${safeName}.LICENSE.txt`);
+    } else if (vendorLicenseSrc) {
       console.warn(
-        `[copy-vendor-assets] no LICENSE file shipped for ${pkg}@${version} (declared: ${license}); wrote a placeholder`,
+        `[copy-vendor-assets] ${pkg}@${version} ships no LICENSE in npm; using the real upstream text committed at ${vendorLicenseSrc}`,
       );
-      writeFileSync(
-        join(destDir, `${safeName}.LICENSE.txt`),
-        `${pkg}@${version}\nDeclared licence (from package.json): ${license}\n\n` +
-          `No LICENSE file was included in the published npm package. Fetch the\n` +
-          `full licence text from the upstream repository before store submission.\n`,
-      );
+      copy(vendorLicenseSrc, destDir, `${safeName}.LICENSE.txt`);
+    } else {
+      missing.push(`${pkg}@${version} (declared licence: ${license})`);
+      continue;
     }
+
+    // onnxruntime-web bundles third-party native code (e.g. the WASM SIMD
+    // backend) whose notices are required alongside its own MIT licence.
+    const noticeSrc = ["ThirdPartyNotices.txt", "THIRD-PARTY-NOTICES.txt"]
+      .map((f) => join(vendorPkgDir, f))
+      .find((p) => existsSync(p));
+    if (noticeSrc) {
+      copy(noticeSrc, destDir, `${safeName}.ThirdPartyNotices.txt`);
+    }
+  }
+
+  if (missing.length > 0) {
+    console.error(
+      "[copy-vendor-assets] FATAL: no licence text found (neither in the npm package nor in licenses/vendor/) for:\n" +
+        missing.map((m) => `  - ${m}`).join("\n") +
+        "\nFetch the real upstream LICENSE and commit it under licenses/vendor/<package>/LICENSE " +
+        "before building. Refusing to ship a bundled dependency with an unverified licence.",
+    );
+    process.exit(1);
   }
 }
