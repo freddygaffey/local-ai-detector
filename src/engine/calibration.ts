@@ -36,17 +36,40 @@ export interface Calibration {
 }
 
 export const CALIBRATION: Calibration = {
-  // docs/calibration.md, 2026-09-27 run (49 texts: 28 human, 21 AI).
-  // TMR's raw output is saturated (modern human prose scores ~0.98 too), so
-  // it is re-centred at logit 3.96 (raw p ~0.981). The lite model is barely
-  // changed.
+  // docs/calibration.md, T5 browser re-calibration (2026-09-27): the
+  // extension itself (Chrome 153, ONNX Runtime Web, WASM q8) run over the 49
+  // calibration texts + 595 held-out MAGE texts. Browser WASM does not
+  // reproduce Node's numbers, and Firefox (WASM) matches Chrome WASM, so
+  // these constants are for WASM. Each detector's 0.5 point is where ~5% of
+  // the pooled human texts score higher (a deliberately low false-positive
+  // operating point); slopes come from a logistic fit on the same data.
   classifier: {
-    classifier: { center: 3.96, slope: 1.27 },
-    classifierLite: { center: 0.76, slope: 1.72 },
+    classifier: { center: 3.84, slope: 0.51 },
+    classifierLite: { center: 2.7, slope: 1.07 },
   },
-  // Burstiness carried no signal on this sample (AUROC 0.51), so b = 0: only
-  // log-perplexity is used. Kept in the formula for future calibration.
-  perplexity: { tau: 3.5, a: 2.0, tauBurst: 0.58, b: 0 },
+  // Burstiness carried no signal (AUROC 0.51 in the first calibration), so
+  // b = 0: only log-perplexity is used.
+  perplexity: { tau: 3.17, a: 1.55, tauBurst: 0.58, b: 0 },
+  // Binoculars always runs on WASM q8; still the Node-fitted constants
+  // (experimental, not re-checked on the browser data).
   binoculars: { tau: 0.82, k: 10 },
   ensemble: { wClassifier: 0.7, wPerplexity: 0.3 },
 };
+
+/**
+ * WebGPU runs different weights (q4f16 / fp16) and gives visibly different
+ * raw outputs (docs/calibration.md, "WASM vs WebGPU"), so it gets its own
+ * operating points, fitted the same way on the same texts.
+ */
+export const WEBGPU_CALIBRATION: Pick<Calibration, "classifier" | "perplexity"> = {
+  classifier: {
+    classifier: { center: 3.14, slope: 0.5 },
+    classifierLite: { center: 1.91, slope: 1.01 },
+  },
+  perplexity: { tau: 2.93, a: 1.59, tauBurst: 0.58, b: 0 },
+};
+
+/** Constants for the device a model actually ran on. */
+export function calibrationFor(device: string | undefined): Calibration {
+  return device === "webgpu" ? { ...CALIBRATION, ...WEBGPU_CALIBRATION } : CALIBRATION;
+}

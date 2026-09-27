@@ -8,7 +8,7 @@ import type { Tensor } from "@huggingface/transformers";
 import type { AnalyzeResult, ProgressEvent, ScoreSource, SentenceScore, TextBlock } from "../shared/messages";
 import type { EnsembleClassifier, Mode, ModelSlot } from "../shared/settings";
 import type { LoadedClassifier, LoadedLM, LoadedModel } from "./loader";
-import { CALIBRATION } from "./calibration";
+import { calibrationFor } from "./calibration";
 import { DEFAULT_MODELS, slotsForMode } from "./models";
 import {
   binocularsProbability,
@@ -114,7 +114,7 @@ async function runClassifier(
   const chunkRaw: number[] = [];
   const chunkW: number[] = [];
   // Recalibrate only the pinned default repo; a custom model has its own scale.
-  const cal = m.ref.repo === DEFAULT_MODELS[slot].repo ? CALIBRATION.classifier[slot] : undefined;
+  const cal = m.ref.repo === DEFAULT_MODELS[slot].repo ? calibrationFor(m.device).classifier[slot] : undefined;
   for (const ch of chunks) {
     const text = doc.text.slice(doc.sentences[ch.first]!.start, doc.sentences[ch.last]!.end);
     const enc = m.tokenizer(text, { truncation: true, max_length: m.maxLength }) as unknown as Record<string, Tensor>;
@@ -161,13 +161,14 @@ async function runPerplexity(m: LoadedLM, pieceIds: number[][], units: Span[], c
   const nll = await sequenceNLL(m.forward, seq, m.window, m.overlap, () => counter.tick("Measuring perplexity"));
   const { mean, count } = perSentenceMean(nll, tokenSentence, n);
   const burst = burstiness(mean, count);
+  const pcal = calibrationFor(m.device).perplexity;
   const perSentence = new Float64Array(n).fill(Number.NaN);
   for (const u of units) {
-    const p = perplexityProbability(spanMean(mean, count, u.first, u.last), burst);
+    const p = perplexityProbability(spanMean(mean, count, u.first, u.last), burst, pcal);
     for (let i = u.first; i <= u.last; i++) perSentence[i] = p;
   }
   const docLogPPL = finiteMean(nll);
-  return { perSentence, overall: perplexityProbability(docLogPPL, burst), stat: docLogPPL, burst };
+  return { perSentence, overall: perplexityProbability(docLogPPL, burst, pcal), stat: docLogPPL, burst };
 }
 
 async function runBinoculars(

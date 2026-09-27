@@ -67,7 +67,12 @@ export interface Settings {
    * uses"); the lite model is ~4x smaller and faster.
    */
   ensembleClassifier: EnsembleClassifier;
-  /** Use WebGPU when the browser offers it (with shader-f16); off forces WASM. */
+  /**
+   * Use WebGPU when the browser offers it (with shader-f16). Off by default:
+   * WASM (q8) gives the same scores in Chrome and Firefox and is what the
+   * main calibration is for; WebGPU is faster but runs different weights
+   * (docs/calibration.md, "WASM vs WebGPU").
+   */
   useWebGPU: boolean;
 }
 
@@ -85,7 +90,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autoCheckModelUpdates: false,
   modelOverrides: {},
   ensembleClassifier: "classifier",
-  useWebGPU: true,
+  useWebGPU: false,
 };
 
 const STORAGE_KEY = "settings";

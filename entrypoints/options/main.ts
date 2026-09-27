@@ -195,7 +195,7 @@ function renderDetectionSection(): HTMLElement {
     ),
     fieldRow(
       "Use the GPU (WebGPU) when available",
-      "Faster, and uses smaller fp16/4-bit weights. Turn off to run everything on the CPU (WASM, 8-bit weights, what the scores were calibrated on) — e.g. if your GPU driver misbehaves.",
+      "Off by default. The GPU is several times faster on long pages, but runs different (fp16/4-bit) model weights, so its scores differ from the CPU's and from Firefox's; it has its own, less-tested calibration. Binoculars always runs on the CPU.",
       toggleControl(s.useWebGPU, (checked) => void updateSettings({ useWebGPU: checked })),
     ),
     fieldRow(
