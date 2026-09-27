@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Local AI Detector — offscreen</title>
+  </head>
+  <body>
+    <!--
+      Chrome-only inference host (chrome.offscreen.createDocument, reason
+      WORKERS). Never shown to the user. TODO(T1): load transformers.js +
+      bundled ORT wasm here, keep sessions warm, and respond to messages
+      forwarded by the background service worker. See docs/feasibility.md §1.
+    -->
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,39 @@
+{
+  "name": "local-ai-detector",
+  "description": "Free, open-source, fully local AI-content detector browser extension.",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "wxt",
+    "dev:firefox": "wxt -b firefox",
+    "build": "wxt build",
+    "build:firefox": "wxt build -b firefox",
+    "zip": "wxt zip",
+    "zip:firefox": "wxt zip -b firefox",
+    "postinstall": "node scripts/copy-vendor-assets.mjs && wxt prepare",
+    "predev": "node scripts/copy-vendor-assets.mjs",
+    "predev:firefox": "node scripts/copy-vendor-assets.mjs",
+    "prebuild": "node scripts/copy-vendor-assets.mjs",
+    "prebuild:firefox": "node scripts/copy-vendor-assets.mjs",
+    "prezip": "node scripts/copy-vendor-assets.mjs",
+    "prezip:firefox": "node scripts/copy-vendor-assets.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "4.3.0",
+    "onnxruntime-web": "1.31.0-dev.20260914-8d85527a0",
+    "exifreader": "^4.46.0",
+    "@contentauth/c2pa-web": "0.15.2",
+    "c2pa-text": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.3.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.2",
+    "wxt": "0.21.4"
+  }
+}

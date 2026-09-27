@@ -1,0 +1,19 @@
+# Dependencies
+node_modules
+
+# WXT build output and cache
+.output
+.wxt
+
+# Generated/vendored assets (copied from node_modules by scripts/copy-vendor-assets.mjs)
+public/ort
+public/c2pa
+public/licenses
+
+# Packaged extension zips
+*.zip
+
+# Misc
+.DS_Store
+*.log
+coverage
