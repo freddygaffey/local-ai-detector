@@ -1,0 +1,27 @@
+C2PA Trust List (bundled for offline Content Credentials validation)
+=====================================================================
+
+Files:
+  C2PA-TRUST-LIST.pem      Trust anchors for C2PA claim-signing certificates
+  C2PA-TSA-TRUST-LIST.pem  Trust anchors for C2PA time-stamping authorities
+                           (bundled for reference/future use; not currently
+                           passed to the validator, see src/provenance/c2pa.ts)
+
+Source:   https://github.com/c2pa-org/conformance-public/tree/main/trust-list
+          (raw files from the `main` branch; latest commit touching
+          trust-list/ at download time: 99927caef670ca4ad9da5e5542dca39e42fad6f3,
+          2026-08-14T21:00:15Z)
+Retrieved: 2026-09-27
+
+Copyright (c) Coalition for Content Provenance and Authenticity (C2PA).
+Licensed under the Creative Commons Attribution 4.0 International licence
+(CC BY 4.0): https://creativecommons.org/licenses/by/4.0/
+
+The files are redistributed unmodified. They are used only locally, inside
+the extension, to decide whether a Content Credentials signer chains to a
+C2PA-conformant certificate authority. Refresh them with each release.
+
+The frozen C2PA Interim Trust List (contentcredentials.org, pre-2026 signers)
+is NOT bundled: its redistribution licence could not be confirmed. Assets
+signed only under the interim list therefore show as "valid signature,
+signer not on the C2PA Trust List".
