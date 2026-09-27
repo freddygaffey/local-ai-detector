@@ -47,13 +47,18 @@ export default defineConfig({
       ],
     },
   }),
-  manifest: ({ browser }) => {
+  manifest: ({ browser, mode }) => {
+    // `wxt build --mode e2e` (npm run build:e2e, output .output/chrome-mv3-e2e)
+    // adds host access to the local fixture server so the automated E2E
+    // suite (scripts/e2e/) can test image provenance without the optional
+    // permission prompt, which automation can't click. Never shipped.
+    const e2eHosts = mode === "e2e" ? ["http://localhost/*"] : [];
     const base = {
       name: "Local AI Detector",
       description:
         "Free, open-source, fully local AI-content detector. No servers, no API keys.",
       permissions: ["storage", "activeTab", "scripting", "contextMenus"],
-      host_permissions: ["https://huggingface.co/*", "https://*.hf.co/*"],
+      host_permissions: ["https://huggingface.co/*", "https://*.hf.co/*", ...e2eHosts],
       optional_host_permissions: ["<all_urls>"],
       icons: {
         16: "icon/16.png",
