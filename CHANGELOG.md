@@ -18,6 +18,27 @@ not yet had a public store release; version numbers so far track
 - Per-comment labels, filter badges, search markers and sentence tooltips use the calibrated
   per-item curve of the detectors that ran (they used the Fusion document curve, or the raw score).
 
+### Fixed (release QA in real Chrome, docs/qa-results.md)
+
+- Threads, reviews and search: Stack Overflow answers and Discourse posts are scored (only the
+  comments under them were); each comment, review and snippet is scored on its own (short ones
+  used to share a score with their neighbours); long items no longer use up the budget (first
+  ~150 words each; items not analysed show "—", not "AI 3%"); Google results are found again.
+- Page types: essays without `<p>` (paulgraham.com) are articles; Amazon product pages score
+  their reviews; shared ChatGPT/Claude/Gemini chats score only the assistant's replies (every
+  turn was read as the assistant's), and pages that render late are retried.
+- YouTube: the voice check starts on Shorts; a CPU-pressure blip no longer skips a page's
+  automatic check.
+- "Check text in this box" works (it never returned); context-menu and shortcut results show
+  on the page under every Presence.
+- Slop filter acts whenever it's on (it needed the chip expanded); site memory shows its tally
+  in the popup (nothing read it); the manual Battery saver switch pauses automatic checks.
+- Toolbar badge, side panel and tooltips show the calibrated %, not the raw score; the side
+  panel lists sentences by their text; the hidden chip's hover peek shows the score.
+- Options: "Check for updates" no longer offers each model's own revision as new.
+- Keyboard shortcuts default to Alt+Shift+A/S/V (Control+Shift on macOS) instead of taking
+  over paste-as-plain-text and the browser's own shortcuts.
+
 ### Added (page-type routing)
 
 - The extension now tells a text page from a thread, a video, a subtitle file, a
