@@ -42,14 +42,15 @@ export const CALIBRATION: Calibration = {
   // reproduce Node's numbers, and Firefox (WASM) matches Chrome WASM, so
   // these constants are for WASM. Each detector's 0.5 point is where ~5% of
   // the pooled human texts score higher (a deliberately low false-positive
-  // operating point); slopes come from a logistic fit on the same data.
+  // operating point). Slopes are T1's: the logistic fit (~0.5) squeezed
+  // almost every score into 0.3-0.6, which the UI's bands can't show.
   classifier: {
-    classifier: { center: 3.84, slope: 0.51 },
-    classifierLite: { center: 2.7, slope: 1.07 },
+    classifier: { center: 3.84, slope: 1.27 },
+    classifierLite: { center: 2.7, slope: 1.72 },
   },
   // Burstiness carried no signal (AUROC 0.51 in the first calibration), so
   // b = 0: only log-perplexity is used.
-  perplexity: { tau: 3.17, a: 1.55, tauBurst: 0.58, b: 0 },
+  perplexity: { tau: 3.17, a: 2.0, tauBurst: 0.58, b: 0 },
   // Binoculars always runs on WASM q8; still the Node-fitted constants
   // (experimental, not re-checked on the browser data).
   binoculars: { tau: 0.82, k: 10 },
@@ -63,10 +64,10 @@ export const CALIBRATION: Calibration = {
  */
 export const WEBGPU_CALIBRATION: Pick<Calibration, "classifier" | "perplexity"> = {
   classifier: {
-    classifier: { center: 3.14, slope: 0.5 },
-    classifierLite: { center: 1.91, slope: 1.01 },
+    classifier: { center: 3.14, slope: 1.27 },
+    classifierLite: { center: 1.91, slope: 1.72 },
   },
-  perplexity: { tau: 2.93, a: 1.59, tauBurst: 0.58, b: 0 },
+  perplexity: { tau: 2.93, a: 2.0, tauBurst: 0.58, b: 0 },
 };
 
 /** Constants for the device a model actually ran on. */

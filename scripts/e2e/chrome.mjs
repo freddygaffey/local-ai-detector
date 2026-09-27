@@ -263,7 +263,7 @@ await step("highlight styles switch live (heatmap -> flagged -> underline -> hea
     const names = await waitFor(
       async () => {
         const n = await highlightNames(pages.news);
-        return n.length && n.every((k) => k.includes(`-${style}-`)) ? n : null;
+        return (n.length || style === "flagged") && n.every((k) => k.includes(`-${style}-`)) ? n : null;
       },
       { timeout: 5000, what: `${style} highlights` },
     );

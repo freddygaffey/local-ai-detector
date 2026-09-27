@@ -8,8 +8,8 @@ function s(score: number, sources: SentenceScore["sources"] = {}): SentenceScore
 
 describe("countFlaggedSentences", () => {
   test("counts sentences at/above the threshold", () => {
-    // Same threshold as the in-page pill (src/shared/thresholds.ts, 0.6).
-    const sentences = [s(0.1), s(0.6), s(0.8), s(0.59)];
+    // Same threshold as the in-page pill (src/shared/thresholds.ts, 0.5).
+    const sentences = [s(0.1), s(0.5), s(0.8), s(0.49)];
     expect(countFlaggedSentences(sentences)).toBe(2);
   });
   test("empty input", () => {

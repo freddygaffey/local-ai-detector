@@ -26,7 +26,7 @@ describe("badgeTextForScore", () => {
 describe("badgeColorForScore", () => {
   test("colours differ across bands", () => {
     const human = badgeColorForScore(0.1);
-    const mixed = badgeColorForScore(0.5);
+    const mixed = badgeColorForScore(0.42);
     const ai = badgeColorForScore(0.9);
     expect(new Set([human, mixed, ai]).size).toBe(3);
   });

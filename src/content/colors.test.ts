@@ -31,10 +31,10 @@ describe("scoreHue", () => {
 describe("riskLevel", () => {
   test("thresholds", () => {
     expect(riskLevel(0)).toBe("low");
-    expect(riskLevel(0.39)).toBe("low");
-    expect(riskLevel(0.4)).toBe("medium");
-    expect(riskLevel(0.74)).toBe("medium");
-    expect(riskLevel(0.75)).toBe("high");
+    expect(riskLevel(0.34)).toBe("low");
+    expect(riskLevel(0.35)).toBe("medium");
+    expect(riskLevel(0.49)).toBe("medium");
+    expect(riskLevel(0.5)).toBe("high");
     expect(riskLevel(1)).toBe("high");
   });
 

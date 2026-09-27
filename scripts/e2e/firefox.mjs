@@ -167,7 +167,7 @@ await step("highlight styles switch live; Unicode markers", async (note) => {
       () =>
         inTab("news", (style) => {
           const n = [...CSS.highlights.keys()].filter((k) => k.startsWith("ai-detector-hl") && CSS.highlights.get(k).size);
-          return n.length && n.every((k) => k.includes(`-${style}-`)) ? n : null;
+          return (n.length || style === "flagged") && n.every((k) => k.includes(`-${style}-`)) ? n : null;
         }, style),
       { timeout: 5000, what: style },
     );

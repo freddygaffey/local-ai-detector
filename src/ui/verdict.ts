@@ -10,8 +10,7 @@ import type { Settings } from "../shared/settings";
 
 export type Band = "human" | "mixed" | "ai" | "insufficient";
 
-const HUMAN_MAX = 0.35;
-const AI_MIN = 0.65;
+import { FLAGGED_THRESHOLD as AI_MIN, HUMAN_MAX } from "../shared/thresholds";
 
 /** Word count under which a result is too thin to score meaningfully. */
 export function countWords(text: string): number {

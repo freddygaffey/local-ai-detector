@@ -25,12 +25,12 @@ describe("scoreToBand", () => {
     expect(scoreToBand({ overall: 0.9, hasScoredSentences: true })).toBe("ai");
   });
   test("middle score is mixed", () => {
-    expect(scoreToBand({ overall: 0.5, hasScoredSentences: true })).toBe("mixed");
+    expect(scoreToBand({ overall: 0.42, hasScoredSentences: true })).toBe("mixed");
   });
   test("boundaries are inclusive of the mixed band", () => {
     expect(scoreToBand({ overall: 0.35, hasScoredSentences: true })).toBe("mixed");
-    expect(scoreToBand({ overall: 0.649, hasScoredSentences: true })).toBe("mixed");
-    expect(scoreToBand({ overall: 0.65, hasScoredSentences: true })).toBe("ai");
+    expect(scoreToBand({ overall: 0.499, hasScoredSentences: true })).toBe("mixed");
+    expect(scoreToBand({ overall: 0.5, hasScoredSentences: true })).toBe("ai");
   });
   test("no scored sentences is insufficient regardless of score", () => {
     expect(scoreToBand({ overall: 0.9, hasScoredSentences: false })).toBe("insufficient");

@@ -13,7 +13,7 @@ export type RiskLevel = "low" | "medium" | "high";
 export type Theme = "light" | "dark";
 
 /** Sentences scoring at/above this are "flagged" in Ctrl+F style mode. */
-import { FLAGGED_THRESHOLD } from "../shared/thresholds";
+import { FLAGGED_THRESHOLD, HUMAN_MAX } from "../shared/thresholds";
 
 export { FLAGGED_THRESHOLD };
 
@@ -33,8 +33,8 @@ export function scoreHue(score: number): number {
 /** Coarse, human-readable risk label -- never rely on hue alone. */
 export function riskLevel(score: number): RiskLevel {
   const s = clamp01(score);
-  if (s >= 0.75) return "high";
-  if (s >= 0.4) return "medium";
+  if (s >= FLAGGED_THRESHOLD) return "high";
+  if (s >= HUMAN_MAX) return "medium";
   return "low";
 }
 
