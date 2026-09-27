@@ -36,6 +36,10 @@ const QUICK = args.includes("--quick");
 // access to the fixture server, so images must come back "permission needed".
 const PROD = args.includes("--prod");
 const FRESH = args.includes("--fresh");
+// --no-gpu: reproduce CI's GPU-less Xvfb runner locally -- real WebGPU
+// unavailability (not just the useWebGPU setting), so the engine takes the
+// same device-detection + calibration path CI does.
+const NO_GPU = args.includes("--no-gpu");
 const NETLOG = join(SCRATCH, `chrome-netlog-${Date.now()}.json`);
 
 if (!existsSync(join(EXT, "manifest.json"))) throw new Error(`No build at ${EXT}. Run npm run build:e2e first.`);
@@ -79,10 +83,14 @@ try {
     enableExtensions: [EXT],
     userDataDir: PROFILE,
     defaultViewport: null,
-    // Default is 180s: fail a wedged CDP call fast rather than stalling a whole
-    // step (and everything after it, if the stall corrupts a shared page's
-    // session) for three minutes.
-    protocolTimeout: 60_000,
+    // Puppeteer's default is 180s. A wedged CDP call should still fail
+    // faster than that (it stalls everything after it too, if the stall
+    // corrupts a shared page's session) -- but CI's GPU-less runner under
+    // Xvfb is genuinely slow, and legitimate calls (Page.captureScreenshot
+    // while the page is busy on a CPU inference pass) were outlasting the
+    // 60s this used to be. 120s: still well short of the default, generous
+    // enough for CI.
+    protocolTimeout: 120_000,
     args: [
       "--no-first-run",
       "--no-default-browser-check",
@@ -95,6 +103,11 @@ try {
       // rejects before a single step has run (see browser-t7-calibration.mjs,
       // which hit the same thing).
       ...(process.env.CI ? ["--no-sandbox", "--disable-setuid-sandbox"] : []),
+      // --no-gpu: match CI's runner -- no real GPU, so navigator.gpu never
+      // resolves an adapter (src/engine/runtime.ts) and the engine falls
+      // back to WASM the same way it would there, regardless of the
+      // useWebGPU setting.
+      ...(NO_GPU ? ["--disable-gpu", "--disable-software-rasterizer", "--disable-features=WebGPU"] : []),
     ],
   });
 } catch (e) {
@@ -182,7 +195,15 @@ async function ext(page, type, payload) {
 }
 async function shot(page, name, opts = {}) {
   if (!SHOTS) return;
-  await page.screenshot({ path: join(SHOTS, name), type: name.endsWith(".png") ? "png" : "jpeg", quality: name.endsWith(".png") ? undefined : 70, ...opts });
+  try {
+    await page.screenshot({ path: join(SHOTS, name), type: name.endsWith(".png") ? "png" : "jpeg", quality: name.endsWith(".png") ? undefined : 70, ...opts });
+  } catch (e) {
+    // Screenshots are diagnostic, not assertions -- on a slow, GPU-less CI
+    // runner under Xvfb, Page.captureScreenshot can occasionally outlast
+    // even a generous protocolTimeout while the page is busy on a CPU
+    // inference pass. Don't fail a step (or the run) over a missing picture.
+    console.warn(`[shot] ${name} failed (non-fatal): ${e instanceof Error ? e.message : String(e)}`);
+  }
 }
 const highlightCount = (page) =>
   page.evaluate(() => [...CSS.highlights.keys()].filter((k) => k.startsWith("ai-detector-hl")).reduce((n, k) => n + CSS.highlights.get(k).size, 0));
@@ -223,8 +244,8 @@ await step("presence: force Inspector for the fixture suite below (docs/plan.md 
   // on every page load would race the suite's own popup-driven mode changes
   // (the popup reactively shows a progress screen -- no mode <select> -- for
   // ANY analysis on its tab, including one autoRun started).
-  await setPresence("inspector", { autoRunPolicy: "never" });
-  note("presence -> inspector (surfaces.highlights: true), autoRun off, for this run");
+  await setPresence("inspector", { autoRunPolicy: "never", ...(NO_GPU ? { useWebGPU: false } : {}) });
+  note(`presence -> inspector (surfaces.highlights: true), autoRun off, for this run${NO_GPU ? "; useWebGPU: false (--no-gpu)" : ""}`);
 });
 const pages = {};
 await step("open fixture pages (news, blog, spa, demo)", async (note) => {
@@ -905,7 +926,23 @@ await step("slop filter: dims/collapses AI-scored forum comments, 'Show' reveals
   // could legitimately filter nothing here and tell us nothing about the UI.
   await mergeSettings({ slopFilter: { enabled: true, threshold: 0.05, style: "dim", sites: { reddit: true, hackernews: true, youtube: true, twitter: true, forum: true, review: true }, searchMarkers: true } });
   const commentsPage = await newTab(`${BASE}/comments.html`);
-  await sleep(2500); // autoRun over the comment blocks (inspector preset -> the full configured mode, not just the quick tier)
+  const commentsTabId = await tabIdOf(`${BASE}/comments.html`);
+  // Poll for the autoRun analysis to finish rather than a fixed sleep --
+  // this used to be a flat 2500ms, timed against this machine's WASM speed.
+  // On CI's much slower, GPU-less runner (confirmed via --no-gpu locally:
+  // the fixture's scores are plenty high under real WASM/q8 -- fakespot
+  // 0.93, tmr 0.64, ensemble ~0.89 on the AI comment, comfortably over the
+  // 0.05 threshold -- so this was a timing bug, not a calibration one), that
+  // fixed wait was landing before the result did, before any badges exist.
+  const commentsStatus = await waitFor(
+    async () => {
+      const s = await ext(popup, "getTabStatus", { tabId: commentsTabId });
+      return s.state === "done" || s.state === "error" ? s : null;
+    },
+    { timeout: 60_000, what: "slop-filter comments analysis" },
+  );
+  if (commentsStatus.state === "error") throw new Error(commentsStatus.error);
+  await sleep(300); // applyStructuredExtras() paints just after the "done" status fires
   const badges = await commentsPage.$$eval(".ai-detector-slop-badge", (els) => els.map((e) => e.textContent));
   note(`slop badges ("Show" affordance): ${badges.join(" | ")}`);
   if (!badges.length) throw new Error("expected at least one comment dimmed by the slop filter");
