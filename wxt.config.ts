@@ -72,6 +72,24 @@ export default defineConfig({
         extension_pages:
           "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';",
       },
+      // T9: keyboard shortcuts (docs/plan.md "More entry points"). All
+      // user-rebindable (chrome://extensions/shortcuts, about:addons on
+      // Firefox); these are just sensible defaults, and Ctrl -> Command on
+      // macOS automatically.
+      commands: {
+        "analyze-page": {
+          suggested_key: { default: "Ctrl+Shift+A" },
+          description: "Analyze this page for AI writing",
+        },
+        "analyze-selection": {
+          suggested_key: { default: "Ctrl+Shift+S" },
+          description: "Analyze the selected text for AI writing",
+        },
+        "toggle-visibility": {
+          suggested_key: { default: "Ctrl+Shift+V" },
+          description: "Show/hide the AI detector on this page",
+        },
+      },
     };
 
     if (browser === "firefox") {

@@ -1,0 +1,81 @@
+/* Side panel layout. Tokens/components come from src/ui/styles.css. */
+
+body {
+  margin: 0;
+}
+
+.sp-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.7em 0.85em;
+  border-bottom: 1px solid var(--border);
+}
+.sp-header .brand-mark {
+  color: var(--accent);
+}
+.sp-header h1 {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.sp-body {
+  padding: 0.85em;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8em;
+}
+
+.sp-empty {
+  color: var(--ink-faint);
+  padding: 1em 0;
+  text-align: center;
+}
+
+.sp-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6em;
+}
+.sp-score {
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+.sp-word {
+  color: var(--ink-soft);
+}
+
+.sp-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35em;
+}
+.sp-item {
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  gap: 0.6em;
+  padding: 0.45em 0.6em;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.sp-item:hover {
+  background: var(--surface-sunken);
+}
+.sp-item-score {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  flex: none;
+}
+.sp-item-label {
+  color: var(--ink-faint);
+  font-size: 0.85em;
+}

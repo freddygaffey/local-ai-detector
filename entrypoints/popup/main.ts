@@ -1,8 +1,13 @@
-// Popup: consent screen, main gauge/results view, download/analysis
-// progress, error/unsupported states. See src/ui/** for the pure logic this
-// leans on (state machine, verdict wording, gauge geometry, formatting) and
-// src/shared/{messages,settings}.ts for the background/content-script
-// contract.
+// Popup: consent screen, main result view (big score + one word, Details
+// behind a small disclosure), progress/error/unsupported states, paste box +
+// file drop, and the "Show on page" action for the On click preset. See
+// src/ui/** for the pure logic this leans on and src/shared/{messages,
+// settings}.ts for the background/content-script contract.
+//
+// Copy direction (final, from the lead): clean and minimal, not hand-holdy.
+// Labels, not sentences, on the main surface; one small ⓘ/Details holds the
+// "probability, not proof" note, per-detector numbers, device and model
+// versions.
 
 import "../../src/ui/styles.css";
 import "./popup.css";
@@ -13,15 +18,20 @@ import type { HighlightStyle, Mode, Settings } from "@/src/shared/settings";
 import { CONSENT_REQUIRED_ERROR, onAnalysisStatus, sendMessage, sendTabMessage } from "@/src/shared/messages";
 import type { AnalyzeResult, ProgressEvent, TabAnalysisStatus } from "@/src/shared/messages";
 import { clearChildren, h } from "@/src/ui/dom";
-import { derivePopupState, isUnsupportedUrl, progressLabel, progressPercent } from "@/src/ui/state";
+import { derivePopupState, isUnsupportedUrl, progressPercent } from "@/src/ui/state";
 import type { PopupState } from "@/src/ui/state";
-import { BAND_DESCRIPTION, BAND_LABEL, bandClassName, bandFromResult } from "@/src/ui/verdict";
+import { BAND_LABEL, bandClassName, bandFromResult, DETAILS_NOTE } from "@/src/ui/verdict";
+import { displayScore, formatScoreOrDash } from "@/src/ui/probability";
 import { buildGaugeSvg, updateGauge } from "@/src/ui/gauge";
 import { formatBytes, formatPercent, pluralize } from "@/src/ui/format";
 import { aggregateSources, countFlaggedSentences, SOURCE_LABEL } from "@/src/ui/breakdown";
 import { EXPERIMENTAL_MODES, MODE_LABEL, modeSizeMB } from "@/src/ui/modelInfo";
 import { brandMark, closeIcon, gearIcon, warnIcon } from "@/src/ui/icons";
 import { requestImagePermission } from "@/src/provenance/permissions";
+import { scanUnicode } from "@/src/detectors/unicode";
+import { segmentSentences } from "@/src/content/segment";
+import { extractTextFromFile, ACCEPTED_FILE_EXTENSIONS } from "@/src/content/fileExtract";
+import { scoreHue } from "@/src/content/colors";
 
 interface Ctx {
   settings: Settings;
@@ -31,6 +41,9 @@ interface Ctx {
   result: AnalyzeResult | null;
   error: string | null;
   lastTarget: "page" | "selection" | null;
+  pasteOpen: boolean;
+  pasteBusy: boolean;
+  pasteError: string | null;
 }
 
 const ctx: Ctx = {
@@ -41,6 +54,9 @@ const ctx: Ctx = {
   result: null,
   error: null,
   lastTarget: null,
+  pasteOpen: false,
+  pasteBusy: false,
+  pasteError: null,
 };
 
 const root = document.getElementById("app") as HTMLDivElement;
@@ -51,9 +67,6 @@ async function main() {
   ctx.tabUrl = tab?.url ?? null;
   render();
 
-  // Resync with whatever the background already knows about this tab (e.g.
-  // an autoRun analysis kicked off before the popup was opened), then follow
-  // further changes live — including analyses this popup didn't start.
   if (ctx.tabId !== null) {
     const tabId = ctx.tabId;
     sendMessage("getTabStatus", { tabId })
@@ -62,7 +75,7 @@ async function main() {
         render();
       })
       .catch(() => {
-        // Not implemented yet, or no background listener — stay idle.
+        // Not implemented yet, or no background listener -- stay idle.
       });
     onAnalysisStatus((eventTabId, status) => {
       if (eventTabId !== tabId) return;
@@ -77,10 +90,6 @@ async function main() {
   });
 }
 
-/**
- * The tab this popup acts on: the active tab, or `?tabId=N` when the popup
- * page is opened as a normal tab (used by the E2E suite in scripts/e2e/).
- */
 async function targetTab(): Promise<{ id?: number; url?: string } | undefined> {
   const param = new URLSearchParams(location.search).get("tabId");
   if (param && /^\d+$/.test(param)) {
@@ -94,8 +103,6 @@ async function targetTab(): Promise<{ id?: number; url?: string } | undefined> {
   return tab;
 }
 
-/** Maps the background's per-tab status (which can change from outside this
- * popup, e.g. autoRun) onto the local ctx fields the render functions read. */
 function applyStatus(status: TabAnalysisStatus): void {
   switch (status.state) {
     case "idle":
@@ -121,9 +128,6 @@ function applyStatus(status: TabAnalysisStatus): void {
 function currentState(): PopupState {
   return derivePopupState({
     consentedDownload: ctx.settings.consentedDownload,
-    // A tab whose URL we can't see (no host access, e.g. the popup opened as a
-    // page for a tab it wasn't invoked on) isn't known to be unsupported: let
-    // the background try, it reports a clear error if it can't read the page.
     tabUrl: ctx.tabId !== null && !ctx.tabUrl ? "https://url-not-visible.invalid/" : ctx.tabUrl,
     progress: ctx.progress,
     result: ctx.result,
@@ -170,7 +174,7 @@ function renderHeader(): HTMLElement {
     h("h1", null, "Local AI Detector"),
     h(
       "button",
-      { class: "icon-btn", type: "button", "aria-label": "Open settings", title: "Settings", onclick: openOptions },
+      { class: "icon-btn", type: "button", "aria-label": "Settings", title: "Settings", onclick: openOptions },
       gearIcon(),
     ),
   );
@@ -180,7 +184,7 @@ function renderFooter(): HTMLElement {
   return h(
     "footer",
     { class: "popup-footer" },
-    h("span", null, "Everything above runs on this device."),
+    h("span", null, "Runs on this device."),
     h("button", { class: "btn btn-ghost", type: "button", onclick: openOptions }, "Settings"),
   );
 }
@@ -189,40 +193,20 @@ function openOptions(): void {
   void browser.runtime.openOptionsPage();
 }
 
-// ---- Consent ----
+// ---- Consent (download size + one button; no paragraphs) ----
 
 function renderConsent(): HTMLElement {
-  const size = modeSizeMB(ctx.settings.mode, ctx.settings.ensembleClassifier);
+  const size = modeSizeMB(ctx.settings.mode, ctx.settings.fusion);
   return h(
     "div",
     { class: "popup-body consent" },
     h(
-      "p",
-      null,
-      "This detector runs entirely on your device. To score text it needs to download a small AI model once, from Hugging Face — after that, nothing about a page you analyze leaves your browser.",
-    ),
-    h(
       "div",
       { class: "consent-size panel" },
-      h("span", null, `One-time download (${MODE_LABEL[ctx.settings.mode]} mode)`),
+      h("span", null, `${MODE_LABEL[ctx.settings.mode]} download`),
       h("span", { class: "value mono" }, `~${size} MB`),
     ),
-    h(
-      "ul",
-      null,
-      h("li", null, "Works fully offline afterwards — no accounts, no analytics, no page contents sent anywhere."),
-      h(
-        "li",
-        null,
-        "No detector, including this one, is reliable enough to accuse anyone of anything. Treat every score as a hint, not proof — see the accuracy notes in Settings → About.",
-      ),
-      h("li", null, "English text works best. Short passages (under ~50 words) are too noisy to score meaningfully."),
-    ),
-    h(
-      "button",
-      { class: "btn btn-primary btn-block", type: "button", onclick: onConsent },
-      "Download & enable",
-    ),
+    h("button", { class: "btn btn-primary btn-block", type: "button", onclick: onConsent }, "Download & enable"),
   );
 }
 
@@ -237,32 +221,37 @@ function renderUnsupported(): HTMLElement {
   return h(
     "div",
     { class: "popup-body" },
-    h(
-      "div",
-      { class: "state-panel" },
-      warnIcon(),
-      h("p", null, "This page can't be scanned."),
-      h(
-        "p",
-        { class: "field-hint" },
-        "Browser pages, extension or store listings, and PDF viewers don't allow a content script to read the page.",
-      ),
-    ),
+    h("div", { class: "state-panel" }, warnIcon(), h("p", null, "Can't read this page.")),
   );
 }
 
 // ---- Progress ----
 
+function isCacheLoad(progress: ProgressEvent): boolean {
+  // No known total during a "download" phase almost always means the model
+  // came straight from cache -- a real network fetch reports a byte total
+  // quickly. Cache reads never say "Downloading" (persona-walkthrough
+  // finding: it was misleading users into thinking they were re-fetching).
+  return progress.phase === "download" && progress.total === 0;
+}
+
+function progressLabelFor(progress: ProgressEvent): string {
+  if (progress.phase === "analyze") return "Analyzing";
+  if (progress.phase === "download" && !isCacheLoad(progress)) return "Downloading";
+  return "Loading";
+}
+
 function renderProgress(): HTMLElement {
   const progress = ctx.progress!;
   const pct = progressPercent(progress);
+  const cache = isCacheLoad(progress);
   return h(
     "div",
     { class: "popup-body" },
     h(
       "div",
       { class: "progress-panel" },
-      h("div", { class: "phase" }, progressLabel(progress)),
+      h("div", { class: "phase" }, progressLabelFor(progress)),
       h(
         "div",
         { class: `progress-bar${pct === null ? " indeterminate" : ""}` },
@@ -275,18 +264,30 @@ function renderProgress(): HTMLElement {
         h(
           "span",
           { class: "num" },
-          pct !== null && progress.total > 0
-            ? `${formatBytes(progress.loaded)} / ${formatBytes(progress.total)}`
-            : "",
+          pct !== null && progress.total > 0 && !cache ? `${formatBytes(progress.loaded)} / ${formatBytes(progress.total)}` : "",
         ),
       ),
     ),
   );
 }
 
-// ---- Error ----
+// ---- Error (a compact inline prompt for consent-required; a plain retry otherwise) ----
 
 function renderErrorView(): HTMLElement {
+  if (ctx.error?.startsWith(CONSENT_REQUIRED_ERROR)) {
+    const size = modeSizeMB(ctx.settings.mode, ctx.settings.fusion);
+    return h(
+      "div",
+      { class: "popup-body" },
+      h(
+        "div",
+        { class: "consent-size panel" },
+        h("span", null, `${MODE_LABEL[ctx.settings.mode]} download`),
+        h("span", { class: "value mono" }, `~${size} MB`),
+      ),
+      h("button", { class: "btn btn-primary btn-block", type: "button", onclick: onConsent }, "Download & enable"),
+    );
+  }
   return h(
     "div",
     { class: "popup-body" },
@@ -312,133 +313,119 @@ function renderMain(): HTMLElement {
   const body = h("div", { class: "popup-body" });
   body.append(renderResultSection());
   body.append(renderButtons());
+  body.append(renderPasteSection());
   body.append(renderQuickSelects());
   return body;
 }
 
+function bandWord(result: AnalyzeResult | null): { band: ReturnType<typeof bandFromResult>; text: string; score: number | null } {
+  if (!result) return { band: "insufficient", text: "—", score: null };
+  const band = bandFromResult(result, ctx.settings);
+  const score = displayScore(result);
+  if (band === "insufficient" || score === null) return { band, text: "—", score: null };
+  return { band, text: `${Math.round(score * 100)}%`, score };
+}
+
 function renderResultSection(): HTMLElement {
   const result = ctx.result;
+  const { band, text, score } = bandWord(result);
   const wrap = h("div", { class: "gauge-wrap" });
   const figure = h("div", { class: "gauge-figure" });
   const svg = buildGaugeSvg();
-  const band = result ? bandFromResult(result, ctx.settings) : "insufficient";
   figure.append(svg);
-  const readout = h(
-    "div",
-    { class: "gauge-readout" },
-    h(
-      "div",
-      { class: `value mono ${bandClassName(band)}` },
-      result && band !== "insufficient" ? formatPercent(result.overall) : "—",
-    ),
-  );
+  const valueEl = h("div", { class: `value mono ${bandClassName(band)}` }, result ? text : "—");
+  if (score !== null) valueEl.style.color = `hsl(${scoreHue(score).toFixed(0)}, 75%, 42%)`;
+  const readout = h("div", { class: "gauge-readout" }, valueEl);
   figure.append(readout);
   wrap.append(figure);
-  wrap.append(h("div", { class: `verdict-label ${bandClassName(band)}` }, result ? BAND_LABEL[band] : "No analysis yet"));
-  wrap.append(
-    h(
-      "div",
-      { class: "verdict-desc" },
-      result ? BAND_DESCRIPTION[band] : "Click “Analyze page” to score the visible text on this tab.",
-    ),
-  );
-  // Animate in after the element is attached; matches the score, respects
-  // prefers-reduced-motion via the CSS transition itself.
-  queueMicrotask(() => updateGauge(svg, result ? result.overall : 0, bandClassName(band)));
+  wrap.append(h("div", { class: `verdict-label ${bandClassName(band)}` }, result ? BAND_LABEL[band] : "No result"));
+  queueMicrotask(() => updateGauge(svg, score ?? 0, bandClassName(band)));
 
   const container = h("div", { class: "result" }, wrap);
-  if (result) {
-    container.append(renderSentencesCard(result));
-    const unicode = renderUnicodeCard(result);
-    if (unicode) container.append(unicode);
-    container.append(renderImagesCard(result));
-  }
+  if (result) container.append(renderDetails(result));
   return container;
 }
 
-function card(title: string, ...children: (Node | null)[]): HTMLElement {
-  return h("section", { class: "panel result-card" }, h("h2", { class: "card-title" }, title), ...children);
+function renderDetails(result: AnalyzeResult): HTMLElement {
+  const flagged = countFlaggedSentences(result.sentences);
+  const sources = aggregateSources(result.sentences);
+  const entries = Object.entries(sources) as [keyof typeof SOURCE_LABEL, number][];
+  const rows: (Node | null)[] = [
+    h("p", { class: "field-hint" }, DETAILS_NOTE),
+    statRow("Flagged sentences", `${flagged} / ${result.sentences.length}`, flagged ? "warn" : undefined),
+  ];
+  if (result.words !== undefined) rows.push(statRow("Words analysed", String(result.words)));
+  if (result.device) rows.push(statRow("Device", result.device.toUpperCase()));
+  if (result.fusion) {
+    const { agree, total, disagree } = result.fusion.agreement;
+    rows.push(statRow("Detector agreement", `${agree}/${total}${disagree ? " (disagree)" : ""}`, disagree ? "warn" : undefined));
+  }
+  if (result.detectors?.length) {
+    for (const d of result.detectors) {
+      rows.push(statRow(`${d.label} (${d.device}/${d.dtype})`, formatPercent(d.overall)));
+    }
+  } else if (entries.length) {
+    const list = h("div", { class: "breakdown-list" });
+    for (const [source, value] of entries) {
+      list.append(
+        h(
+          "div",
+          { class: "breakdown-row" },
+          h("span", { class: "label" }, SOURCE_LABEL[source]),
+          h("span", { class: "bar" }, h("span", { style: `width:${Math.round(value * 100)}%` })),
+          h("span", { class: "num" }, formatPercent(value)),
+        ),
+      );
+    }
+    rows.push(list);
+  }
+  const unicode = renderUnicodeRow(result);
+  if (unicode) rows.push(unicode);
+  rows.push(renderImagesCard(result));
+  return h("details", { class: "details-disclosure" }, h("summary", null, "Details"), ...rows);
 }
 
 function statRow(label: string, value: string, tone?: "warn"): HTMLElement {
   return h("div", { class: "stat-row" }, h("span", null, label), h("span", { class: `num${tone ? " is-warn" : ""}` }, value));
 }
 
-function renderSentencesCard(result: AnalyzeResult): HTMLElement {
-  const flagged = countFlaggedSentences(result.sentences);
-  const sources = aggregateSources(result.sentences);
-  const entries = Object.entries(sources) as [keyof typeof SOURCE_LABEL, number][];
-  const list = h("div", { class: "breakdown-list" });
-  for (const [source, value] of entries) {
-    list.append(
-      h(
-        "div",
-        { class: "breakdown-row" },
-        h("span", { class: "label" }, SOURCE_LABEL[source]),
-        h("span", { class: "bar" }, h("span", { style: `width:${Math.round(value * 100)}%` })),
-        h("span", { class: "num" }, formatPercent(value)),
-      ),
-    );
-  }
-  return card(
-    "Text",
-    statRow("Flagged sentences", `${flagged} / ${result.sentences.length}`, flagged ? "warn" : undefined),
-    entries.length ? h("div", { class: "card-subtitle" }, "Per-detector score") : null,
-    entries.length ? list : h("p", { class: "field-hint" }, "No per-detector scores were reported."),
-  );
-}
-
-function renderUnicodeCard(result: AnalyzeResult): HTMLElement | null {
+function renderUnicodeRow(result: AnalyzeResult): HTMLElement | null {
   if (!ctx.settings.showUnicode) return null;
   const { totalSuspicious } = result.unicode;
-  return card(
-    "Hidden characters",
-    statRow("Unusual characters", String(totalSuspicious), totalSuspicious ? "warn" : undefined),
-    totalSuspicious > 0
-      ? h("p", { class: "field-hint" }, `${pluralize(totalSuspicious, "unusual character")} (zero-width, tag or odd spaces). Not evidence of AI on its own; they're marked in the page.`)
-      : null,
-  );
+  return statRow("Unusual characters", String(totalSuspicious), totalSuspicious ? "warn" : undefined);
 }
 
 function renderImagesCard(result: AnalyzeResult): HTMLElement {
   const images = result.images;
-  if (!ctx.settings.checkImages || images?.disabled) {
-    return card("Images", h("p", { class: "field-hint" }, "Provenance checks are off (Settings)."));
-  }
-  if (!images) return card("Images", h("p", { class: "field-hint" }, "Checking…"));
-  if (images.total === 0) return card("Images", h("p", { class: "field-hint" }, "No images large enough to check."));
-  const rows: HTMLElement[] = [statRow("Checked", `${images.checked} / ${images.total}`)];
+  if (!ctx.settings.checkImages || images?.disabled) return statRow("Images", "off");
+  if (!images) return statRow("Images", "checking…");
+  if (images.total === 0) return statRow("Images checked", "0");
+  const parts: HTMLElement[] = [statRow("Images checked", `${images.checked} / ${images.total}`)];
   if (images.withCredentials > 0) {
-    rows.push(
-      statRow(
-        "Content Credentials (C2PA)",
-        images.trustedCredentials > 0 ? `${images.withCredentials} (${images.trustedCredentials} trusted)` : String(images.withCredentials),
-      ),
+    parts.push(
+      statRow("Content Credentials", images.trustedCredentials > 0 ? `${images.withCredentials} (${images.trustedCredentials} trusted)` : String(images.withCredentials)),
     );
   }
-  if (images.aiSignals > 0) rows.push(statRow("With an AI signal", String(images.aiSignals), "warn"));
-  if (images.withUnsignedClaim > 0) rows.push(statRow("Unsigned AI-generator claim", String(images.withUnsignedClaim)));
-  if (images.withWatermark > 0) rows.push(statRow("Open-source watermark", String(images.withWatermark), "warn"));
-  const hint =
-    images.checked > 0 && images.aiSignals === 0
-      ? h("p", { class: "field-hint" }, "No AI signals found. That doesn't mean the images are human-made.")
-      : null;
+  if (images.aiSignals > 0) parts.push(statRow("With an AI signal", String(images.aiSignals), "warn"));
+  if (images.withUnsignedClaim > 0) parts.push(statRow("Unsigned AI claim", String(images.withUnsignedClaim)));
+  if (images.withWatermark > 0) parts.push(statRow("Watermark hit", String(images.withWatermark), "warn"));
   const grant =
     images.permissionNeeded.length > 0
       ? h(
           "button",
           { class: "btn btn-block btn-small", type: "button", onclick: () => void grantImageAccess(images.permissionNeeded) },
-          `Allow image checks on ${images.permissionNeeded.length === 1 ? hostOf(images.permissionNeeded[0]!) : `${images.permissionNeeded.length} sites`}`,
+          `Allow images on ${images.permissionNeeded.length === 1 ? hostOf(images.permissionNeeded[0]!) : `${images.permissionNeeded.length} sites`}`,
         )
       : null;
-  return card("Images", ...rows, hint, grant);
+  const wrap = h("div", null, ...parts);
+  if (grant) wrap.append(grant);
+  return wrap;
 }
 
 function hostOf(pattern: string): string {
   return pattern.replace(/^[a-z]+:\/\//, "").replace(/\/\*$/, "");
 }
 
-/** Must run from the click handler: permission requests need a user gesture. */
 async function grantImageAccess(patterns: string[]): Promise<void> {
   const granted = await requestImagePermission(patterns);
   if (!granted || ctx.tabId === null) return;
@@ -452,22 +439,174 @@ async function grantImageAccess(patterns: string[]): Promise<void> {
 }
 
 function renderButtons(): HTMLElement {
-  return h(
-    "div",
-    { class: "btn-row" },
+  const buttons = [
     h("button", { class: "btn btn-primary", type: "button", onclick: () => void runAnalyze("page") }, "Analyze page"),
+    h("button", { class: "btn", type: "button", onclick: () => void runAnalyze("selection") }, "Selection"),
+  ];
+  if (ctx.settings.presence === "onClick") {
+    buttons.push(h("button", { class: "btn", type: "button", onclick: () => void showOnPage() }, "Show on page"));
+  }
+  buttons.push(
     h(
       "button",
-      { class: "btn", type: "button", onclick: () => void runAnalyze("selection") },
-      "Analyze selection",
-    ),
-    h(
-      "button",
-      { class: "btn btn-icon-text", type: "button", title: "Clear highlights", onclick: () => void clearHighlights() },
+      { class: "btn btn-icon-text", type: "button", title: "Clear", onclick: () => void clearHighlights() },
       closeIcon(),
-      h("span", null, "Clear"),
     ),
   );
+  const row = h("div", { class: "btn-row" }, ...buttons);
+  const hostname = tabHostname();
+  if (hostname) {
+    const never = ctx.settings.siteRules[hostname] === "never";
+    row.append(
+      h(
+        "button",
+        {
+          class: "btn btn-ghost btn-small",
+          type: "button",
+          title: never ? `Auto-run is off on ${hostname}` : `Turn off auto-run on ${hostname}`,
+          onclick: () => void toggleNeverOnSite(hostname, never),
+        },
+        never ? "Off here ✓" : "Never on this site",
+      ),
+    );
+  }
+  return row;
+}
+
+function tabHostname(): string | null {
+  if (!ctx.tabUrl) return null;
+  try {
+    return new URL(ctx.tabUrl).hostname || null;
+  } catch {
+    return null;
+  }
+}
+
+async function toggleNeverOnSite(hostname: string, currentlyNever: boolean): Promise<void> {
+  const siteRules = { ...ctx.settings.siteRules };
+  if (currentlyNever) delete siteRules[hostname];
+  else siteRules[hostname] = "never";
+  ctx.settings = await setSettings({ siteRules });
+  render();
+}
+
+async function showOnPage(): Promise<void> {
+  if (ctx.tabId === null) return;
+  try {
+    await sendTabMessage(ctx.tabId, "showOnPage", undefined);
+  } catch {
+    // ignore -- the content script may not be injected yet on this tab.
+  }
+}
+
+// ---- Paste text + file drop ----
+
+function renderPasteSection(): HTMLElement {
+  const toggle = h(
+    "button",
+    { class: "btn btn-ghost btn-block btn-small", type: "button", onclick: () => togglePaste() },
+    ctx.pasteOpen ? "Paste text ▲" : "Paste text ▼",
+  );
+  if (!ctx.pasteOpen) return h("div", null, toggle);
+
+  const textarea = h("textarea", {
+    class: "paste-textarea",
+    rows: "4",
+    placeholder: "Paste text to check…",
+  }) as HTMLTextAreaElement;
+
+  const fileInput = h("input", {
+    type: "file",
+    accept: ACCEPTED_FILE_EXTENSIONS,
+    class: "sr-only-file",
+    onchange: (e: Event) => void onFileChosen((e.target as HTMLInputElement).files?.[0]),
+  }) as HTMLInputElement;
+
+  const dropzone = h(
+    "div",
+    {
+      class: "dropzone",
+      onclick: () => fileInput.click(),
+      ondragover: (e: DragEvent) => e.preventDefault(),
+      ondrop: (e: DragEvent) => {
+        e.preventDefault();
+        void onFileChosen(e.dataTransfer?.files?.[0]);
+      },
+    },
+    `Drop a ${ACCEPTED_FILE_EXTENSIONS.replaceAll(",", " / ")} file, or click to choose`,
+    fileInput,
+  );
+
+  const rows: (Node | null)[] = [
+    toggle,
+    textarea,
+    h(
+      "button",
+      {
+        class: "btn btn-primary btn-block btn-small",
+        type: "button",
+        disabled: ctx.pasteBusy,
+        onclick: () => void analyzePastedText(textarea.value),
+      },
+      "Analyze text",
+    ),
+    dropzone,
+  ];
+  if (ctx.pasteError) rows.push(h("p", { class: "model-error-note" }, ctx.pasteError));
+  return h("div", { class: "paste-panel" }, ...rows);
+}
+
+function togglePaste(): void {
+  ctx.pasteOpen = !ctx.pasteOpen;
+  render();
+}
+
+async function analyzePastedText(text: string): Promise<void> {
+  if (!text.trim()) return;
+  await analyzeArbitraryText(text);
+}
+
+async function onFileChosen(file: File | undefined): Promise<void> {
+  if (!file) return;
+  ctx.pasteBusy = true;
+  ctx.pasteError = null;
+  render();
+  try {
+    const text = await extractTextFromFile(file);
+    await analyzeArbitraryText(text);
+  } catch (err) {
+    ctx.pasteError = err instanceof Error ? err.message : String(err);
+  } finally {
+    ctx.pasteBusy = false;
+    render();
+  }
+}
+
+/** Paste/file text is never on a page: no tabId, no highlight rendering -- just a scored result. */
+async function analyzeArbitraryText(text: string): Promise<void> {
+  ctx.pasteBusy = true;
+  ctx.pasteError = null;
+  ctx.error = null;
+  ctx.progress = { phase: "analyze", loaded: 0, total: 0, message: "Analyzing…" };
+  render();
+  try {
+    const sentences = segmentSentences(text);
+    const blocks = [{ id: "paste-1", text, sentences }];
+    const result = await sendMessage("analyze", { tabId: -1, mode: ctx.settings.mode, blocks });
+    // The paste box wants NBSP counted as unusual (plain pasted text commonly
+    // carries stray NBSPs from copy-paste); the page scan deliberately
+    // doesn't. Computed client-side so the engine's shared scan is untouched.
+    const unicode = scanUnicode(text, { includeNbsp: true });
+    ctx.result = { ...result, unicode };
+    ctx.progress = null;
+    ctx.pasteOpen = false;
+  } catch (err) {
+    ctx.pasteError = err instanceof Error ? err.message : String(err);
+    ctx.progress = null;
+  } finally {
+    ctx.pasteBusy = false;
+    render();
+  }
 }
 
 function renderQuickSelects(): HTMLElement {
@@ -498,8 +637,8 @@ function renderQuickSelects(): HTMLElement {
   return h(
     "div",
     { class: "quick-selects" },
-    h("div", { class: "field" }, h("span", { class: "field-hint" }, "Detector mode"), modeSelect),
-    h("div", { class: "field" }, h("span", { class: "field-hint" }, "Highlight style"), styleSelect),
+    h("div", { class: "field" }, h("span", { class: "field-hint" }, "Mode"), modeSelect),
+    h("div", { class: "field" }, h("span", { class: "field-hint" }, "Style"), styleSelect),
   );
 }
 
@@ -517,7 +656,7 @@ async function onStyleChange(highlightStyle: HighlightStyle): Promise<void> {
 async function runAnalyze(target: "page" | "selection"): Promise<void> {
   const tabId = ctx.tabId;
   if (tabId === null) {
-    ctx.error = "No active tab to analyze.";
+    ctx.error = "No active tab.";
     render();
     return;
   }
@@ -527,14 +666,12 @@ async function runAnalyze(target: "page" | "selection"): Promise<void> {
   ctx.progress = { phase: "download", loaded: 0, total: 0, message: "Starting…" };
   render();
   try {
-    // One path for every entry point: the background extracts, analyzes and
-    // renders highlights in the tab (see runTabAnalysis in src/engine/router.ts).
     const result = await sendMessage("analyzeTab", { tabId, target }, (progress) => {
       ctx.progress = progress;
       render();
     });
     ctx.progress = null;
-    const seen = ctx.result as AnalyzeResult | null; // may have been updated by a status event meanwhile
+    const seen = ctx.result as AnalyzeResult | null;
     ctx.result = { ...result, images: seen?.images ?? result.images };
     render();
   } catch (err) {
@@ -544,13 +681,9 @@ async function runAnalyze(target: "page" | "selection"): Promise<void> {
   }
 }
 
-/** Strips the machine-readable `CONSENT_REQUIRED_ERROR` prefix, if present,
- * leaving the human-readable part `analyze` sent after it. */
 function describeAnalyzeError(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err);
-  if (message.startsWith(CONSENT_REQUIRED_ERROR)) {
-    return message.slice(CONSENT_REQUIRED_ERROR.length).replace(/^[:\s-]+/, "") || "This mode needs a fresh download consent — reopen the popup to confirm it.";
-  }
+  if (message.startsWith(CONSENT_REQUIRED_ERROR)) return message;
   return message;
 }
 
@@ -560,7 +693,7 @@ async function clearHighlights(): Promise<void> {
   try {
     await sendTabMessage(tabId, "clearHighlights", undefined);
   } catch {
-    // No content script listening yet (T2) — nothing to clear.
+    // No content script listening yet -- nothing to clear.
   }
 }
 

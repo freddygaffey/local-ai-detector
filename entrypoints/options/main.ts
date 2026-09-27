@@ -6,8 +6,22 @@ import "../../src/ui/styles.css";
 import "./options.css";
 
 import { getSettings, setSettings } from "@/src/shared/settings";
-import type { HighlightStyle, Mode, ModelSlot, Settings } from "@/src/shared/settings";
+import type {
+  AutoRunPolicy,
+  BatterySaverSettings,
+  Corner,
+  HighlightStyle,
+  Mode,
+  ModelSlot,
+  Presence,
+  ResultSurfaces,
+  Settings,
+  SlopFilterSite,
+} from "@/src/shared/settings";
+import { isPresenceCustom, presenceDefaults } from "@/src/shared/settings";
 import { sendMessage } from "@/src/shared/messages";
+import { mountFusionSettings } from "@/src/ui/fusionSettings";
+import { clearSiteMemory } from "@/src/content/siteMemory";
 import type {
   CustomModelValidation,
   EngineInfo,
@@ -35,6 +49,9 @@ interface State {
   customValidation: Partial<Record<ModelSlot, CustomModelValidation | "checking">>;
   engine: EngineInfo | null;
   allUrlsGranted: boolean | null;
+  newSiteRuleHost: string;
+  newSiteRulePolicy: AutoRunPolicy;
+  siteMemoryCleared: boolean;
 }
 
 const state: State = {
@@ -48,9 +65,13 @@ const state: State = {
   customValidation: {},
   engine: null,
   allUrlsGranted: null,
+  newSiteRuleHost: "",
+  newSiteRulePolicy: "never",
+  siteMemoryCleared: false,
 };
 
 const root = document.getElementById("app") as HTMLDivElement;
+let fusionUnmount: (() => void) | null = null;
 
 async function main() {
   render();
@@ -94,6 +115,8 @@ async function updateSettings(partial: Partial<Settings>): Promise<void> {
 }
 
 function render(): void {
+  fusionUnmount?.();
+  fusionUnmount = null;
   clearChildren(root);
   root.append(
     h(
@@ -104,6 +127,10 @@ function render(): void {
         "main",
         { class: "options-main" },
         renderDetectionSection(),
+        renderPresenceSection(),
+        renderBatterySection(),
+        renderSlopFilterSection(),
+        renderSiteMemorySection(),
         renderModelsSection(),
         renderProvenanceSection(),
         renderAboutSection(),
@@ -118,6 +145,10 @@ function renderNav(): HTMLElement {
     { class: "options-nav" },
     h("div", { class: "brand" }, brandMark(), h("span", null, "Local AI Detector")),
     h("a", { href: "#detection" }, "Detection"),
+    h("a", { href: "#presence" }, "Presence"),
+    h("a", { href: "#battery" }, "Battery"),
+    h("a", { href: "#slop-filter" }, "Slop filter"),
+    h("a", { href: "#site-memory" }, "Site memory"),
     h("a", { href: "#models" }, "Models"),
     h("a", { href: "#provenance" }, "Provenance"),
     h("a", { href: "#about" }, "About"),
@@ -132,8 +163,8 @@ function renderDetectionSection(): HTMLElement {
     "div",
     { class: "settings-list" },
     fieldRow(
-      "Detector mode",
-      "Which model(s) score each page. Ensemble combines two signals for the steadiest read.",
+      "Mode",
+      "Fusion combines detectors for the steadiest read.",
       selectControl(
         (Object.keys(MODE_LABEL) as Mode[]).map((mode) => ({
           value: mode,
@@ -144,20 +175,8 @@ function renderDetectionSection(): HTMLElement {
       ),
     ),
     fieldRow(
-      "Ensemble classifier",
-      "Which classifier Ensemble mode blends with perplexity. The standard one (TMR, ~126 MB) ranked texts better and flagged fewer human texts in our tests; the lite one (~34 MB) is smaller and faster.",
-      selectControl(
-        [
-          { value: "classifier", label: "Standard (TMR RoBERTa)" },
-          { value: "classifierLite", label: "Lite (e5-small)" },
-        ],
-        s.ensembleClassifier,
-        (value) => void updateSettings({ ensembleClassifier: value as Settings["ensembleClassifier"] }),
-      ),
-    ),
-    fieldRow(
       "Highlight style",
-      "How flagged sentences are marked on the page.",
+      "",
       selectControl(
         [
           { value: "heatmap", label: "Heatmap" },
@@ -169,47 +188,51 @@ function renderDetectionSection(): HTMLElement {
       ),
     ),
     fieldRow(
-      "Analyze automatically",
-      "Score a page on load instead of waiting for “Analyze page” in the popup.",
-      toggleControl(s.autoRun, (checked) => void updateSettings({ autoRun: checked })),
-    ),
-    fieldRow(
       "Minimum words per chunk",
-      "Sentences/chunks shorter than this are too noisy to score and are skipped.",
+      "Shorter chunks aren't scored.",
       numberControl(s.minWords, 0, 500, (value) => void updateSettings({ minWords: value })),
     ),
     fieldRow(
-      "Max tokens analyzed per page",
-      "Caps how much of a long page gets analyzed, to keep it fast.",
+      "Max tokens per page",
+      "Caps how much of a long page is analysed.",
       numberControl(s.maxTokens, 256, 32000, (value) => void updateSettings({ maxTokens: value })),
     ),
     fieldRow(
-      "Show hidden-Unicode summary",
-      "Report unusual invisible characters. Never treated as AI evidence by itself.",
+      "Hidden-Unicode summary",
+      "Not AI evidence by itself.",
       toggleControl(s.showUnicode, (checked) => void updateSettings({ showUnicode: checked })),
     ),
     fieldRow(
       "Check images for provenance",
-      "Look for Content Credentials (C2PA) and similar metadata in images on the page.",
+      "C2PA / metadata / watermark signals.",
       toggleControl(s.checkImages, (checked) => void updateSettings({ checkImages: checked })),
     ),
     fieldRow(
-      "Use the GPU (WebGPU) when available",
-      "Off by default. The GPU is several times faster on long pages, but runs different (fp16/4-bit) model weights, so its scores differ from the CPU's and from Firefox's; it has its own, less-tested calibration. Binoculars always runs on the CPU.",
+      "Use GPU (WebGPU)",
+      "Faster; scores differ slightly from CPU. Binoculars stays on CPU.",
       toggleControl(s.useWebGPU, (checked) => void updateSettings({ useWebGPU: checked })),
     ),
     fieldRow(
-      "Check for model updates automatically",
-      "Off by default. When on, checks Hugging Face for newer pinned revisions on startup.",
+      "Auto-check model updates",
+      "Checks Hugging Face on startup.",
       toggleControl(s.autoCheckModelUpdates, (checked) => void updateSettings({ autoCheckModelUpdates: checked })),
     ),
   );
+  const fusionHost = h("div", { class: "fusion-host" });
+  const fusionSection =
+    s.mode === "ensemble"
+      ? h("div", { class: "settings-list" }, h("div", { class: "card-subtitle" }, "Fusion detectors"), fusionHost)
+      : null;
   return h(
     "section",
     { id: "detection" },
     h("h2", null, "Detection"),
-    h("p", { class: "section-intro" }, "How pages are scanned and scored."),
     list,
+    fusionSection,
+    (() => {
+      if (s.mode === "ensemble") queueMicrotask(() => (fusionUnmount = mountFusionSettings(fusionHost)));
+      return null;
+    })(),
   );
 }
 
@@ -256,6 +279,264 @@ function numberControl(value: number, min: number, max: number, onChange: (value
       if (Number.isFinite(n)) onChange(Math.max(min, Math.min(max, Math.round(n))));
     },
   });
+}
+
+// ---- Presence ----
+
+const PRESENCE_LABEL: Record<Presence, string> = {
+  onClick: "On click",
+  badge: "Badge",
+  statusChip: "Status chip",
+  inspector: "Inspector",
+  sidePanel: "Side panel",
+};
+
+const SURFACE_LABEL: Record<keyof ResultSurfaces, string> = {
+  popup: "Popup",
+  badge: "Toolbar badge",
+  chip: "Corner chip",
+  highlights: "Page highlights",
+  sidePanel: "Side panel",
+};
+
+const POLICY_LABEL: Record<AutoRunPolicy, string> = { always: "Always", never: "Never", ask: "Ask" };
+
+function renderPresenceSection(): HTMLElement {
+  const s = state.settings;
+  const custom = isPresenceCustom(s);
+  const presetSelect = selectControl(
+    (Object.keys(PRESENCE_LABEL) as Presence[]).map((p) => ({ value: p, label: PRESENCE_LABEL[p] })),
+    s.presence,
+    (value) => {
+      const preset = value as Presence;
+      const d = presenceDefaults(preset);
+      void updateSettings({ presence: preset, autoRunPolicy: d.autoRunPolicy, surfaces: { ...d.surfaces } });
+    },
+  );
+  const list = h(
+    "div",
+    { class: "settings-list" },
+    fieldRow("Preset", custom ? "Custom (edited below)" : "", presetSelect),
+    fieldRow(
+      "Auto-run",
+      "Fast pass on page load; full mode still runs on click.",
+      selectControl(
+        (Object.keys(POLICY_LABEL) as AutoRunPolicy[]).map((p) => ({ value: p, label: POLICY_LABEL[p] })),
+        s.autoRunPolicy,
+        (value) => void updateSettings({ autoRunPolicy: value as AutoRunPolicy }),
+      ),
+    ),
+    ...(Object.keys(SURFACE_LABEL) as (keyof ResultSurfaces)[]).map((key) =>
+      fieldRow(
+        SURFACE_LABEL[key],
+        "",
+        toggleControl(s.surfaces[key], (checked) => void updateSettings({ surfaces: { ...s.surfaces, [key]: checked } })),
+      ),
+    ),
+    fieldRow(
+      "Chip corner",
+      "",
+      selectControl(
+        (["top-left", "top-right", "bottom-left", "bottom-right"] as Corner[]).map((c) => ({ value: c, label: c })),
+        s.chipCorner,
+        (value) => void updateSettings({ chipCorner: value as Corner }),
+      ),
+    ),
+    fieldRow(
+      "Chip auto-hide below",
+      "Hidden below this score; hover the corner to peek.",
+      numberControl(Math.round(s.chipAutoHideThreshold * 100), 0, 100, (v) => void updateSettings({ chipAutoHideThreshold: v / 100 })),
+    ),
+  );
+  return h(
+    "section",
+    { id: "presence" },
+    h("h2", null, "Presence"),
+    list,
+    renderSiteRules(),
+    h(
+      "p",
+      { class: "field-hint", style: "margin-top:0.6em" },
+      "Keyboard shortcuts (analyze page/selection, toggle visibility): ",
+      h(
+        "a",
+        {
+          href: "#",
+          onclick: (e: Event) => {
+            e.preventDefault();
+            void browser.tabs.create({ url: "chrome://extensions/shortcuts" }).catch(() => {});
+          },
+        },
+        "browser shortcut settings",
+      ),
+      ".",
+    ),
+  );
+}
+
+function renderSiteRules(): HTMLElement {
+  const rules = Object.entries(state.settings.siteRules);
+  const rows = rules.map(([host, policy]) =>
+    h(
+      "div",
+      { class: "field-row" },
+      h("div", { class: "field-main" }, h("span", { class: "field-label mono" }, host), h("span", { class: "field-hint" }, POLICY_LABEL[policy])),
+      h(
+        "button",
+        { class: "btn btn-ghost btn-small", type: "button", onclick: () => void removeSiteRule(host) },
+        "Remove",
+      ),
+    ),
+  );
+  const addRow = h(
+    "div",
+    { class: "field-row" },
+    h("input", {
+      class: "text-input",
+      type: "text",
+      placeholder: "example.com",
+      value: state.newSiteRuleHost,
+      oninput: (e: Event) => {
+        state.newSiteRuleHost = (e.target as HTMLInputElement).value;
+      },
+    }),
+    selectControl(
+      (Object.keys(POLICY_LABEL) as AutoRunPolicy[]).map((p) => ({ value: p, label: POLICY_LABEL[p] })),
+      state.newSiteRulePolicy,
+      (v) => {
+        state.newSiteRulePolicy = v as AutoRunPolicy;
+      },
+    ),
+    h("button", { class: "btn btn-small", type: "button", onclick: () => void addSiteRule() }, "Add"),
+  );
+  return h("div", { class: "settings-list", style: "margin-top:0.8em" }, h("div", { class: "card-subtitle" }, "Per-site rules"), ...rows, addRow);
+}
+
+async function addSiteRule(): Promise<void> {
+  const host = state.newSiteRuleHost.trim().toLowerCase();
+  if (!host) return;
+  await updateSettings({ siteRules: { ...state.settings.siteRules, [host]: state.newSiteRulePolicy } });
+  state.newSiteRuleHost = "";
+}
+
+async function removeSiteRule(host: string): Promise<void> {
+  const siteRules = { ...state.settings.siteRules };
+  delete siteRules[host];
+  await updateSettings({ siteRules });
+}
+
+// ---- Battery saver ----
+
+function renderBatterySection(): HTMLElement {
+  const s = state.settings;
+  const b = s.battery;
+  const set = (partial: Partial<BatterySaverSettings>) => void updateSettings({ battery: { ...b, ...partial } });
+  const list = h(
+    "div",
+    { class: "settings-list" },
+    fieldRow(
+      "On battery",
+      "",
+      selectControl(
+        [
+          { value: "normal", label: "Normal" },
+          { value: "lite", label: "Use lite model" },
+          { value: "pause", label: "Pause auto-run" },
+        ],
+        b.onBatteryAction,
+        (v) => set({ onBatteryAction: v as BatterySaverSettings["onBatteryAction"] }),
+      ),
+    ),
+    fieldRow(
+      "Pause below battery %",
+      "",
+      numberControl(b.pauseBelowPercent, 0, 100, (v) => set({ pauseBelowPercent: v })),
+    ),
+    fieldRow(
+      "Pause under CPU pressure",
+      "Chrome only.",
+      toggleControl(b.pauseOnPressure, (checked) => set({ pauseOnPressure: checked })),
+    ),
+    fieldRow("Unload models after idle (minutes)", "0 = never.", numberControl(b.unloadAfterMinutes, 0, 120, (v) => set({ unloadAfterMinutes: v }))),
+    fieldRow("Use CPU on battery", "Skips the GPU to save power.", toggleControl(b.useCpuOnBattery, (checked) => set({ useCpuOnBattery: checked }))),
+    fieldRow(
+      "Battery saver (manual)",
+      "For browsers without a Battery Status API (e.g. Firefox desktop).",
+      toggleControl(b.manualOverride, (checked) => set({ manualOverride: checked })),
+    ),
+  );
+  return h("section", { id: "battery" }, h("h2", null, "Battery"), list);
+}
+
+// ---- Slop filter ----
+
+const SLOP_SITE_LABEL: Record<SlopFilterSite, string> = {
+  reddit: "Reddit",
+  hackernews: "Hacker News",
+  youtube: "YouTube comments",
+  twitter: "X / Twitter",
+  forum: "Forums",
+  review: "Reviews",
+};
+
+function renderSlopFilterSection(): HTMLElement {
+  const s = state.settings;
+  const f = s.slopFilter;
+  const set = (partial: Partial<Settings["slopFilter"]>) => void updateSettings({ slopFilter: { ...f, ...partial } });
+  const list = h(
+    "div",
+    { class: "settings-list" },
+    fieldRow("On", "Dims/collapses flagged comments, posts and reviews.", toggleControl(f.enabled, (checked) => set({ enabled: checked }))),
+    fieldRow("Threshold", "", numberControl(Math.round(f.threshold * 100), 0, 100, (v) => set({ threshold: v / 100 }))),
+    fieldRow(
+      "Style",
+      "",
+      selectControl(
+        [
+          { value: "dim", label: "Dim" },
+          { value: "collapse", label: "Collapse" },
+        ],
+        f.style,
+        (v) => set({ style: v as "dim" | "collapse" }),
+      ),
+    ),
+    fieldRow("Search-result markers", "Google/Bing/DuckDuckGo/Kagi snippets only -- never fetches the linked page.", toggleControl(f.searchMarkers, (checked) => set({ searchMarkers: checked }))),
+    ...(Object.keys(SLOP_SITE_LABEL) as SlopFilterSite[]).map((site) =>
+      fieldRow(
+        SLOP_SITE_LABEL[site],
+        "",
+        toggleControl(f.sites[site] !== false, (checked) => set({ sites: { ...f.sites, [site]: checked } })),
+      ),
+    ),
+  );
+  return h("section", { id: "slop-filter" }, h("h2", null, "Slop filter"), list);
+}
+
+// ---- Site memory ----
+
+function renderSiteMemorySection(): HTMLElement {
+  const s = state.settings;
+  const list = h(
+    "div",
+    { class: "settings-list" },
+    fieldRow(
+      "On",
+      "Local per-domain tally only (e.g. \"7 of the last 10 pages scored high\"). No text or URLs are stored.",
+      toggleControl(s.siteMemoryEnabled, (checked) => void updateSettings({ siteMemoryEnabled: checked })),
+    ),
+    fieldRow(
+      "Clear history",
+      state.siteMemoryCleared ? "Cleared." : "",
+      h("button", { class: "btn btn-ghost btn-small", type: "button", onclick: () => void doClearSiteMemory() }, "Clear"),
+    ),
+  );
+  return h("section", { id: "site-memory" }, h("h2", null, "Site memory"), list);
+}
+
+async function doClearSiteMemory(): Promise<void> {
+  await clearSiteMemory();
+  state.siteMemoryCleared = true;
+  render();
 }
 
 // ---- Models ----

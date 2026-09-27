@@ -243,6 +243,60 @@ body {
   width: 100%;
 }
 
+/* ---- Details disclosure (the one ⓘ/Details affordance) ---- */
+.details-disclosure {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.5em 0.75em;
+}
+.details-disclosure summary {
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.details-disclosure > *:not(summary) {
+  margin-top: 0.5em;
+}
+
+/* ---- Paste text / file drop ---- */
+.paste-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+}
+.paste-textarea {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+  padding: 0.5em 0.6em;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+}
+.dropzone {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.6em;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--ink-faint);
+  cursor: pointer;
+}
+.dropzone:hover {
+  background: var(--surface-sunken);
+}
+.sr-only-file {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+}
+
 .popup-footer {
   padding: 0.6em 0.85em 0.8em;
   border-top: 1px solid var(--border);
