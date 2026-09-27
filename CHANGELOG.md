@@ -4,6 +4,44 @@ All notable changes to this project are documented here. This project has
 not yet had a public store release; version numbers so far track
 `package.json` during initial development.
 
+## [Unreleased]
+
+### Added (T9: Presence modes, battery saver, more entry points, chat/thread adapters, slop filter, site memory)
+
+- **Presence**: a single setting (default **Status chip**) for how much the
+  extension shows -- On click, Badge, Status chip, Inspector, or Side panel
+  (Chrome `sidePanel` / Firefox `sidebar_action`) -- backed by per-site
+  auto-run rules, configurable result surfaces, chip corner/auto-hide
+  threshold, and a "never on this site" toggle. Auto-run uses a fast model;
+  a click always runs the full configured mode.
+- **Battery saver**: Battery Status API / Compute Pressure gating (where
+  available), with a manual override where they're not (e.g. Firefox
+  desktop), plus an idle-unload timer.
+- **More entry points**: context menus for the page, an image ("Check image
+  for Content Credentials & watermarks"), and text in an input/textarea/
+  contenteditable box; a popup paste box and .txt/.md/.html/.docx file drop
+  (local extraction, no new dependency); rebindable keyboard `commands`.
+- **Chat-site and comment/thread adapters**: per-reply scoring on ChatGPT/
+  Claude/Gemini/Copilot/Perplexity-like chat UIs (assistant messages only),
+  and per-comment/per-post scoring on Reddit, Hacker News, forums, reviews
+  and YouTube comments (previously skipped by the whole-page scan).
+- **Slop filter** (off by default): dims/collapses flagged comments/posts/
+  reviews with a "Show" affordance, plus a small marker on flagged
+  search-result snippets (Google/Bing/DuckDuckGo/Kagi; snippet text only).
+- **Site memory** (off by default, local only): a per-domain score tally,
+  clearable from Options.
+- Copy pass: main surfaces show a number plus one word (Human/Mixed/AI/Too
+  short), with per-detector numbers, device, model versions and one fixed
+  "probability, not proof" note behind a single Details disclosure.
+
+### Known gaps (see docs/qa.md's T9 addendum)
+
+Chat/Reddit/search-engine selectors weren't verified against live sites (no
+network access); the Chrome/Firefox E2E suites and docs/screenshots weren't
+extended/re-taken for the new UI; the toolbar badge isn't yet gated by
+`Settings.surfaces.badge`; `useCpuOnBattery` has no per-request engine
+channel yet.
+
 ## [0.1.0] — 2026-09-27
 
 First feature-complete release, built and tested end-to-end in real Chrome
