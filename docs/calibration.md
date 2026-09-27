@@ -85,6 +85,51 @@ US-government prose. It **misses about half of the AI text** (it flags 46% of MA
 28 calibration human texts, mostly the modern US-government prose. That is the hard case
 for every detector here.
 
+### Paragraph-level thresholds (sentence colours and "flagged")
+
+The document-level constants above set the page's **overall** score.
+Sentence colours and the "flagged" count come from **paragraph-sized**
+pieces of text. These are much shorter and noisier than a document, so they
+use their own operating points (`CALIBRATION.unit`):
+
+- **Classifier.** Sentence colours come from one chunk per paragraph (text.ts
+  `packChunks(…, splitEveryBlock)`), so human and AI paragraphs are never
+  averaged together. The overall score still uses document-sized chunks.
+- **Perplexity.** Each scoring unit (≥ `minWords` words, kept within a paragraph
+  where possible) is compared with the unit threshold.
+- **Fit.** `scripts/e2e/browser-unit-calibration.mjs` runs the same texts in the
+  extension, split into page-like paragraphs (single-paragraph MAGE texts are cut into pieces of
+  ≥ 60 words). That gives about 965 human and 895 AI paragraphs. Each threshold sits
+  where about 5% of human paragraphs score higher, with the same slopes.
+
+| Paragraph level (WASM) | Threshold | AUROC | AI paragraphs flagged at the threshold |
+|---|---|---|---|
+| TMR logit centre | 4.20 (document 3.84) | 0.80 | 42% |
+| Lite logit centre | 2.34 (document 2.70) | 0.73 | 24% |
+| Perplexity τ (log-PPL) | 3.02 (document 3.17) | 0.66 | 21% |
+
+WebGPU: TMR 3.87, lite 2.22, τ 2.81.
+
+Page scans also drop headings, captions and blocks under 12 words
+(`proseBlocks`). Before, these were scored and, being too short to score alone,
+folded into the next paragraph's unit.
+
+**Fixture check (E2E regression test, `per-paragraph flag rates`).** On
+`news.html` (ensemble, WASM, Chrome and Firefox), **0 of 22** sentences in the
+public-domain USGS/NWS paragraphs are flagged, and **13 of 17 (76%)** in the
+LLM-written paragraphs. On `blog.html`, 0 of 33 human sentences are flagged. The test fails if
+more than 20% of human sentences are flagged, if AI paragraphs aren't flagged more
+often, or if anything outside the labelled paragraphs is flagged. It also checks that the
+pill and the popup report the same count.
+
+Before this change, most of `news.html` was flagged, including the headline, byline,
+captions and the USGS paragraphs. The causes:
+1. Headings and captions were folded into paragraph units.
+2. Classifier chunks of up to 384 tokens spanned several paragraphs, mixing human and AI text.
+3. Paragraph-sized pieces were mapped with document-level constants. Short text reads
+   as more AI-like to these detectors, so human paragraphs crossed 0.5.
+4. Re-analysing a page read the extension's own `⟦ZW⟧` markers as page text.
+
 ## Which classifier the ensemble uses
 
 **TMR (`onnx-community/tmr-ai-text-detector-ONNX`), not the lite model.** T1's

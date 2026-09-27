@@ -38,11 +38,28 @@ service worker. Firefox calls the same handler through the bridge.
 
 | Suite | Result |
 |---|---|
-| Chrome, e2e build, full (5 modes, cold + warm, WebGPU vs WASM, options) | **28/28** |
-| Chrome, **production build**, fresh profile (consent → real download → 4 modes) | **19/19** |
-| Firefox, e2e build, full (5 modes incl. Binoculars) | **19/19** |
-| `npm run typecheck`, `npm test` (223 tests, 21 files, incl. happy-dom DOM tests), both builds | green |
+| Chrome, e2e build, full (5 modes, cold + warm, per-paragraph flag rates, WebGPU vs WASM, options) | **29/29** |
+| Chrome, **production build**, fresh profile (consent → real download → 4 modes, flag rates) | **20/20** |
+| Firefox, e2e build (4 modes; with `--full` also Binoculars: 19/19 in the earlier run) | **17/17** |
+| `npm run typecheck`, `npm test` (226 tests, 21 files, incl. happy-dom DOM tests), both builds | green |
 | `web-ext lint` (Firefox build) | 0 errors, 2 warnings (justified below) |
+
+### Per-paragraph flag rates (regression test)
+
+The fixture paragraphs carry `data-src="human"` (public-domain USGS/NWS/NPS text) or
+`data-src="ai"` (LLM-written). The Chrome suite reads which highlighted sentences sit in which paragraph.
+These are the results at the default settings (ensemble, WASM), identical in the production build:
+
+| Page | Human sentences flagged | AI sentences flagged | Outside labelled paragraphs |
+|---|---|---|---|
+| `news.html` | **0 / 22** | **13 / 17 (76%)** | none (headline, byline and captions aren't scored) |
+| `blog.html` | **0 / 33** | – (its AI text is in reader comments, outside `<article>`, which a page scan doesn't read) | none |
+
+Pill and popup counts match on both pages (news: 15 and 15/41). The test fails if more than 20% of
+human sentences are flagged, if AI paragraphs aren't flagged more often, if anything
+unlabelled is flagged, or if the pill and popup disagree. For the causes of the earlier
+over-flagging and for the paragraph-level calibration, see
+[calibration.md](calibration.md#paragraph-level-thresholds-sentence-colours-and-flagged).
 
 ### What was verified, per browser
 
@@ -124,8 +141,11 @@ Bugs found in the real browsers (or while wiring things together) and fixed:
 5. **Scores depend on the runtime.** Browser WASM ≠ Node, and WebGPU differs more. The engine was
    re-calibrated on the browser itself. WASM is the default (same scores in Chrome and Firefox),
    and WebGPU is opt-in with its own constants. See [calibration.md](calibration.md).
-6. Popup and pill disagreed on the flagged count (0.65 vs 0.6). There is now one shared scale
-   (`src/shared/thresholds.ts`).
+6. Popup and pill disagreed on the flagged count. The first cause was different thresholds (0.65 vs 0.6),
+   now one scale in `src/shared/thresholds.ts`. The second cause was re-analysis
+   reading the extension's own `⟦ZW⟧` markers as page text, which lost those sentences'
+   ranges (popup 43 against pill 41). Extraction now skips the markers, and the pill counts
+   with the popup's function on the same result.
 7. Every sentence under `minWords` was drawn "muted", so nearly the whole page was, although scores
    are per group of sentences. Now only a whole analysis under `minWords` is muted.
 8. Selection inside a single text node extracted nothing (TreeWalker rooted at a text node).
@@ -146,6 +166,14 @@ Bugs found in the real browsers (or while wiring things together) and fixed:
     and the inference worker Firefox-only.
 16. Options now lists `UNCHECKABLE_SCHEMES` (with checker links) and uses
     `requestImagePermission()`.
+17. **Human paragraphs were flagged** (the lead's review of `page-flagged.jpg`). Headings, bylines and
+    captions were scored and folded into paragraphs. Classifier chunks spanned several
+    paragraphs. Paragraph-sized pieces used document-level thresholds. Now page scans drop
+    non-prose blocks, sentence colours come from one classifier chunk per paragraph, and they use
+    paragraph-level thresholds fitted in the browser. See the table above.
+18. The popup's result area was redone as cards (Text, Hidden characters, Images) with aligned
+    label/value rows, a proper per-detector bar grid, a styled permission button and an
+    aligned "✕ Clear" button.
 
 New settings (Options): **Ensemble classifier** (TMR default, lite optional) and **Use
 the GPU (WebGPU)** (off by default).
