@@ -57,6 +57,21 @@ jobs:
           --out ${{ env.LAD_SCRATCH }}/chrome-report.json
           --shots ${{ env.LAD_SCRATCH }}/shots
 
+      # Artifacts need a login to download; annotations are public. Surface each
+      # failed step (and any launch crash) as an annotation so failures are
+      # readable from the run page and the REST API.
+      - name: Annotate failed E2E steps
+        if: always()
+        run: |
+          f="${{ env.LAD_SCRATCH }}/chrome-report.json"
+          if [ ! -f "$f" ]; then echo "::error title=E2E::no report written (crashed before the first step?)"; exit 0; fi
+          node -e '
+            const r = require(process.argv[1]);
+            const failed = r.steps.filter(s => !s.ok);
+            console.log(`E2E: ${r.steps.length - failed.length}/${r.steps.length} steps passed`);
+            for (const s of failed) console.log(`::error title=E2E step failed::${s.title} :: ${String(s.error).replace(/\n/g, " ").slice(0, 900)}`);
+          ' "$f"
+
       - uses: actions/upload-artifact@v7
         if: always()
         with:
