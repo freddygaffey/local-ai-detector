@@ -85,7 +85,7 @@ total download size and a speed estimate for the chosen set. Calibrate on the br
 like T5 did, and add unit tests and E2E coverage. Update README, THIRD_PARTY, store listing,
 calibration.md and qa.md. Owner model: Opus. Runs after T5 (same files).
 
-## T8: Battery saver (added at the user's request, ships in v0.1.0)
+## T8: Battery saver (merged into T9 below)
 Browsers don't expose OS low-power mode (macOS Low Power Mode / Windows battery saver), so use
 the available signals: Battery Status API (Chrome: charging, level; verify Firefox
 availability), and Compute Pressure API (Chrome, where available). Settings (defaults in
@@ -97,9 +97,26 @@ brackets):
 - unload models after N minutes idle [5]
 - manual "battery saver" toggle, shown prominently where the battery API is unavailable
   (Firefox)
-Owner model: Sonnet. Owns src/power/**. Makes additive edits to settings, the background gate
-before analysis, and the popup/options sections. Runs alongside T7 (T7 owns engine, fusion and
-calibration).
+Implemented as part of T9.
+
+## T9: Presence modes + battery saver (user feedback: the current UI is too intrusive for many users)
+The engine stays as is. The UI becomes configurable around a **Presence** preset (default **On click**):
+- **On click**: nothing on the page. The popup shows results, and "Show on page" turns on
+  highlights and the pill for that visit.
+- **Badge**: only the toolbar badge %.
+- **Status chip**: a tiny corner chip ("AI 23%") that expands into the full inspector and
+  collapses again. It has an optional auto-hide below a score threshold.
+- **Inspector**: today's highlights plus the pill.
+- **Side panel**: Chrome `sidePanel` and Firefox `sidebar_action`. A full report listing flagged
+  sentences; clicking one scrolls to it. No page marking.
+Underlying settings (the preset maps onto them, and "Custom" appears when edited): auto-run
+policy with per-site rules (always / never / ask); result surfaces (popup, badge, chip,
+highlights, side panel); chip corner; auto-hide threshold; a keyboard command to toggle
+visibility; "never on this site".
+Plus the battery saver from T8. Owner model: Sonnet. Owns entrypoints/popup, entrypoints/options
+(layout), entrypoints/content, src/content, src/ui, src/power, and a new sidepanel entrypoint.
+Runs alongside T7. T7 exposes its fusion settings as a self-contained options module and adds
+agreement data to results; T9 mounts and displays them.
 
 ## Out of scope for v1
 Remote APIs (incl. Anthropic's planned watermark-detection API and SynthID), VideoSeal/AudioSeal/TrustMark (35–228 MB models, v2), non-English calibration, and store publishing
