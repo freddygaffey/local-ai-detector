@@ -19,7 +19,7 @@
 //   9. Verify every zip: no source maps, no .env files, no node_modules;
 //      manifest_version 3 in both; Firefox has a gecko id and
 //      data_collection_permissions.
-//  10. Copy zips to release/, print sizes + SHA-256, write SHA256SUMS.
+//  10. Copy zips to release/, print sizes + SHA-256, write release/SHA256SUMS.
 //  11. Extract the sources zip into a scratch dir, rebuild the Firefox
 //      target from it, and diff the file list + hashes against the release
 //      build (set SKIP_REBUILD_CHECK=1 to skip this step).
@@ -106,8 +106,31 @@ function diffBuildDirs(a, b) {
   return { added, removed, changed, total: listA.size };
 }
 
+// Cross-platform (macOS + Linux CI) check that the plain POSIX tools this
+// script shells out to (`zip`, `unzip`, `find`; sha256 itself is computed in
+// Node, never via `shasum`/`sha256sum`) are on PATH, with a clear error
+// instead of a raw ENOENT deep in a child process.
+function requireTools(tools) {
+  const missing = tools.filter((t) => {
+    try {
+      execFileSync("sh", ["-c", `command -v ${t}`], { stdio: "ignore" });
+      return false;
+    } catch {
+      return true;
+    }
+  });
+  if (missing.length > 0) {
+    fail(
+      `required command-line tool(s) not found on PATH: ${missing.join(", ")}. ` +
+        `On Debian/Ubuntu (incl. GitHub Actions' ubuntu-latest): \`sudo apt-get install -y zip unzip findutils\`. ` +
+        `On macOS these ship with the OS.`,
+    );
+  }
+}
+
 // ---------------------------------------------------------------------
 header("Preflight: toolchain versions");
+requireTools(["zip", "unzip", "find", "sh"]);
 const nvmrc = existsSync(join(root, ".nvmrc")) ? readFileSync(join(root, ".nvmrc"), "utf8").trim() : null;
 const npmVersion = runCapture("npm", ["--version"]).trim();
 console.log(`Node ${process.version} (pinned: ${nvmrc ?? "n/a"} in .nvmrc; engines.node: ${pkg.engines?.node ?? "n/a"})`);
@@ -230,7 +253,11 @@ const nameWidth = Math.max(...rows.map((r) => r.file.length));
 for (const r of rows) {
   console.log(`${r.file.padEnd(nameWidth)}  ${humanSize(r.size).padStart(9)}  sha256:${r.hash}`);
 }
-const sumsPath = join(releaseDir, `SHA256SUMS-${version}.txt`);
+// Plain `sha256sum`-compatible format ("<hash>  <filename>"), so
+// `sha256sum -c SHA256SUMS` (run from release/) verifies it directly. Fixed
+// filename (no version suffix) so CI can upload it as a build artifact
+// without knowing the version in advance (see .github/workflows/ci.yml).
+const sumsPath = join(releaseDir, "SHA256SUMS");
 writeFileSync(sumsPath, rows.map((r) => `${r.hash}  ${r.file.split("/").pop()}`).join("\n") + "\n");
 console.log(`Wrote ${relative(root, sumsPath)}`);
 
