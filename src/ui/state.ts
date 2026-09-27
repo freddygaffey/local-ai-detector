@@ -76,10 +76,21 @@ export function isUnsupportedUrl(url: string | null | undefined): boolean {
   return false;
 }
 
+/**
+ * No known total during a "download" phase almost always means the model
+ * came straight from cache -- a real network fetch reports a byte total
+ * quickly. Cache reads never say "Downloading" (persona-walkthrough
+ * finding: it was misleading users into thinking they were re-fetching).
+ * Mirrors entrypoints/popup/main.ts's `isCacheLoad`.
+ */
+export function isCacheLoad(progress: ProgressEvent): boolean {
+  return progress.phase === "download" && progress.total === 0;
+}
+
 export function progressLabel(progress: ProgressEvent): string {
   switch (progress.phase) {
     case "download":
-      return "Downloading model";
+      return isCacheLoad(progress) ? "Loading model" : "Downloading model";
     case "load":
       return "Loading model";
     case "analyze":

@@ -18,20 +18,25 @@ import type { HighlightStyle, Mode, Settings } from "@/src/shared/settings";
 import { CONSENT_REQUIRED_ERROR, onAnalysisStatus, sendMessage, sendTabMessage } from "@/src/shared/messages";
 import type { AnalyzeResult, ProgressEvent, TabAnalysisStatus } from "@/src/shared/messages";
 import { clearChildren, h } from "@/src/ui/dom";
-import { derivePopupState, isUnsupportedUrl, progressPercent } from "@/src/ui/state";
+import { derivePopupState, isCacheLoad, isUnsupportedUrl, progressPercent } from "@/src/ui/state";
 import type { PopupState } from "@/src/ui/state";
 import { BAND_LABEL, bandClassName, bandFromResult, DETAILS_NOTE } from "@/src/ui/verdict";
 import { displayScore, formatScoreOrDash } from "@/src/ui/probability";
 import { buildGaugeSvg, updateGauge } from "@/src/ui/gauge";
 import { formatBytes, formatPercent, pluralize } from "@/src/ui/format";
 import { aggregateSources, countFlaggedSentences, SOURCE_LABEL } from "@/src/ui/breakdown";
-import { EXPERIMENTAL_MODES, MODE_LABEL, modeSizeMB } from "@/src/ui/modelInfo";
+import { EXPERIMENTAL_MODES, MODE_LABEL } from "@/src/ui/modelInfo";
 import { brandMark, closeIcon, gearIcon, warnIcon } from "@/src/ui/icons";
 import { requestImagePermission } from "@/src/provenance/permissions";
 import { scanUnicode } from "@/src/detectors/unicode";
 import { segmentSentences } from "@/src/content/segment";
 import { extractTextFromFile, ACCEPTED_FILE_EXTENSIONS } from "@/src/content/fileExtract";
 import { scoreHue } from "@/src/content/colors";
+import { mountToastHost, showToast } from "@/src/ui/toast";
+import { checklistRows, modeDownloadStatus, renderModelChecklist, type CacheKnown } from "@/src/ui/modelChecklist";
+import type { FusionDetector } from "@/src/shared/settings";
+import { sanitizeFusion } from "@/src/shared/settings";
+import type { ModelSlot } from "@/src/shared/settings";
 
 interface Ctx {
   settings: Settings;
@@ -44,6 +49,11 @@ interface Ctx {
   pasteOpen: boolean;
   pasteBusy: boolean;
   pasteError: string | null;
+  /** null until the content script answers (or fails to). Dims "Selection" only once we know it's empty. */
+  hasSelection: boolean | null;
+  /** Per-slot cache status, for the download checklist and mode-select hints. Undefined until known. */
+  cache: CacheKnown | undefined;
+  checklistBusy: boolean;
 }
 
 const ctx: Ctx = {
@@ -57,11 +67,16 @@ const ctx: Ctx = {
   pasteOpen: false,
   pasteBusy: false,
   pasteError: null,
+  hasSelection: null,
+  cache: undefined,
+  checklistBusy: false,
 };
 
 const root = document.getElementById("app") as HTMLDivElement;
 
 async function main() {
+  mountToastHost();
+  void refreshCache();
   const tab = await targetTab();
   ctx.tabId = tab?.id ?? null;
   ctx.tabUrl = tab?.url ?? null;
@@ -82,12 +97,35 @@ async function main() {
       applyStatus(status);
       render();
     });
+    sendTabMessage(tabId, "getSelectionInfo", undefined)
+      .then((res) => {
+        ctx.hasSelection = res.hasSelection;
+        render();
+      })
+      .catch(() => {
+        // No content script yet (e.g. a fresh tab) -- leave the button enabled
+        // rather than guess wrong; clicking it will surface the real state.
+      });
   }
 
   watchSettings((settings) => {
     ctx.settings = settings;
     render();
   });
+}
+
+async function refreshCache(): Promise<void> {
+  try {
+    const info = await sendMessage("getModelCacheInfo", undefined);
+    const known: CacheKnown = {};
+    for (const [slot, entry] of Object.entries(info.slots) as [ModelSlot, { cached: boolean }][]) {
+      known[slot] = entry.cached;
+    }
+    ctx.cache = known;
+    render();
+  } catch {
+    // Cache info isn't critical -- the checklist just won't grey anything out yet.
+  }
 }
 
 async function targetTab(): Promise<{ id?: number; url?: string } | undefined> {
@@ -193,21 +231,35 @@ function openOptions(): void {
   void browser.runtime.openOptionsPage();
 }
 
-// ---- Consent (download size + one button; no paragraphs) ----
+// ---- Consent (model download checklist; no paragraphs) ----
 
-function renderConsent(): HTMLElement {
-  const size = modeSizeMB(ctx.settings.mode, ctx.settings.fusion);
+/** First-run checklist: every model the selected mode needs, ticked by default, sizes + roles + a running total. */
+function renderConsentChecklist(): HTMLElement {
+  const rows = checklistRows(ctx.settings.mode, ctx.settings.fusion, ctx.settings.modelOverrides, "wasm", ctx.cache);
   return h(
     "div",
     { class: "popup-body consent" },
-    h(
-      "div",
-      { class: "consent-size panel" },
-      h("span", null, `${MODE_LABEL[ctx.settings.mode]} download`),
-      h("span", { class: "value mono" }, `~${size} MB`),
-    ),
-    h("button", { class: "btn btn-primary btn-block", type: "button", onclick: onConsent }, "Download & enable"),
+    h("p", { class: "field-hint" }, `${MODE_LABEL[ctx.settings.mode]} needs:`),
+    renderModelChecklist({
+      rows,
+      onToggle: (id, checked) => void onConsentToggle(id, checked),
+      onDownload: () => void onConsent(),
+      downloadLabel: "Download & enable",
+      busy: ctx.checklistBusy,
+    }),
   );
+}
+
+function renderConsent(): HTMLElement {
+  return renderConsentChecklist();
+}
+
+async function onConsentToggle(id: FusionDetector, checked: boolean): Promise<void> {
+  const current = ctx.settings.fusion.detectors;
+  const next = checked ? [...new Set([...current, id])] : current.filter((d) => d !== id);
+  if (next.length === 0) return; // keep at least one
+  ctx.settings = await setSettings({ fusion: sanitizeFusion({ ...ctx.settings.fusion, detectors: next }) });
+  render();
 }
 
 async function onConsent(): Promise<void> {
@@ -226,14 +278,6 @@ function renderUnsupported(): HTMLElement {
 }
 
 // ---- Progress ----
-
-function isCacheLoad(progress: ProgressEvent): boolean {
-  // No known total during a "download" phase almost always means the model
-  // came straight from cache -- a real network fetch reports a byte total
-  // quickly. Cache reads never say "Downloading" (persona-walkthrough
-  // finding: it was misleading users into thinking they were re-fetching).
-  return progress.phase === "download" && progress.total === 0;
-}
 
 function progressLabelFor(progress: ProgressEvent): string {
   if (progress.phase === "analyze") return "Analyzing";
@@ -275,18 +319,7 @@ function renderProgress(): HTMLElement {
 
 function renderErrorView(): HTMLElement {
   if (ctx.error?.startsWith(CONSENT_REQUIRED_ERROR)) {
-    const size = modeSizeMB(ctx.settings.mode, ctx.settings.fusion);
-    return h(
-      "div",
-      { class: "popup-body" },
-      h(
-        "div",
-        { class: "consent-size panel" },
-        h("span", null, `${MODE_LABEL[ctx.settings.mode]} download`),
-        h("span", { class: "value mono" }, `~${size} MB`),
-      ),
-      h("button", { class: "btn btn-primary btn-block", type: "button", onclick: onConsent }, "Download & enable"),
-    );
+    return renderConsentChecklist();
   }
   return h(
     "div",
@@ -439,9 +472,20 @@ async function grantImageAccess(patterns: string[]): Promise<void> {
 }
 
 function renderButtons(): HTMLElement {
+  const selectionDimmed = ctx.hasSelection === false;
   const buttons = [
     h("button", { class: "btn btn-primary", type: "button", onclick: () => void runAnalyze("page") }, "Analyze page"),
-    h("button", { class: "btn", type: "button", onclick: () => void runAnalyze("selection") }, "Selection"),
+    h(
+      "button",
+      {
+        class: "btn",
+        type: "button",
+        "aria-disabled": selectionDimmed ? "true" : undefined,
+        title: selectionDimmed ? "Select text first" : undefined,
+        onclick: () => void onSelectionClick(),
+      },
+      "Selection",
+    ),
   ];
   if (ctx.settings.presence === "onClick") {
     buttons.push(h("button", { class: "btn", type: "button", onclick: () => void showOnPage() }, "Show on page"));
@@ -616,13 +660,15 @@ function renderQuickSelects(): HTMLElement {
       "aria-label": "Detector mode",
       onchange: (e: Event) => void onModeChange((e.target as HTMLSelectElement).value as Mode),
     },
-    ...(Object.keys(MODE_LABEL) as Mode[]).map((mode) =>
-      h(
+    ...(Object.keys(MODE_LABEL) as Mode[]).map((mode) => {
+      const status = modeDownloadStatus(mode, ctx.settings.fusion, ctx.settings.modelOverrides, "wasm", ctx.cache);
+      const hint = status.cached ? "" : status.missingBytes !== null ? ` — download (${Math.round(status.missingBytes / 1e6)} MB)` : " — not downloaded";
+      return h(
         "option",
-        { value: mode, selected: ctx.settings.mode === mode },
-        MODE_LABEL[mode] + (EXPERIMENTAL_MODES.has(mode) ? " (experimental)" : ""),
-      ),
-    ),
+        { value: mode, selected: ctx.settings.mode === mode, style: hint ? "color: var(--ink-faint)" : undefined },
+        MODE_LABEL[mode] + (EXPERIMENTAL_MODES.has(mode) ? " (experimental)" : "") + hint,
+      );
+    }),
   );
   const styleSelect = h(
     "select",
@@ -652,6 +698,14 @@ async function onStyleChange(highlightStyle: HighlightStyle): Promise<void> {
 }
 
 // ---- Actions ----
+
+async function onSelectionClick(): Promise<void> {
+  if (ctx.hasSelection === false) {
+    showToast("No text selected");
+    return; // leave the popup state untouched -- this isn't an error.
+  }
+  await runAnalyze("selection");
+}
 
 async function runAnalyze(target: "page" | "selection"): Promise<void> {
   const tabId = ctx.tabId;

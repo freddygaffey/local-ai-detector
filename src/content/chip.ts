@@ -7,6 +7,7 @@
 // back. Closed shadow DOM, like the pill, so page CSS can't leak in or out.
 
 import type { Corner } from "../shared/settings";
+import { bandWeight, scoreColor } from "./colors";
 
 const HOTZONE_SIZE = 28;
 const MARGIN = 10;
@@ -14,6 +15,13 @@ const MARGIN = 10;
 export interface ChipContent {
   /** "AI 91%" (page) or "3 AI" (flagged-item count on a thread/comment page). Null hides the chip (still peekable on hover). */
   label: string | null;
+  /**
+   * The score behind `label` (0..1), when there is a single meaningful one
+   * (a page score, not a flagged-item count) -- colours and weights the
+   * label so a borderline and a confident score read differently even
+   * within the same band (docs/integration-notes.md "For T12").
+   */
+  score?: number;
 }
 
 export interface ChipCallbacks {
@@ -33,6 +41,14 @@ function reducedMotion(): boolean {
     return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
   } catch {
     return false;
+  }
+}
+
+function chipTheme(): "light" | "dark" {
+  try {
+    return window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  } catch {
+    return "dark";
   }
 }
 
@@ -112,6 +128,13 @@ export function createChip(corner: Corner, callbacks: ChipCallbacks): ChipApi {
     chip.classList.toggle("visible", show);
     chip.textContent = current.label ?? "…";
     chip.setAttribute("aria-label", current.label ? `AI detection: ${current.label}. Click for details.` : "AI detection: no result yet");
+    if (current.score !== undefined && current.label !== null) {
+      chip.style.color = scoreColor(current.score, chipTheme());
+      chip.style.fontWeight = String(bandWeight(current.score));
+    } else {
+      chip.style.color = "";
+      chip.style.fontWeight = "";
+    }
   }
 
   hotzone.addEventListener("pointerenter", () => {

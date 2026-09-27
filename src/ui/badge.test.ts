@@ -30,4 +30,12 @@ describe("badgeColorForScore", () => {
     const ai = badgeColorForScore(0.9);
     expect(new Set([human, mixed, ai]).size).toBe(3);
   });
+
+  test("colours differ within the AI band too (graduation, not a flat swatch)", () => {
+    expect(badgeColorForScore(0.55)).not.toBe(badgeColorForScore(0.98));
+  });
+
+  test("always a concrete #rrggbb (browser badge APIs, not an hsl() string)", () => {
+    expect(badgeColorForScore(0.5)).toMatch(/^#[0-9a-f]{6}$/);
+  });
 });

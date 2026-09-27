@@ -400,3 +400,94 @@ table.data tbody tr:last-child td {
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+
+/* ---- Toast (src/ui/toast.ts): minor/expected conditions only ---- */
+.lad-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 14px;
+  transform: translate(-50%, 6px);
+  max-width: calc(100% - 24px);
+  background: var(--ink);
+  color: var(--bg);
+  border-radius: var(--radius-md);
+  padding: 0.5em 0.9em;
+  font-size: 0.88em;
+  text-align: center;
+  box-shadow: var(--shadow-panel);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-med) ease, transform var(--dur-med) ease;
+  z-index: 1000;
+}
+.lad-toast.is-visible {
+  opacity: 0.96;
+  transform: translate(-50%, 0);
+}
+@media (prefers-reduced-motion: reduce) {
+  .lad-toast {
+    transition: opacity var(--dur-fast) ease;
+    transform: translate(-50%, 0);
+  }
+}
+
+/* ---- Model download checklist (src/ui/modelChecklist.ts) ---- */
+.model-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6em;
+}
+.model-checklist-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15em;
+}
+.model-checklist-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  padding: 0.4em 0.2em;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+.model-checklist-row:last-child {
+  border-bottom: none;
+}
+.model-checklist-row input[type="checkbox"] {
+  flex: none;
+}
+.model-checklist-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.model-checklist-label {
+  font-size: 0.92em;
+}
+.model-checklist-role {
+  color: var(--ink-faint);
+  font-size: 0.8em;
+}
+.model-checklist-row.is-cached .model-checklist-role {
+  color: var(--band-human);
+}
+.model-checklist-size {
+  color: var(--ink-soft);
+  font-size: 0.85em;
+  flex: none;
+}
+.model-checklist-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.9em;
+  padding-top: 0.3em;
+  border-top: 1px solid var(--border-strong);
+}
+
+/* ---- Buttons dimmed for an expected, non-error condition (e.g. no selection) ---- */
+.btn[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

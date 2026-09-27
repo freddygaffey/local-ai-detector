@@ -5,7 +5,7 @@
 // accessible throughout. A small "i" button explains the caveats.
 
 import { browser } from "wxt/browser";
-import { riskLevel } from "./colors";
+import { bandWeight, scoreColor } from "./colors";
 import type { PillProgress } from "./types";
 import type { HighlightStyle } from "../shared/settings";
 
@@ -35,6 +35,14 @@ function reducedMotion(): boolean {
     return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
   } catch {
     return false;
+  }
+}
+
+function pillTheme(): "light" | "dark" {
+  try {
+    return window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  } catch {
+    return "dark";
   }
 }
 
@@ -88,10 +96,7 @@ function css(): string {
       flex: none;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
-    .score { font-weight: 700; }
-    .score.low { color: #3ba55d; }
-    .score.medium { color: #d99e30; }
-    .score.high { color: #e5484d; }
+    .score { font-weight: 700; } /* colour + weight set inline per score -- see scoreColor()/bandWeight() */
     .muted { opacity: 0.75; font-size: 0.92em; }
     .counter { font-variant-numeric: tabular-nums; opacity: 0.85; min-width: 2.6em; text-align: center; }
     select { all: unset; background: rgba(127,127,127,0.18); border-radius: 8px; padding: 3px 6px; color: inherit; cursor: pointer; }
@@ -264,7 +269,7 @@ export function createPill(callbacks: PillCallbacks): PillApi {
       spinner.setAttribute("aria-hidden", "true");
       const label = document.createElement("span");
       const pct = progress.total > 0 ? Math.round((progress.loaded / progress.total) * 100) : undefined;
-      label.textContent = `${phaseLabel(progress.phase)}${pct !== undefined ? ` ${pct}%` : "…"}`;
+      label.textContent = `${phaseLabel(progress)}${pct !== undefined ? ` ${pct}%` : "…"}`;
       row.append(spinner, label);
       pill.appendChild(row);
       announce(label.textContent);
@@ -277,7 +282,12 @@ export function createPill(callbacks: PillCallbacks): PillApi {
       row.className = "row";
       const pct = Math.round(overall * 100);
       const score = document.createElement("span");
-      score.className = `score ${riskLevel(overall)}`;
+      score.className = "score";
+      // Continuous colour + weight, not a flat per-band swatch, so a
+      // borderline score and a confident one look different even within
+      // the same band (docs/integration-notes.md "For T12").
+      score.style.color = scoreColor(overall, pillTheme());
+      score.style.fontWeight = String(bandWeight(overall));
       score.textContent = `AI likelihood ${pct}%`;
       row.appendChild(score);
       const flagged = document.createElement("span");
@@ -366,9 +376,17 @@ export function createPill(callbacks: PillCallbacks): PillApi {
   return api;
 }
 
-function phaseLabel(phase: PillProgress["phase"]): string {
-  if (phase === "download") return "Downloading model…";
-  if (phase === "load") return "Loading model…";
+/**
+ * No known total during a "download" phase almost always means the model
+ * came straight from cache -- a real network fetch reports a byte total
+ * quickly. Cache reads never say "Downloading" (mirrors
+ * entrypoints/popup/main.ts's `isCacheLoad` / src/ui/state.ts's).
+ */
+function phaseLabel(progress: PillProgress): string {
+  if (progress.phase === "download") {
+    return progress.total === 0 ? "Loading model…" : "Downloading model…";
+  }
+  if (progress.phase === "load") return "Loading model…";
   return "Analyzing…";
 }
 

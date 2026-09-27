@@ -1,0 +1,180 @@
+// Model download checklist (docs/integration-notes.md "For T12", user
+// feedback: "the first-run download becomes a checklist"). Shown on the
+// popup's first-run consent screen and again in options -> Models. Reads
+// the model registry dynamically (src/engine/models.ts) instead of
+// hard-coding sizes/roles, because T7 may add slots (e.g. Fakespot).
+//
+// All rows start ticked. Unchecking a row removes that detector from
+// `settings.fusion.detectors` (only meaningful in Fusion mode -- the other
+// modes have exactly one required model and its row is locked on). The
+// running total and the "Download" button reflect only checked rows.
+// Actually fetching the bytes still happens lazily on first analysis (T1's
+// `ensureModels`); this component only decides *which* detectors are asked
+// for, by writing the same `fusion.detectors` field the Fusion settings
+// panel (src/ui/fusionSettings.ts, T7) reads and writes.
+
+import { DEFAULT_MODELS, DETECTOR_SLOTS, estimateFusion, type FusionSpec } from "../engine/models";
+import type { FusionDetector, Mode, ModelSlot, Settings } from "../shared/settings";
+import { fusionFrom } from "../engine/models";
+import { formatBytes } from "./format";
+import { h } from "./dom";
+
+/** Short, plain-language role blurb per detector -- "a few words," not a sentence. */
+export const DETECTOR_ROLE: Record<FusionDetector, string> = {
+  tmr: "Primary classifier (RAID-trained).",
+  modernbert: "Second classifier (RAID + MAGE).",
+  lite: "Small & fast; used for the automatic pass.",
+  perplexity: "Predictability to a small language model.",
+  binoculars: "Compares two small models. Slow.",
+};
+
+/** Mode -> the one detector it needs, for the four single-detector modes. */
+const MODE_DETECTOR: Partial<Record<Mode, FusionDetector>> = {
+  classifier: "tmr",
+  classifierLite: "lite",
+  perplexity: "perplexity",
+  binoculars: "binoculars",
+};
+
+/** Every Fusion detector, in a fixed display order (matches src/ui/fusionSettings.ts). */
+export const ALL_FUSION_DETECTORS: FusionDetector[] = ["tmr", "modernbert", "lite", "perplexity", "binoculars"];
+
+export interface ChecklistRow {
+  id: FusionDetector;
+  label: string;
+  role: string;
+  sizeBytes: number | null;
+  slots: ModelSlot[];
+  /** Every slot this detector needs is already in the cache. */
+  cached: boolean;
+  checked: boolean;
+  /** Can't be unchecked: the only detector for a single-detector mode, or the last one left in Fusion. */
+  locked: boolean;
+}
+
+export type CacheKnown = Partial<Record<ModelSlot, boolean>>;
+
+/**
+ * Builds the checklist rows for the current mode. For "ensemble" (Fusion),
+ * one row per detector in `settings.fusion.detectors` (checked) plus any
+ * detector NOT currently selected is omitted -- the checklist only ever
+ * shows what would actually be requested, never an unrelated detector the
+ * user would need the Fusion panel to add first.
+ */
+export function checklistRows(
+  mode: Mode,
+  fusion: FusionSpec,
+  overrides: Settings["modelOverrides"] | undefined,
+  device: "wasm" | "webgpu",
+  cache: CacheKnown | undefined,
+  /** Options -> Models passes true to also list detectors NOT currently selected (unchecked, addable). */
+  listAll = false,
+): ChecklistRow[] {
+  const single = MODE_DETECTOR[mode];
+  const selected = single ? [single] : fusionFrom(fusion).detectors;
+  const ids = single ? [single] : listAll ? ALL_FUSION_DETECTORS : selected;
+  return ids.map((id) => {
+    const slots = DETECTOR_SLOTS[id];
+    const sizeBytes = estimateFusion([id], device, overrides).bytes;
+    const cached = cache ? slots.every((s) => cache[s] === true) : false;
+    const checked = selected.includes(id);
+    return {
+      id,
+      label: slots.map((s) => DEFAULT_MODELS[s].label).join(" + "),
+      role: DETECTOR_ROLE[id],
+      sizeBytes,
+      slots,
+      cached,
+      checked,
+      locked: !!single || (checked && selected.length <= 1),
+    };
+  });
+}
+
+/** Running total over checked rows only; null if any checked row's size is unknown (custom repo). */
+export function checklistTotalBytes(rows: ChecklistRow[]): number | null {
+  let total = 0;
+  for (const r of rows) {
+    if (!r.checked) continue;
+    if (r.sizeBytes === null) return null;
+    total += r.sizeBytes;
+  }
+  return total;
+}
+
+/**
+ * Whether a mode's models are fully cached already, and how much is left to
+ * fetch if not -- for greying out a mode/detector picker with an inline
+ * "download (N MB)" hint (docs/integration-notes.md "For T12").
+ */
+export function modeDownloadStatus(
+  mode: Mode,
+  fusion: FusionSpec,
+  overrides: Settings["modelOverrides"] | undefined,
+  device: "wasm" | "webgpu",
+  cache: CacheKnown | undefined,
+): { cached: boolean; missingBytes: number | null } {
+  if (!cache) return { cached: true, missingBytes: null }; // unknown yet -- don't grey out speculatively
+  const rows = checklistRows(mode, fusion, overrides, device, cache);
+  const missing = rows.filter((r) => !r.cached);
+  if (missing.length === 0) return { cached: true, missingBytes: null };
+  let bytes = 0;
+  for (const r of missing) {
+    if (r.sizeBytes === null) return { cached: false, missingBytes: null };
+    bytes += r.sizeBytes;
+  }
+  return { cached: false, missingBytes: bytes };
+}
+
+export interface ChecklistOptions {
+  rows: ChecklistRow[];
+  onToggle: (id: FusionDetector, checked: boolean) => void;
+  /** Omit to hide the Download button (e.g. nothing left to fetch). */
+  onDownload?: () => void;
+  downloadLabel?: string;
+  busy?: boolean;
+}
+
+/** Renders the checklist: one row per detector, a running total, one button. */
+export function renderModelChecklist(opts: ChecklistOptions): HTMLElement {
+  const { rows, onToggle, onDownload, downloadLabel, busy } = opts;
+  const rowEls = rows.map((row) => {
+    const checkbox = h("input", {
+      type: "checkbox",
+      checked: row.checked,
+      disabled: row.locked,
+      "aria-label": row.label,
+      onchange: (e: Event) => onToggle(row.id, (e.target as HTMLInputElement).checked),
+    }) as HTMLInputElement;
+    return h(
+      "label",
+      { class: `model-checklist-row${row.cached ? " is-cached" : ""}` },
+      checkbox,
+      h(
+        "span",
+        { class: "model-checklist-text" },
+        h("span", { class: "model-checklist-label" }, row.label),
+        h("span", { class: "model-checklist-role" }, row.cached ? `${row.role} · cached` : row.role),
+      ),
+      h("span", { class: "model-checklist-size mono" }, row.sizeBytes === null ? "size unknown" : formatBytes(row.sizeBytes)),
+    );
+  });
+  const totalBytes = checklistTotalBytes(rows);
+  const footer = h(
+    "div",
+    { class: "model-checklist-footer" },
+    h("span", null, "Total"),
+    h("span", { class: "value mono" }, totalBytes === null ? "unknown" : `~${formatBytes(totalBytes)}`),
+  );
+  const children: (Node | null)[] = [h("div", { class: "model-checklist-rows" }, ...rowEls), footer];
+  if (onDownload) {
+    children.push(
+      h(
+        "button",
+        { class: "btn btn-primary btn-block", type: "button", disabled: !!busy, onclick: onDownload },
+        busy ? "Downloading…" : downloadLabel ?? "Download",
+      ),
+    );
+  }
+  return h("div", { class: "model-checklist" }, ...children);
+}

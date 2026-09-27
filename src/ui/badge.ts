@@ -9,8 +9,8 @@
 // so they're unit-testable without a real `browser.action`.
 
 import { browser } from "wxt/browser";
+import { scoreHue } from "../content/colors";
 import { toPercentInt } from "./format";
-import { scoreToBand } from "./verdict";
 
 // Small "spinner" made of braille-ish dots cycling in the 4-character badge
 // space, so the toolbar shows visible motion while analysis is running
@@ -30,22 +30,41 @@ export function badgeTextForScore(score: number): string {
   return String(toPercentInt(score));
 }
 
-const COLOR_HUMAN = "#4f7a53";
-const COLOR_MIXED = "#b8862b";
 const COLOR_AI = "#b5482f";
 const COLOR_NEUTRAL = "#5b6a72";
 
-/** Badge background colour for a finished score, by band. */
+/** HSL -> "#rrggbb" (browser badge APIs want a concrete colour, not an hsl() string). */
+function hslToHex(hue: number, satPct: number, lightPct: number): string {
+  const s = satPct / 100;
+  const l = lightPct / 100;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((hue / 60) % 2) - 1));
+  const m = l - c / 2;
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  if (hue < 60) [r, g, b] = [c, x, 0];
+  else if (hue < 120) [r, g, b] = [x, c, 0];
+  else if (hue < 180) [r, g, b] = [0, c, x];
+  else if (hue < 240) [r, g, b] = [0, x, c];
+  else if (hue < 300) [r, g, b] = [x, 0, c];
+  else [r, g, b] = [c, 0, x];
+  const toHex = (v: number) =>
+    Math.round((v + m) * 255)
+      .toString(16)
+      .padStart(2, "0");
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+/**
+ * Badge background colour for a finished score: a continuous green -> amber
+ * -> red scale (src/content/colors.ts `scoreHue`), not three flat swatches --
+ * so e.g. a borderline 54% and a confident 97% (both the "ai" band) read
+ * differently, not just "AI" vs "not AI" (docs/integration-notes.md "For
+ * T12": colour/weight graduation within the AI band).
+ */
 export function badgeColorForScore(score: number): string {
-  const band = scoreToBand({ overall: score, hasScoredSentences: true });
-  switch (band) {
-    case "human":
-      return COLOR_HUMAN;
-    case "ai":
-      return COLOR_AI;
-    default:
-      return COLOR_MIXED;
-  }
+  return hslToHex(scoreHue(score), 70, 40);
 }
 
 /** Badge colour while work is in progress (neutral, not yet a verdict). */

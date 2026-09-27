@@ -35,6 +35,15 @@ import { EXPERIMENTAL_MODES, licenseLabel, MODEL_REGISTRY, MODE_LABEL } from "@/
 import { brandMark, externalLinkIcon } from "@/src/ui/icons";
 import { NO_SIGNALS_WORDING, UNCHECKABLE_SCHEMES } from "@/src/provenance/schemes";
 import { requestImagePermission } from "@/src/provenance/permissions";
+import { mountToastHost, showToast } from "@/src/ui/toast";
+import {
+  ALL_FUSION_DETECTORS,
+  checklistRows,
+  modeDownloadStatus,
+  renderModelChecklist,
+} from "@/src/ui/modelChecklist";
+import type { FusionDetector } from "@/src/shared/settings";
+import { sanitizeFusion } from "@/src/shared/settings";
 
 const SLOTS = Object.keys(MODEL_REGISTRY) as ModelSlot[];
 
@@ -51,7 +60,7 @@ interface State {
   allUrlsGranted: boolean | null;
   newSiteRuleHost: string;
   newSiteRulePolicy: AutoRunPolicy;
-  siteMemoryCleared: boolean;
+  checklistBusy: boolean;
 }
 
 const state: State = {
@@ -67,13 +76,14 @@ const state: State = {
   allUrlsGranted: null,
   newSiteRuleHost: "",
   newSiteRulePolicy: "never",
-  siteMemoryCleared: false,
+  checklistBusy: false,
 };
 
 const root = document.getElementById("app") as HTMLDivElement;
 let fusionUnmount: (() => void) | null = null;
 
 async function main() {
+  mountToastHost();
   render();
   void refreshCache();
   void refreshEngineInfo();
@@ -166,10 +176,14 @@ function renderDetectionSection(): HTMLElement {
       "Mode",
       "Fusion combines detectors for the steadiest read.",
       selectControl(
-        (Object.keys(MODE_LABEL) as Mode[]).map((mode) => ({
-          value: mode,
-          label: MODE_LABEL[mode] + (EXPERIMENTAL_MODES.has(mode) ? " (experimental)" : ""),
-        })),
+        (Object.keys(MODE_LABEL) as Mode[]).map((mode) => {
+          const hint = modeDownloadHint(mode);
+          return {
+            value: mode,
+            label: MODE_LABEL[mode] + (EXPERIMENTAL_MODES.has(mode) ? " (experimental)" : "") + hint.text,
+            muted: hint.muted,
+          };
+        }),
         s.mode,
         (value) => void updateSettings({ mode: value as Mode }),
       ),
@@ -246,15 +260,24 @@ function fieldRow(label: string, hint: string, control: HTMLElement): HTMLElemen
 }
 
 function selectControl(
-  options: { value: string; label: string }[],
+  options: { value: string; label: string; muted?: boolean }[],
   value: string,
   onChange: (value: string) => void,
 ): HTMLSelectElement {
   return h(
     "select",
     { onchange: (e: Event) => onChange((e.target as HTMLSelectElement).value) },
-    ...options.map((opt) => h("option", { value: opt.value, selected: opt.value === value }, opt.label)),
+    ...options.map((opt) =>
+      h("option", { value: opt.value, selected: opt.value === value, style: opt.muted ? "color: var(--ink-faint)" : undefined }, opt.label),
+    ),
   );
+}
+
+/** " — download (34 MB)" once cache info is known and the mode isn't fully cached yet; "" otherwise. */
+function modeDownloadHint(mode: Mode): { text: string; muted: boolean } {
+  const status = modeDownloadStatus(mode, state.settings.fusion, state.settings.modelOverrides, checklistDevice(), checklistCache());
+  if (status.cached) return { text: "", muted: false };
+  return { text: status.missingBytes !== null ? ` — download (${Math.round(status.missingBytes / 1e6)} MB)` : " — not downloaded", muted: true };
 }
 
 function toggleControl(checked: boolean, onChange: (checked: boolean) => void): HTMLElement {
@@ -526,7 +549,7 @@ function renderSiteMemorySection(): HTMLElement {
     ),
     fieldRow(
       "Clear history",
-      state.siteMemoryCleared ? "Cleared." : "",
+      "",
       h("button", { class: "btn btn-ghost btn-small", type: "button", onclick: () => void doClearSiteMemory() }, "Clear"),
     ),
   );
@@ -535,8 +558,7 @@ function renderSiteMemorySection(): HTMLElement {
 
 async function doClearSiteMemory(): Promise<void> {
   await clearSiteMemory();
-  state.siteMemoryCleared = true;
-  render();
+  showToast("Site memory cleared");
 }
 
 // ---- Models ----
@@ -558,6 +580,7 @@ function renderModelsSection(): HTMLElement {
     ),
     h("div", { class: "cache-total" }, h("span", null, "Total model cache"), total),
     h("p", { class: "status-line" }, engineLine),
+    h("div", { class: "settings-list" }, h("div", { class: "card-subtitle" }, "Download checklist"), renderChecklistCard()),
     h(
       "div",
       { class: "btn-row", style: "margin:0.8em 0 1.2em" },
@@ -566,6 +589,65 @@ function renderModelsSection(): HTMLElement {
     ),
     h("div", { class: "settings-list" }, ...SLOTS.map((slot) => renderModelRow(slot))),
   );
+}
+
+function checklistCache(): Partial<Record<ModelSlot, boolean>> | undefined {
+  if (!state.cache) return undefined;
+  const out: Partial<Record<ModelSlot, boolean>> = {};
+  for (const slot of SLOTS) out[slot] = state.cache.slots[slot]?.cached ?? false;
+  return out;
+}
+
+function checklistDevice(): "wasm" | "webgpu" {
+  const runtime = state.engine?.runtime;
+  const gpu = runtime ? runtime.device === "webgpu" || runtime.shaderF16 : true;
+  return state.settings.useWebGPU && gpu ? "webgpu" : "wasm";
+}
+
+/**
+ * Same checklist shape as the popup's first-run screen (src/ui/modelChecklist.ts),
+ * but listing every Fusion detector (not just the selected ones) so a model
+ * can be added back after being removed here. Read-only when the mode isn't
+ * Fusion: there is nothing to add or remove.
+ */
+function renderChecklistCard(): HTMLElement {
+  const rows = checklistRows(state.settings.mode, state.settings.fusion, state.settings.modelOverrides, checklistDevice(), checklistCache(), true);
+  const anyMissingChecked = rows.some((r) => r.checked && !r.cached);
+  return renderModelChecklist({
+    rows,
+    onToggle: (id, checked) => void onChecklistToggle(id, checked),
+    onDownload: anyMissingChecked ? () => void doDownloadChecklist() : undefined,
+    downloadLabel: "Download checked",
+    busy: state.checklistBusy,
+  });
+}
+
+async function onChecklistToggle(id: FusionDetector, checked: boolean): Promise<void> {
+  const current = state.settings.fusion.detectors;
+  const next = checked ? [...new Set([...current, id])] : current.filter((d) => d !== id);
+  if (next.length === 0) return; // keep at least one, same rule as the Fusion panel (T7)
+  state.settings = await setSettings({ fusion: sanitizeFusion({ ...state.settings.fusion, detectors: next }) });
+  render();
+}
+
+async function doDownloadChecklist(): Promise<void> {
+  if (!state.settings.consentedDownload) {
+    showToast("Consent to downloads from the popup first");
+    return;
+  }
+  state.checklistBusy = true;
+  render();
+  try {
+    const blocks = [{ id: "warm", text: "warm up", sentences: [{ start: 0, end: 7 }] }];
+    await sendMessage("analyze", { tabId: -1, mode: state.settings.mode, blocks });
+    showToast("Download complete");
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : "Download failed");
+  } finally {
+    state.checklistBusy = false;
+    void refreshCache();
+    render();
+  }
 }
 
 type CacheBackend = NonNullable<EngineInfo["runtime"]>["cache"];
