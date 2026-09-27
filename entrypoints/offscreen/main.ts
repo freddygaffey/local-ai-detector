@@ -13,8 +13,11 @@
 
 import { browser } from "wxt/browser";
 import { startOffscreenHost } from "@/src/engine/host-server";
+import { registerProvenanceHost } from "@/src/provenance/host";
 
 startOffscreenHost(browser.runtime as unknown as Parameters<typeof startOffscreenHost>[0], {
   ortBaseUrl: browser.runtime.getURL("/ort/" as "/"),
   firefox: false,
 });
+
+registerProvenanceHost();

@@ -14,6 +14,7 @@ import { registerHandlers } from "@/src/shared/messages";
 import { startEngineRouter } from "@/src/engine/router";
 import { getSettings, watchSettings } from "@/src/shared/settings";
 import { clearBadge } from "@/src/ui/badge";
+import { registerProvenanceBackground } from "@/src/provenance/background";
 
 export default defineBackground(() => {
   console.log("[Local AI Detector] background started", browser.runtime.id);
@@ -28,6 +29,7 @@ export default defineBackground(() => {
   });
 
   startEngineRouter();
+  registerProvenanceBackground();
 
   void getSettings().then((settings) => {
     console.log("[Local AI Detector] settings loaded", settings);
