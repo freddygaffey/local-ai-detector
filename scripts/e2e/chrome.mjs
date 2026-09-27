@@ -486,7 +486,7 @@ if (!PROD) await step("WebGPU vs WASM (settings.useWebGPU) on the same pages", a
   }
   const info = await ext(popup, "getEngineInfo", undefined);
   note(`device after useWebGPU=false: ${info.runtime.device}`);
-  await setGpu(true);
+  await setGpu(false); // back to the default
   await setMode("ensemble");
   report.facts.deviceComparison = out;
   await p.close();
