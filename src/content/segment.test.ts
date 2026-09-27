@@ -46,3 +46,14 @@ describe("wordCount", () => {
     expect(wordCount("  one   two  ")).toBe(2);
   });
 });
+
+describe("citation markers", () => {
+  test("keeps Wikipedia-style [4] with the sentence it follows", async () => {
+    const { segmentSentences } = await import("./segment");
+    const text = "Hedgehogs are brought to clinics in Europe.[4] They are easily stressed by humans.[5] Clinics keep them in a box.";
+    const parts = segmentSentences(text).map((s) => text.slice(s.start, s.end));
+    expect(parts.join("")).toBe(text);
+    expect(parts[0]).toMatch(/Europe\.\[4\] $/);
+    expect(parts[1]).toMatch(/^They are easily/);
+  });
+});

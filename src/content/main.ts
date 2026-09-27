@@ -188,6 +188,13 @@ async function boot(): Promise<void> {
       enablePageDisplayForSession();
       return { ok: true };
     },
+    getSentenceTexts: ({ keys }) => ({
+      texts: keys.map(({ blockId, index }) => {
+        const block = blocksById.get(blockId);
+        const sp = block?.sentences[index];
+        return block && sp ? block.text.slice(sp.start, sp.end).trim().replace(/\s+/g, " ") : null;
+      }),
+    }),
     scrollToSentence: ({ blockId, index }) => {
       const sentence = activeSentences.find((s) => s.blockId === blockId && s.index === index);
       if (sentence) focusFlash(sentence);

@@ -14,8 +14,7 @@ import type { AnalyzeResult, TabAnalysisStatus } from "@/src/shared/messages";
 import { clearChildren, h } from "@/src/ui/dom";
 import { BAND_LABEL, bandClassName, bandFromResult } from "@/src/ui/verdict";
 import { displayScore } from "@/src/ui/probability";
-import { formatPercent } from "@/src/ui/format";
-import { FLAGGED_THRESHOLD } from "@/src/shared/thresholds";
+import { FLAGGED_THRESHOLD, toDisplayProbability } from "@/src/shared/thresholds";
 import { brandMark } from "@/src/ui/icons";
 import { mountToastHost, showToast } from "@/src/ui/toast";
 import { CONSENT_REQUIRED_ERROR } from "@/src/shared/messages";
@@ -30,9 +29,11 @@ interface Ctx {
   /** Deep check (docs/plan.md "Two tiers"): the ↻ button's own busy/spin state. */
   deepBusy: boolean;
   deepChecklistOpen: boolean;
+  /** Sentence text for the flagged list, keyed "blockId#index" (fetched from the page). */
+  texts: Map<string, string>;
 }
 
-const ctx: Ctx = { settings: await getSettings(), tabId: null, result: null, status: "idle", deepBusy: false, deepChecklistOpen: false };
+const ctx: Ctx = { settings: await getSettings(), tabId: null, result: null, status: "idle", deepBusy: false, deepChecklistOpen: false, texts: new Map() };
 const root = document.getElementById("app") as HTMLDivElement;
 let unsubscribeStatus: (() => void) | null = null;
 
@@ -74,7 +75,35 @@ async function followActiveTab(): Promise<void> {
 
 function applyStatus(status: TabAnalysisStatus): void {
   ctx.status = status.state;
-  if (status.state === "done") ctx.result = status.result;
+  if (status.state === "done") {
+    ctx.result = status.result;
+    void loadTexts(status.result);
+  }
+}
+
+/** Fetches the flagged sentences' text from the page, so the list reads as sentences, not ids. */
+async function loadTexts(result: AnalyzeResult): Promise<void> {
+  if (ctx.tabId === null) return;
+  const keys = result.sentences.filter((s) => s.score >= FLAGGED_THRESHOLD).map((s) => ({ blockId: s.blockId, index: s.index }));
+  if (!keys.length) return;
+  try {
+    const { texts } = await sendTabMessage(ctx.tabId, "getSentenceTexts", { keys });
+    ctx.texts = new Map(keys.flatMap((k, i) => (texts[i] ? [[`${k.blockId}#${k.index}`, texts[i]!] as [string, string]] : [])));
+    render();
+  } catch {
+    // older content script: keep the fallback labels
+  }
+}
+
+/** A sentence's shown P(AI): the run's per-item (paragraph-level) curve. */
+function sentencePercent(result: AnalyzeResult, score: number): string {
+  const p = toDisplayProbability(score, {
+    detectors: result.detectors?.map((d) => d.id),
+    method: result.fusion?.method,
+    device: result.device,
+    level: "unit",
+  });
+  return `${Math.round(p * 100)}%`;
 }
 
 function render(): void {
@@ -133,6 +162,9 @@ function renderBody(): HTMLElement {
   } else {
     const list = h("ul", { class: "sp-list" });
     for (const s of flagged) {
+      // List markers ("1.", "2.") split off as their own "sentences": not worth a row.
+      const text = ctx.texts.get(`${s.blockId}#${s.index}`);
+      if (text !== undefined && text.split(/\s+/).filter((w) => /[a-z]/i.test(w)).length < 2) continue;
       const item = h(
         "li",
         null,
@@ -143,8 +175,8 @@ function renderBody(): HTMLElement {
             type: "button",
             onclick: () => void scrollTo(s.blockId, s.index),
           },
-          h("span", { class: "sp-item-score" }, formatPercent(s.score)),
-          h("span", { class: "sp-item-label" }, `Block ${s.blockId.slice(-6)} · sentence ${s.index + 1}`),
+          h("span", { class: "sp-item-score" }, sentencePercent(result, s.score)),
+          h("span", { class: "sp-item-label" }, text ?? `Sentence ${s.index + 1}`),
         ),
       );
       list.append(item);
@@ -166,6 +198,7 @@ async function runAnalyze(): Promise<void> {
   try {
     const result = await sendMessage("analyzeTab", { tabId: ctx.tabId, target: "page" });
     ctx.result = result;
+    void loadTexts(result);
     ctx.status = "done";
   } catch (err) {
     ctx.status = "idle";
@@ -194,6 +227,7 @@ async function onDeepCheck(): Promise<void> {
   try {
     const result = await sendMessage("analyzeTab", { tabId, target: "page", ...deepCheckRequestFields(ctx.settings) });
     ctx.result = result;
+    void loadTexts(result);
     ctx.status = "done";
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

@@ -19,7 +19,19 @@ export function segmentSentences(text: string): SentenceRange[] {
   if (text.length === 0) return [];
   const spans: SentenceRange[] = [];
   for (const seg of getSegmenter().segment(text)) {
-    spans.push({ start: seg.index, end: seg.index + seg.segment.length });
+    const span = { start: seg.index, end: seg.index + seg.segment.length };
+    // Citation markers: Intl.Segmenter splits "Europe.[4] They" after the
+    // "[", so "4] They …" starts the next sentence. Move "4] " back.
+    const prev = spans[spans.length - 1];
+    if (prev && text[prev.end - 1] === "[") {
+      const m = /^(?:\d{1,4}|[a-z]|note \d{1,3})\]\s*/i.exec(text.slice(span.start, span.end));
+      if (m) {
+        prev.end += m[0].length;
+        span.start += m[0].length;
+        if (span.start >= span.end) continue;
+      }
+    }
+    spans.push(span);
   }
   return spans;
 }

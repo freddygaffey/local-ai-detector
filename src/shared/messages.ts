@@ -578,8 +578,16 @@ export interface SeekVideoMessage {
   response: ActionResult;
 }
 
+/** Side panel -> content script: the text of these sentences (for the flagged list), null where unknown. */
+export interface GetSentenceTextsMessage {
+  type: "getSentenceTexts";
+  request: { keys: { blockId: string; index: number }[] };
+  response: { texts: (string | null)[] };
+}
+
 /** Every request/response message kind, as a discriminated union. */
 export type RuntimeMessage =
+  | GetSentenceTextsMessage
   | GetTranscriptReportMessage
   | GetPageTypeMessage
   | SeekVideoMessage
