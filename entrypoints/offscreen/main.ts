@@ -14,6 +14,7 @@
 import { browser } from "wxt/browser";
 import { startOffscreenHost } from "@/src/engine/host-server";
 import { registerProvenanceHost } from "@/src/provenance/host";
+import { registerVoiceOffscreenHost } from "@/src/engine/voiceHost";
 
 startOffscreenHost(browser.runtime as unknown as Parameters<typeof startOffscreenHost>[0], {
   ortBaseUrl: browser.runtime.getURL("/ort/" as "/"),
@@ -21,3 +22,6 @@ startOffscreenHost(browser.runtime as unknown as Parameters<typeof startOffscree
 });
 
 registerProvenanceHost();
+
+// T11 voice check (its own message kinds; see src/voice/protocol.ts).
+registerVoiceOffscreenHost(browser.runtime as unknown as Parameters<typeof registerVoiceOffscreenHost>[0], browser.runtime.getURL("/ort/" as "/"));

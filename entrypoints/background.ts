@@ -16,6 +16,7 @@ import { clearBadge } from "@/src/ui/badge";
 import { registerProvenanceBackground } from "@/src/provenance/background";
 import { hasImagePermission, originPattern, requestImagePermission } from "@/src/provenance/permissions";
 import { isIdleTooLong } from "@/src/power/idle";
+import { registerVoiceBackground } from "@/src/voice/background";
 
 const MENU_ANALYZE_PAGE = "lad-analyze-page";
 const MENU_CHECK_IMAGE = "lad-check-image";
@@ -169,6 +170,7 @@ export default defineBackground(() => {
     );
   }
   registerProvenanceBackground();
+  registerVoiceBackground(); // T11 voice check
 
   void getSettings().then((settings) => {
     console.log("[Local AI Detector] settings loaded", settings);

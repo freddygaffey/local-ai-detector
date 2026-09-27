@@ -8,6 +8,7 @@
 
 import { browser } from "wxt/browser";
 import { FILTER_THRESHOLD } from "./thresholds";
+import { DEFAULT_VOICE, type VoiceSettings } from "../voice/settings";
 
 /** Detector mode, selectable in the popup/options UI. */
 export type Mode =
@@ -266,6 +267,11 @@ export interface Settings {
   settingsVersion?: number;
 }
 
+// ---- Added by T11: voice check (experimental); see src/voice/settings.ts ----
+export interface Settings {
+  voice: VoiceSettings;
+}
+
 /** Current `settingsVersion`. 2 = T7: Fusion replaces Ensemble, WebGPU on by default. */
 export const SETTINGS_VERSION = 2;
 
@@ -320,6 +326,7 @@ export const DEFAULT_SETTINGS: Settings = {
     searchMarkers: true,
   },
   siteMemoryEnabled: false,
+  voice: DEFAULT_VOICE,
 };
 
 const STORAGE_KEY = "settings";
