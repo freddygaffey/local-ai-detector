@@ -19,6 +19,8 @@ import { clearChildren, h } from "@/src/ui/dom";
 import { formatBytes, shortSha } from "@/src/ui/format";
 import { EXPERIMENTAL_MODES, licenseLabel, MODEL_REGISTRY, MODE_LABEL } from "@/src/ui/modelInfo";
 import { brandMark, externalLinkIcon } from "@/src/ui/icons";
+import { NO_SIGNALS_WORDING, UNCHECKABLE_SCHEMES } from "@/src/provenance/schemes";
+import { requestImagePermission } from "@/src/provenance/permissions";
 
 const SLOTS = Object.keys(MODEL_REGISTRY) as ModelSlot[];
 
@@ -534,27 +536,24 @@ function renderProvenanceSection(): HTMLElement {
         h(
           "p",
           null,
-          "These need a provider's secret key or a rate-limited web portal. “No watermark found” never means “human-made”.",
+          "These need a provider's secret key or a remote service. “No watermark found” never means “human-made”. Checker links open the provider's own site only when you click them; nothing is uploaded automatically.",
         ),
         h(
           "ul",
           null,
-          h("li", null, "Google SynthID (image, video, audio, text) — also used by OpenAI images/audio and ElevenLabs audio."),
-          h("li", null, "Anthropic's Claude text watermark — detector is private preview only."),
-          h("li", null, "Gemini text watermark (SynthID-Text, Google's key)."),
-          h("li", null, "Meta Content Seal (Muse Image)."),
-          h("li", null, "Digimarc, and TrustMark ID lookups (need a remote resolver)."),
+          ...UNCHECKABLE_SCHEMES.map((scheme) =>
+            h(
+              "li",
+              null,
+              h("strong", null, scheme.name),
+              ` (${scheme.media}; ${scheme.usedBy}). ${scheme.why} `,
+              scheme.checker
+                ? h("a", { href: scheme.checker.url, target: "_blank", rel: "noreferrer" }, scheme.checker.label, externalLinkIcon())
+                : null,
+            ),
+          ),
         ),
-        h(
-          "p",
-          null,
-          h("a", { href: "https://support.google.com/synthid?hl=en", target: "_blank", rel: "noreferrer" }, "SynthID Detector portal", externalLinkIcon()),
-        ),
-        h(
-          "p",
-          null,
-          h("a", { href: "https://openai.com/verify", target: "_blank", rel: "noreferrer" }, "openai.com/verify", externalLinkIcon()),
-        ),
+        h("p", { class: "field-hint" }, NO_SIGNALS_WORDING),
       ),
     ),
     h(
@@ -567,7 +566,7 @@ function renderProvenanceSection(): HTMLElement {
         h(
           "span",
           { class: "field-hint" },
-          "Optional. Without it, image checks are limited to what the active tab already exposes. Never used for anything but reading image bytes to check for provenance metadata.",
+          "Optional. Without it, images are only checked on sites you allow one by one from the popup (“Allow image checks on …”). Image bytes are read locally to look for provenance data and never sent anywhere.",
         ),
       ),
       h(
@@ -583,7 +582,7 @@ function renderProvenanceSection(): HTMLElement {
 
 async function requestAllUrls(): Promise<void> {
   try {
-    const granted = await browser.permissions.request({ origins: ["<all_urls>"] });
+    const granted = await requestImagePermission(["<all_urls>"]);
     state.allUrlsGranted = granted;
   } catch {
     // User denied the browser's own permission prompt, or it's unsupported here.
