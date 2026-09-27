@@ -1,8 +1,10 @@
 name: E2E (Chrome, real models)
 
-# Heavy: downloads ~216 MB of models on a cold cache, so it runs weekly and on
-# demand rather than on every push.
+# Real-browser tests with real models. Runs on every push to main (in the
+# background, nothing waits on it), weekly, and on demand. Models are cached.
 on:
+  push:
+    branches: [main]
   schedule:
     - cron: "0 3 * * 1"
   workflow_dispatch:
@@ -14,6 +16,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   chrome:
