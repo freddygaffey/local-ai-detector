@@ -3,13 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <title>Local AI Detector — offscreen</title>
+    <!-- Chrome only: Firefox has no offscreen API (it uses inference-worker.js). -->
+    <meta name="manifest.include" content="['chrome']" />
   </head>
   <body>
     <!--
       Chrome-only inference host (chrome.offscreen.createDocument, reason
-      WORKERS). Never shown to the user. TODO(T1): load transformers.js +
-      bundled ORT wasm here, keep sessions warm, and respond to messages
-      forwarded by the background service worker. See docs/feasibility.md §1.
+      WORKERS). Never shown to the user. Hosts transformers.js + the bundled
+      ORT wasm and the C2PA validator; see main.ts and docs/feasibility.md §1.
     -->
     <script type="module" src="./main.ts"></script>
   </body>

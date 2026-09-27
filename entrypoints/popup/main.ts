@@ -21,6 +21,7 @@ import { formatBytes, formatPercent, pluralize } from "@/src/ui/format";
 import { aggregateSources, countFlaggedSentences, SOURCE_LABEL } from "@/src/ui/breakdown";
 import { EXPERIMENTAL_MODES, MODE_LABEL, modeSizeMB } from "@/src/ui/modelInfo";
 import { brandMark, closeIcon, gearIcon, warnIcon } from "@/src/ui/icons";
+import { requestImagePermission } from "@/src/provenance/permissions";
 
 interface Ctx {
   settings: Settings;
@@ -45,7 +46,7 @@ const ctx: Ctx = {
 const root = document.getElementById("app") as HTMLDivElement;
 
 async function main() {
-  const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+  const tab = await targetTab();
   ctx.tabId = tab?.id ?? null;
   ctx.tabUrl = tab?.url ?? null;
   render();
@@ -74,6 +75,23 @@ async function main() {
     ctx.settings = settings;
     render();
   });
+}
+
+/**
+ * The tab this popup acts on: the active tab, or `?tabId=N` when the popup
+ * page is opened as a normal tab (used by the E2E suite in scripts/e2e/).
+ */
+async function targetTab(): Promise<{ id?: number; url?: string } | undefined> {
+  const param = new URLSearchParams(location.search).get("tabId");
+  if (param && /^\d+$/.test(param)) {
+    try {
+      return await browser.tabs.get(Number(param));
+    } catch {
+      // fall through to the active tab
+    }
+  }
+  const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+  return tab;
 }
 
 /** Maps the background's per-tab status (which can change from outside this
@@ -384,20 +402,53 @@ function renderUnicodeSummary(result: AnalyzeResult): HTMLElement {
   );
 }
 
-interface ImageProvenanceLike {
-  total: number;
-  withCredentials: number;
-  withUnsignedClaim: number;
+function renderProvenanceSummary(result: AnalyzeResult): HTMLElement {
+  const images = result.images;
+  if (!ctx.settings.checkImages || images?.disabled) {
+    return h("div", { class: "field-hint" }, "Images: provenance checks are off (Settings).");
+  }
+  if (!images) return h("div", { class: "field-hint" }, "Images: checking…");
+  if (images.total === 0) return h("div", { class: "field-hint" }, "Images: none large enough to check on this page.");
+  const parts = [`${images.checked} of ${pluralize(images.total, "image")} checked`];
+  if (images.withCredentials > 0) {
+    parts.push(
+      `${images.withCredentials} with Content Credentials` +
+        (images.trustedCredentials > 0 ? ` (${images.trustedCredentials} from a trusted signer)` : ""),
+    );
+  }
+  if (images.aiSignals > 0) parts.push(`${images.aiSignals} with an AI signal`);
+  if (images.withUnsignedClaim > 0) parts.push(`${images.withUnsignedClaim} with an unsigned AI-generator claim`);
+  if (images.withWatermark > 0) parts.push(`${images.withWatermark} with an open-source watermark`);
+  if (images.checked > 0 && images.aiSignals === 0) parts.push("no AI signals found (that doesn't mean human-made)");
+  const wrap = h("div", { class: "field-hint" }, `Images: ${parts.join(" · ")}.`);
+  if (images.permissionNeeded.length > 0) {
+    wrap.append(
+      h("br"),
+      h(
+        "button",
+        { class: "btn btn-ghost", type: "button", onclick: () => void grantImageAccess(images.permissionNeeded) },
+        `Allow image checks on ${images.permissionNeeded.length === 1 ? hostOf(images.permissionNeeded[0]!) : `${images.permissionNeeded.length} sites`}`,
+      ),
+    );
+  }
+  return wrap;
 }
 
-function renderProvenanceSummary(result: AnalyzeResult): HTMLElement {
-  const images = result.images as ImageProvenanceLike | undefined;
-  if (!images || images.total === 0) {
-    return h("div", { class: "field-hint" }, "Images: no provenance data for this page yet.");
+function hostOf(pattern: string): string {
+  return pattern.replace(/^[a-z]+:\/\//, "").replace(/\/\*$/, "");
+}
+
+/** Must run from the click handler: permission requests need a user gesture. */
+async function grantImageAccess(patterns: string[]): Promise<void> {
+  const granted = await requestImagePermission(patterns);
+  if (!granted || ctx.tabId === null) return;
+  try {
+    const images = await sendTabMessage(ctx.tabId, "scanImages", undefined);
+    if (ctx.result) ctx.result = { ...ctx.result, images };
+    render();
+  } catch {
+    // The status event from the background will refresh us anyway.
   }
-  const parts = [`${images.withCredentials} of ${images.total} with Content Credentials`];
-  if (images.withUnsignedClaim > 0) parts.push(`${images.withUnsignedClaim} with an unsigned AI-generator claim`);
-  return h("div", { class: "field-hint" }, `Images: ${parts.join(" · ")}.`);
 }
 
 function renderButtons(): HTMLElement {
@@ -471,26 +522,16 @@ async function runAnalyze(target: "page" | "selection"): Promise<void> {
   ctx.progress = { phase: "download", loaded: 0, total: 0, message: "Starting…" };
   render();
   try {
-    const { blocks } = await sendTabMessage(tabId, "extractText", { target });
-    if (blocks.length === 0) {
-      throw new Error(
-        target === "selection"
-          ? "Select some text on the page first, then try again."
-          : "Couldn't find any readable text on this page.",
-      );
-    }
-    const result = await sendMessage(
-      "analyze",
-      { tabId, mode: ctx.settings.mode, blocks },
-      (progress) => {
-        ctx.progress = progress;
-        render();
-      },
-    );
+    // One path for every entry point: the background extracts, analyzes and
+    // renders highlights in the tab (see runTabAnalysis in src/engine/router.ts).
+    const result = await sendMessage("analyzeTab", { tabId, target }, (progress) => {
+      ctx.progress = progress;
+      render();
+    });
     ctx.progress = null;
-    ctx.result = result;
+    const seen = ctx.result as AnalyzeResult | null; // may have been updated by a status event meanwhile
+    ctx.result = { ...result, images: seen?.images ?? result.images };
     render();
-    void sendTabMessage(tabId, "renderHighlights", { result, style: ctx.settings.highlightStyle }).catch(() => {});
   } catch (err) {
     ctx.progress = null;
     ctx.error = describeAnalyzeError(err);

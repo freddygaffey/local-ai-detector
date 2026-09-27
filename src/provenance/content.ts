@@ -23,6 +23,8 @@ export interface ImageScanSummary {
   disabled: boolean;
   /** Origin patterns needing the optional host permission (for a "Grant access" button). */
   permissionNeeded: string[];
+  /** Images found in this scan that weren't checked for lack of permission. */
+  awaitingPermission: number;
 }
 
 /**
@@ -52,6 +54,7 @@ async function doScan(opts: DiscoverOptions & { badges?: boolean }): Promise<Ima
   );
   let disabled = false;
   const permissionNeeded = new Set<string>();
+  let awaitingPermission = 0;
   for (let i = 0; i < todo.length; i += BATCH) {
     const batch = todo.slice(i, i + BATCH);
     const res = await sendMessage("provenanceScanImages", { images: batch });
@@ -63,11 +66,12 @@ async function doScan(opts: DiscoverOptions & { badges?: boolean }): Promise<Ima
     for (const r of res.results) {
       // Don't cache permission failures: the user may grant access later.
       if (r.status !== "permission-needed") resultsBySrc.set(r.src, r);
+      else awaitingPermission++;
     }
     if (badges) renderImageBadgeResults(res.results, elementsBySrc);
   }
   if (badges && !disabled) renderImageBadgeResults([...resultsBySrc.values()], elementsBySrc);
-  return { results: [...resultsBySrc.values()], disabled, permissionNeeded: [...permissionNeeded] };
+  return { results: [...resultsBySrc.values()], disabled, permissionNeeded: [...permissionNeeded], awaitingPermission };
 }
 
 /** Removes badges and forgets this page's results. */

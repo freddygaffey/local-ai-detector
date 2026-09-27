@@ -11,9 +11,13 @@
 
 import { startWorkerHost } from "@/src/engine/host-server";
 
-export default defineUnlistedScript(() => {
-  startWorkerHost(self as unknown as Parameters<typeof startWorkerHost>[0], {
-    ortBaseUrl: new URL("/ort/", self.location.href).href,
-    firefox: true,
-  });
+export default defineUnlistedScript({
+  // Chrome uses the offscreen document instead.
+  include: ["firefox"],
+  main() {
+    startWorkerHost(self as unknown as Parameters<typeof startWorkerHost>[0], {
+      ortBaseUrl: new URL("/ort/", self.location.href).href,
+      firefox: true,
+    });
+  },
 });

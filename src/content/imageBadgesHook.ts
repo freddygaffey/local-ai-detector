@@ -1,42 +1,44 @@
-// Hook into T4's provenance/watermark module. src/provenance/index.ts is
-// owned by T4 and is an empty `export {}` stub as of T0/T2's work -- this
-// hook calls a `renderImageBadges(result)` export if/when T4 adds one,
-// and is a clean no-op until then. If T4 instead wires image badges into its
-// own content-script listener (e.g. its own `analyze`/`renderHighlights`
-// hook), this file can simply be deleted; it makes no assumptions T4 has to
-// honour.
+// Image provenance from the content script's side: after each analysis (and
+// on the popup's "scanImages" request) scan the page's images, render badges,
+// and report a page-level summary to the background, which merges it into
+// the tab's status (AnalyzeResult.images) for the popup.
 
-import * as provenance from "../provenance";
-import type { AnalyzeResult } from "../shared/messages";
+import { resetImageProvenance, scanPageImages } from "../provenance/content";
+import { clearImageBadges } from "../provenance/badges";
+import { summarizeImageResults } from "../provenance/summary";
+import { sendMessage, type ImageProvenanceSummary } from "../shared/messages";
 
-interface ProvenanceModuleShape {
-  renderImageBadges?: (result: AnalyzeResult) => void;
-  clearImageBadges?: () => void;
+export async function scanImagesAndReport(): Promise<ImageProvenanceSummary> {
+  const scan = await scanPageImages();
+  const summary = summarizeImageResults(scan.results, {
+    permissionNeeded: scan.permissionNeeded,
+    disabled: scan.disabled,
+  });
+  // Images still awaiting permission aren't in `results` (not cached).
+  summary.total += scan.awaitingPermission;
+  await sendMessage("reportImageSummary", { summary }).catch(() => {});
+  return summary;
 }
 
-export function renderImageBadgesIfAvailable(result: AnalyzeResult): void {
+/** Fire-and-forget variant for after an analysis; never throws. */
+export function renderImageBadgesIfAvailable(): void {
+  void scanImagesAndReport().catch(() => {});
+}
+
+/** Hides badges (page content changed); keeps cached results. */
+export function clearImageBadgesIfAvailable(): void {
   try {
-    const mod = provenance as unknown as ProvenanceModuleShape;
-    if (typeof mod.renderImageBadges === "function") {
-      mod.renderImageBadges(result);
-    }
+    clearImageBadges();
   } catch {
-    // T4 not wired yet, or it threw internally -- never break the page over it.
+    // never break the page over it.
   }
 }
 
-/**
- * Clears T4's image badges. Called from the same places we clear our own
- * highlights/markers (the pill's ✕ and SPA-navigation cleanup) so badges
- * never outlive the text they were shown alongside.
- */
-export function clearImageBadgesIfAvailable(): void {
+/** Hides badges and forgets results (user cleared, or SPA navigation). */
+export function resetImageBadges(): void {
   try {
-    const mod = provenance as unknown as ProvenanceModuleShape;
-    if (typeof mod.clearImageBadges === "function") {
-      mod.clearImageBadges();
-    }
+    resetImageProvenance();
   } catch {
-    // never break the page over it.
+    // ignore
   }
 }

@@ -25,7 +25,10 @@ export function extractSelectionBlock(win: Window = window): BlockRecord | null 
     if (!owner) return null;
 
     const acc: { text: string; segments: NodeSegment[] } = { text: "", segments: [] };
-    const walker = document.createTreeWalker(range.commonAncestorContainer, NodeFilter.SHOW_TEXT);
+    // Walk from the owning element: when the selection lies inside a single
+    // Text node, commonAncestorContainer IS that node, and a TreeWalker never
+    // returns its own root, so walking from it would find nothing.
+    const walker = owner.ownerDocument.createTreeWalker(owner, NodeFilter.SHOW_TEXT);
     let node = walker.nextNode() as Text | null;
     while (node) {
       if (range.intersectsNode(node)) {

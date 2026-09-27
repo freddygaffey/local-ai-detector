@@ -59,14 +59,30 @@ export interface ProgressEvent {
 }
 
 /**
- * Added by T3: a minimal, optional shape for T4's provenance/watermark
- * summary (see docs/watermarks.md), so the popup can render a real one-line
- * summary once T4 fills it in, and a neutral placeholder until then.
+ * Page-level summary of the image provenance checks (src/provenance), built
+ * by `summarizeImageResults()` in the content script after its image scan
+ * and merged into the tab's `done` status by the background (see
+ * `reportImageSummary`). Counts are over images actually checked.
  */
 export interface ImageProvenanceSummary {
+  /** Images found on the page and sent for checking (including ones awaiting permission). */
   total: number;
+  /** Images whose bytes were actually checked. */
+  checked: number;
+  /** Images with a C2PA manifest (Content Credentials), trusted or not. */
   withCredentials: number;
+  /** ... of which the signer chains to the bundled C2PA Trust List. */
+  trustedCredentials: number;
+  /** Images with any signal that says AI-generated or AI-edited. */
+  aiSignals: number;
+  /** Images with an unsigned AI-generator claim in metadata. */
   withUnsignedClaim: number;
+  /** Images with an open-source invisible watermark (SD/SDXL/FLUX) or NovelAI stealth data. */
+  withWatermark: number;
+  /** Origin patterns that still need the optional host permission. */
+  permissionNeeded: string[];
+  /** settings.checkImages is off. */
+  disabled?: boolean;
 }
 
 export interface AnalyzeResult {
@@ -75,7 +91,7 @@ export interface AnalyzeResult {
   unicode: UnicodeScanResult;
   tooLong?: boolean;
   notes: string[];
-  /** Optional: set by T4 once provenance checks are wired into `analyze`. */
+  /** Set after the content script's image scan finishes (see `reportImageSummary`). */
   images?: ImageProvenanceSummary;
 }
 
@@ -311,8 +327,42 @@ export interface ProvenanceHostVerifyTextMessage {
   response: TextProvenanceResult;
 }
 
+// ---- Added by T5: one background-orchestrated analysis path ----
+
+/**
+ * Popup / pill / autoRun -> background: analyze a tab end to end. The
+ * background asks the tab's content script for the text (`extractText`,
+ * injecting the content script first if the tab predates the extension),
+ * runs `analyze`, then sends `renderHighlights` back. The context menu uses
+ * the same path. `tabId` is ignored for content-script senders (their own
+ * tab is used). Progress/state reach every observer through
+ * `analysisStatus` events.
+ */
+export interface AnalyzeTabMessage {
+  type: "analyzeTab";
+  request: { tabId?: number; target: "page" | "selection" };
+  response: AnalyzeResult;
+}
+
+/** Content script -> background: the page's image provenance summary, merged into the tab status. */
+export interface ReportImageSummaryMessage {
+  type: "reportImageSummary";
+  request: { summary: ImageProvenanceSummary };
+  response: ActionResult;
+}
+
+/** Popup -> content script: (re)scan the page's images, e.g. after a permission grant. */
+export interface ScanImagesMessage {
+  type: "scanImages";
+  request: undefined;
+  response: ImageProvenanceSummary;
+}
+
 /** Every request/response message kind, as a discriminated union. */
 export type RuntimeMessage =
+  | AnalyzeTabMessage
+  | ReportImageSummaryMessage
+  | ScanImagesMessage
   | ProvenanceScanImagesMessage
   | ProvenanceHostAnalyzeMessage
   | ProvenanceVerifyTextMessage
@@ -443,7 +493,24 @@ export function sendProgress(requestId: string, progress: ProgressEvent): void {
   });
 }
 
+/**
+ * The tab id of a content-script sender. Undefined for extension pages, even
+ * when one is open in a tab (e.g. the popup or options page loaded as a
+ * tab), so their explicit `tabId` isn't overridden by their own tab.
+ */
+function contentScriptTabId(sender: { tab?: { id?: number }; url?: string }): number | undefined {
+  if (sender.tab?.id === undefined) return undefined;
+  try {
+    const own = browser.runtime.getURL("/" as "/");
+    if (sender.url && sender.url.startsWith(own)) return undefined;
+  } catch {
+    // no runtime (tests): fall through
+  }
+  return sender.tab.id;
+}
+
 interface HandlerMeta {
+  /** Tab id of the sending content script (undefined for extension pages). */
   senderTabId?: number;
   requestId: string;
 }
@@ -462,11 +529,11 @@ export type Handlers = { [T in MessageType]?: Handler<T> };
  * Returns an unsubscribe function.
  */
 export function registerHandlers(handlers: Handlers): () => void {
-  const listener = (message: unknown, sender: { tab?: { id?: number } }) => {
+  const listener = (message: unknown, sender: { tab?: { id?: number }; url?: string }) => {
     if (!isRequestEnvelope(message)) return undefined;
     const handler = handlers[message.type as MessageType] as Handler<MessageType> | undefined;
     if (!handler) return undefined;
-    return Promise.resolve(handler(message.payload, { senderTabId: sender.tab?.id, requestId: message.id }))
+    return Promise.resolve(handler(message.payload, { senderTabId: contentScriptTabId(sender), requestId: message.id }))
       .then((payload): ResponseEnvelope => ({ kind: "response", id: message.id, type: message.type, ok: true, payload }))
       .catch((err: unknown): ResponseEnvelope => ({
         kind: "response",

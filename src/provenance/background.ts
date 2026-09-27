@@ -4,8 +4,8 @@
 //  - Gates on settings.checkImages and on the optional host permission for
 //    each image's origin (no fetch without it: "permission-needed").
 //  - Chrome: the service worker can't spawn the c2pa worker, so work is
-//    relayed to the offscreen document (created on demand, shared with the
-//    inference engine; see src/engine/host-client.ts), where
+//    relayed to the offscreen document (created on demand by
+//    src/engine/offscreen.ts, shared with the inference engine), where
 //    registerProvenanceHost() answers.
 //  - Firefox: the event page can spawn workers, so the host code runs
 //    in-process (loaded lazily).
@@ -14,6 +14,7 @@ import { browser } from "wxt/browser";
 import { registerHandlers, sendMessage } from "../shared/messages";
 import { getSettings } from "../shared/settings";
 import { originPattern } from "./permissions";
+import { withOffscreen } from "../engine/offscreen";
 import type {
   ImageCandidate,
   ImageProvenanceResult,
@@ -26,58 +27,10 @@ const MAX_PER_REQUEST = 30;
 /** Base64 cap for data:/blob: images sent by the content script (~8 MB). */
 const MAX_INLINE_B64 = Math.ceil((8 * 1024 * 1024 * 4) / 3) + 4;
 
-// ---- Chrome offscreen relay ----
+// ---- Chrome offscreen relay (document shared with the engine) ----
 
-const OFFSCREEN_URL = "offscreen.html";
-let creating: Promise<void> | null = null;
-
-interface OffscreenApi {
-  createDocument(p: { url: string; reasons: string[]; justification: string }): Promise<void>;
-}
-
-async function ensureOffscreen(): Promise<void> {
-  const api = (browser as unknown as { offscreen?: OffscreenApi }).offscreen;
-  if (!api) throw new Error("offscreen API unavailable");
-  const url = (browser.runtime.getURL as (p: string) => string)(`/${OFFSCREEN_URL}`);
-  const rt = browser.runtime as unknown as {
-    getContexts?: (f: { contextTypes: string[]; documentUrls?: string[] }) => Promise<unknown[]>;
-  };
-  if (rt.getContexts) {
-    const ctx = await rt.getContexts({ contextTypes: ["OFFSCREEN_DOCUMENT"], documentUrls: [url] });
-    if (ctx.length) return;
-  }
-  creating ??= api
-    .createDocument({
-      url,
-      reasons: ["WORKERS"],
-      justification:
-        "Runs local AI-detection models and the Content Credentials (C2PA) validator in workers, outside the service worker.",
-    })
-    .catch((e: unknown) => {
-      // The engine may have created it concurrently; only one may exist.
-      if (!/single offscreen|only a single|already/i.test(String(e))) throw e;
-    })
-    .finally(() => {
-      creating = null;
-    });
-  await creating;
-}
-
-async function relay<T>(call: () => Promise<T>): Promise<T> {
-  for (let attempt = 0; ; attempt++) {
-    await ensureOffscreen();
-    try {
-      return await call();
-    } catch (e) {
-      const msg = String(e);
-      // Document just created and its listener isn't registered yet.
-      if (attempt < 30 && /Receiving end does not exist|Could not establish connection|No response for message|message port closed/i.test(msg)) {
-        await new Promise((r) => setTimeout(r, 100));
-        continue;
-      }
-      throw e;
-    }
-  }
+function relay<T>(call: () => Promise<T>): Promise<T> {
+  return withOffscreen(call);
 }
 
 async function runHostAnalyze(images: ImageCandidate[]): Promise<ImageProvenanceResult[]> {

@@ -14,6 +14,7 @@ import {
   type HostRequestEnvelope,
   type HostResponseEnvelope,
 } from "./protocol";
+import { closeOffscreenDocument, offscreenApi, withOffscreen } from "./offscreen";
 
 export interface HostClient {
   kind: "offscreen" | "worker";
@@ -33,101 +34,33 @@ function unwrap<O extends HostOp>(res: HostResponseEnvelope<O> | undefined, op: 
 
 // ---------------- Chrome: offscreen document ----------------
 
-const OFFSCREEN_PATH = "offscreen.html";
-
-interface OffscreenApi {
-  createDocument(p: { url: string; reasons: string[]; justification: string }): Promise<void>;
-  closeDocument(): Promise<void>;
-  hasDocument?: () => Promise<boolean>;
-}
-
-function offscreenApi(): OffscreenApi | undefined {
-  return (browser as unknown as { offscreen?: OffscreenApi }).offscreen;
-}
-
 function createOffscreenClient(): HostClient {
-  const api = offscreenApi()!;
-  const url = browser.runtime.getURL(`/${OFFSCREEN_PATH}` as "/");
   const progressHandlers = new Map<string, (p: ProgressEvent) => void>();
-  let creating: Promise<void> | null = null;
 
   browser.runtime.onMessage.addListener((msg: unknown) => {
     if (isHostProgress(msg)) progressHandlers.get(msg.id)?.(msg.progress);
     return undefined;
   });
 
-  async function hasDocument(): Promise<boolean> {
-    const rt = browser.runtime as unknown as {
-      getContexts?: (f: { contextTypes: string[]; documentUrls?: string[] }) => Promise<unknown[]>;
-    };
-    if (rt.getContexts) {
-      const ctx = await rt.getContexts({ contextTypes: ["OFFSCREEN_DOCUMENT"], documentUrls: [url] });
-      return ctx.length > 0;
-    }
-    if (api.hasDocument) return api.hasDocument();
-    return false;
-  }
-
-  async function ensure(): Promise<void> {
-    if (await hasDocument()) return;
-    if (!creating) {
-      creating = api
-        .createDocument({
-          url,
-          reasons: ["WORKERS"],
-          justification:
-            "Runs the local AI-text detection models (ONNX Runtime WASM/WebGPU workers) outside the service worker, so they stay loaded between analyses.",
-        })
-        .catch((e: unknown) => {
-          // A concurrent caller may have created it first.
-          if (!/single offscreen|only a single|already/i.test(String(e))) throw e;
-        })
-        .finally(() => {
-          creating = null;
-        });
-    }
-    await creating;
-  }
-
   async function send<O extends HostOp>(op: O, payload: HostOps[O]["req"], id: string) {
     const req: HostRequestEnvelope<O> = { kind: "lad-host-request", id, op, payload };
     return (await browser.runtime.sendMessage(req)) as HostResponseEnvelope<O> | undefined;
   }
 
-  const client: HostClient = {
+  return {
     kind: "offscreen",
     async call(op, payload, onProgress) {
       const id = newId();
       if (onProgress) progressHandlers.set(id, onProgress);
       try {
-        for (let attempt = 0; ; attempt++) {
-          await ensure();
-          try {
-            const res = await send(op, payload, id);
-            if (res === undefined && attempt < 20) {
-              // Document exists but its listener isn't registered yet.
-              await new Promise((r) => setTimeout(r, 100));
-              continue;
-            }
-            return unwrap(res, op);
-          } catch (e) {
-            const msg = String(e);
-            if (attempt < 20 && /Receiving end does not exist|Could not establish connection|message port closed/i.test(msg)) {
-              await new Promise((r) => setTimeout(r, 100));
-              continue;
-            }
-            throw e;
-          }
-        }
+        const res = await withOffscreen(() => send(op, payload, id), (r) => r === undefined);
+        return unwrap(res, op);
       } finally {
         progressHandlers.delete(id);
       }
     },
-    async reset() {
-      if (await hasDocument()) await api.closeDocument().catch(() => {});
-    },
+    reset: closeOffscreenDocument,
   };
-  return client;
 }
 
 // ---------------- Firefox: dedicated Worker ----------------

@@ -15,6 +15,27 @@ export default defineConfig({
   // from `env.backends.onnx.wasm.wasmPaths`, which src/engine/runtime.ts
   // points at the bundled public/ort/ copies.
   vite: () => ({
+    plugins: [
+      {
+        // transformers.js sets a jsDelivr default for ORT's wasmPaths at
+        // import time. src/engine/runtime.ts always overrides it with the
+        // bundled ort/ copy (and refuses to run otherwise), so the URL is
+        // dead code, but store reviewers grep bundles for CDN URLs. Replace it
+        // with an inert extension-relative path that can't reach the network.
+        name: "strip-ort-cdn-fallback",
+        enforce: "pre" as const,
+        transform(code: string, id: string) {
+          if (!id.includes("@huggingface/transformers") || !code.includes("cdn.jsdelivr.net")) return null;
+          return {
+            code: code.replace(
+              /https:\/\/cdn\.jsdelivr\.net\/npm\/onnxruntime-web@\$\{[^}]+\}\/dist\//g,
+              "/ort-cdn-disabled/",
+            ),
+            map: null,
+          };
+        },
+      },
+    ],
     resolve: {
       alias: [
         {
@@ -55,9 +76,15 @@ export default defineConfig({
           gecko: {
             // Placeholder ID; the real add-on ID is assigned/confirmed at AMO signing time.
             id: "local-ai-detector@freddygaffey.github.io",
-            // Firefox 109 is the first release with general MV3 support.
-            strict_min_version: "109.0",
+            // 140 (the current ESR): optional_host_permissions (128+),
+            // data_collection_permissions (140+) and the CSS Custom Highlight
+            // API used for highlights (140+).
+            strict_min_version: "140.0",
+            // Nothing is collected or transmitted (AMO's built-in consent).
+            data_collection_permissions: { required: ["none"] },
           },
+          // Firefox for Android added data_collection_permissions in 142.
+          gecko_android: { strict_min_version: "142.0" },
         },
       };
     }

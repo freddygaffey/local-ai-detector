@@ -4,15 +4,20 @@
 // hidden-Unicode markers, and SPA/mutation staleness handling. Everything is
 // wrapped in try/catch so a bug here never breaks the host page.
 
-import { registerHandlers, sendMessage } from "../shared/messages";
-import type { AnalyzeResult, ProgressEvent, TextBlock } from "../shared/messages";
+import { onAnalysisStatus, registerHandlers, sendMessage } from "../shared/messages";
+import type { AnalyzeResult, TextBlock } from "../shared/messages";
 import { DEFAULT_SETTINGS, getSettings, watchSettings } from "../shared/settings";
 import type { HighlightStyle, Settings } from "../shared/settings";
 import { FLAGGED_THRESHOLD } from "./colors";
 import { extractVisibleBlocks, getRangeForOffsets, toWireBlocks } from "./extract";
 import { renderHighlights as renderPageHighlights, clearHighlights as clearPageHighlights } from "./highlightStyles";
 import { buildHoverIndex, hitTestPoint, type HoverIndex } from "./hover";
-import { clearImageBadgesIfAvailable, renderImageBadgesIfAvailable } from "./imageBadgesHook";
+import {
+  clearImageBadgesIfAvailable,
+  renderImageBadgesIfAvailable,
+  resetImageBadges,
+  scanImagesAndReport,
+} from "./imageBadgesHook";
 import { orderFlagged, stepIndex, type FlaggedKey } from "./navigation";
 import { startObserving } from "./observe";
 import { createPill, type PillApi } from "./pill";
@@ -79,6 +84,18 @@ async function boot(): Promise<void> {
       doClear();
       return { ok: true };
     },
+    scanImages: () => scanImagesAndReport(),
+  });
+
+  // Follow the background's per-tab state, whoever started the run (popup,
+  // context menu, this pill): progress and errors go to the pill; results
+  // arrive separately via renderHighlights.
+  onAnalysisStatus((_tabId, status) => {
+    if (status.state === "running") {
+      pill?.setAnalyzing(status.progress ?? { phase: "download", loaded: 0, total: 0, message: "Starting…" });
+    } else if (status.state === "error") {
+      pill?.setError(status.error.replace(/^consent-required:\s*/, ""));
+    }
   });
 
   startObserving(
@@ -90,6 +107,7 @@ async function boot(): Promise<void> {
       },
       onNavigate: () => {
         doClear();
+        resetImageBadges();
       },
     },
   );
@@ -120,24 +138,13 @@ function selectionRecords(): BlockRecord[] {
 
 async function runFullAnalysis(): Promise<void> {
   try {
-    const blocks = doExtract("page");
-    if (blocks.length === 0) {
-      pill?.setError("no readable text found on this page.");
-      return;
-    }
     pill?.setAnalyzing({ phase: "download", loaded: 0, total: 0, message: "Starting…" });
-    const result = await sendMessage(
-      "analyze",
-      // tabId is a placeholder: a content script has no API to learn its own
-      // tab id. The background handler should use the sender's tab id
-      // (available via registerHandlers' HandlerMeta.senderTabId) rather
-      // than trusting this field for content-script-initiated requests.
-      { tabId: 0, mode: settings.mode, blocks },
-      (progress: ProgressEvent) => pill?.setAnalyzing(progress),
-    );
-    applyResult(result, settings.highlightStyle);
+    // The background drives the whole run (extractText -> analyze ->
+    // renderHighlights back to this tab), exactly as for the popup and the
+    // context menu. Our own tab is inferred from the sender.
+    await sendMessage("analyzeTab", { target: "page" });
   } catch (err) {
-    pill?.setError(err instanceof Error ? err.message : String(err));
+    pill?.setError((err instanceof Error ? err.message : String(err)).replace(/^consent-required:\s*/, ""));
   }
 }
 
@@ -152,6 +159,15 @@ function applyResult(result: AnalyzeResult, style: HighlightStyle): void {
     hideTooltip();
 
     activeSentences = [];
+    // Scores come per scoring unit (sentences grouped to >= minWords words),
+    // so a short sentence isn't low-confidence by itself. Only a whole
+    // analysis under minWords is.
+    const totalWords = result.sentences.reduce((n, sc) => {
+      const b = blocksById.get(sc.blockId);
+      const sp = b?.sentences[sc.index];
+      return n + (b && sp ? wordCount(b.text.slice(sp.start, sp.end)) : 0);
+    }, 0);
+    const lowConfidence = totalWords < settings.minWords;
     for (const score of result.sentences) {
       const block = blocksById.get(score.blockId);
       if (!block) continue;
@@ -168,7 +184,7 @@ function applyResult(result: AnalyzeResult, style: HighlightStyle): void {
         score: score.score,
         sources: score.sources,
         wordCount: wordCount(text),
-        muted: wordCount(text) < settings.minWords,
+        muted: lowConfidence,
       });
     }
 
@@ -196,7 +212,7 @@ function applyResult(result: AnalyzeResult, style: HighlightStyle): void {
       style,
     });
 
-    renderImageBadgesIfAvailable(result);
+    renderImageBadgesIfAvailable();
   } catch (err) {
     pill?.setError(err instanceof Error ? err.message : String(err));
   }

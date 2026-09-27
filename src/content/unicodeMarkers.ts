@@ -35,14 +35,19 @@ function findSegment(segments: NodeSegment[], at: number): NodeSegment | null {
   return null;
 }
 
-function insertOne(block: BlockRecord, charIndex: number, finding: UnicodeFinding, scan: UnicodeScanResult): HTMLElement | null {
-  const seg = findSegment(block.segments, charIndex);
+/**
+ * Inserts one marker right after `end` (exclusive offset into block.text,
+ * i.e. just past the last flagged code unit of a run), so astral characters
+ * (tag characters, VS supplement) are never split between their surrogates.
+ */
+function insertOne(block: BlockRecord, end: number, count: number, finding: UnicodeFinding, scan: UnicodeScanResult): HTMLElement | null {
+  const seg = findSegment(block.segments, end - 1);
   if (!seg || !seg.node.isConnected) return null;
   const node = seg.node;
-  const localOffset = seg.nodeOffset + (charIndex - seg.start) + 1; // right after the flagged char
+  const localOffset = seg.nodeOffset + (end - seg.start);
   const marker = document.createElement("span");
   marker.className = "ai-detector-unicode-marker";
-  marker.textContent = `⟦${LABELS[finding.category]}⟧`;
+  marker.textContent = `⟦${LABELS[finding.category]}${count > 1 ? `×${count}` : ""}⟧`;
   marker.tabIndex = 0;
   marker.setAttribute("role", "note");
   const { title, lines } = formatUnicodeTooltip(finding, scan.hiddenMessage);
@@ -81,16 +86,15 @@ function insertOne(block: BlockRecord, charIndex: number, finding: UnicodeFindin
  */
 export function renderUnicodeMarkers(block: BlockRecord): { scan: UnicodeScanResult; markers: HTMLElement[] } {
   const scan = scanUnicode(block.text);
-  const occurrences: { index: number; finding: UnicodeFinding }[] = [];
-  for (const finding of scan.findings) {
-    for (const index of finding.indices) occurrences.push({ index, finding });
-  }
-  occurrences.sort((a, b) => b.index - a.index);
+  const runs = groupRuns(scan.findings);
+  // Descending offset order: each DOM split only ever truncates the tail of
+  // a Text node, so earlier (smaller-offset) segment lookups stay valid.
+  runs.sort((a, b) => b.end - a.end);
 
   const markers: HTMLElement[] = [];
-  for (const { index, finding } of occurrences) {
+  for (const run of runs) {
     try {
-      const marker = insertOne(block, index, finding, scan);
+      const marker = insertOne(block, run.end, run.count, run.finding, scan);
       if (marker) {
         markers.push(marker);
         activeMarkers.push({ el: marker });
@@ -100,6 +104,39 @@ export function renderUnicodeMarkers(block: BlockRecord): { scan: UnicodeScanRes
     }
   }
   return { scan, markers };
+}
+
+export interface MarkerRun {
+  finding: UnicodeFinding;
+  start: number;
+  /** Exclusive end (UTF-16 offset). */
+  end: number;
+  count: number;
+}
+
+/**
+ * Groups adjacent flagged characters of the same category into one run
+ * (e.g. a 40-character tag-character message becomes one "⟦TAG×40⟧" marker
+ * instead of 40), with UTF-16-correct ends for astral characters.
+ */
+export function groupRuns(findings: UnicodeFinding[]): MarkerRun[] {
+  const occ: { index: number; len: number; finding: UnicodeFinding }[] = [];
+  for (const finding of findings) {
+    const len = finding.codePoint > 0xffff ? 2 : 1;
+    for (const index of finding.indices) occ.push({ index, len, finding });
+  }
+  occ.sort((a, b) => a.index - b.index);
+  const runs: MarkerRun[] = [];
+  for (const o of occ) {
+    const last = runs[runs.length - 1];
+    if (last && last.end === o.index && last.finding.category === o.finding.category) {
+      last.end = o.index + o.len;
+      last.count++;
+    } else {
+      runs.push({ finding: o.finding, start: o.index, end: o.index + o.len, count: 1 });
+    }
+  }
+  return runs;
 }
 
 export function clearUnicodeMarkers(): void {
