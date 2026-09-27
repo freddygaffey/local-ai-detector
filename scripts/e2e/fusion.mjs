@@ -83,7 +83,8 @@ const blocks = labelled.map((p, i) => {
 });
 const srcOf = Object.fromEntries(blocks.map((b, i) => [b.id, labelled[i].src]));
 
-const FULL = ["tmr", "modernbert", "perplexity"];
+// The default Fusion set (fakespot + tmr) plus perplexity, so vote/median is meaningful.
+const FULL = ["fakespot", "tmr", "perplexity"];
 const analyze = () => ext("analyze", { tabId: -1, mode: "ensemble", blocks });
 const results = {};
 

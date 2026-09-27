@@ -72,10 +72,10 @@ export interface Settings {
    */
   ensembleClassifier: EnsembleClassifier;
   /**
-   * Use WebGPU when the browser offers it (with shader-f16). Off by default:
-   * WASM (q8) gives the same scores in Chrome and Firefox and is what the
-   * main calibration is for; WebGPU is faster but runs different weights
-   * (docs/calibration.md, "WASM vs WebGPU").
+   * Use WebGPU when the browser offers it (with shader-f16). On by default
+   * (T7): it is the primary, calibrated path, 5-10x faster; WASM is the
+   * fallback with its own constants (docs/calibration.md). Fakespot,
+   * ModernBERT and Binoculars always run on WASM.
    */
   useWebGPU: boolean;
 }
@@ -165,10 +165,10 @@ export interface Settings {
    */
   ensembleClassifier: EnsembleClassifier;
   /**
-   * Use WebGPU when the browser offers it (with shader-f16). Off by default:
-   * WASM (q8) gives the same scores in Chrome and Firefox and is what the
-   * main calibration is for; WebGPU is faster but runs different weights
-   * (docs/calibration.md, "WASM vs WebGPU").
+   * Use WebGPU when the browser offers it (with shader-f16). On by default
+   * (T7): it is the primary, calibrated path, 5-10x faster; WASM is the
+   * fallback with its own constants (docs/calibration.md). Fakespot,
+   * ModernBERT and Binoculars always run on WASM.
    */
   useWebGPU: boolean;
 

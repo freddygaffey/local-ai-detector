@@ -300,3 +300,58 @@ silently):
 - Wording used "Retry" (not "Scan again") for pill actions during this pass;
   `docs/qa.md`'s and `docs/ux/findings-pass1.md`'s older screenshots/text
   predate that rename.
+
+## T7 addendum: Fusion, accuracy pass, WebGPU by default
+
+Date: 2026-09-27. Chrome for Testing 153 (Apple Silicon, shader-f16 adapter) for the WebGPU
+path; GitHub-hosted Ubuntu runners (4 vCPU, Playwright Chromium, 12-shard matrix,
+`.github/workflows/t7-eval.yml`) for the WASM path and Binoculars. Numbers and methods are in
+[calibration.md](calibration.md#what-ships-t7-2026-09-27).
+
+### How to rerun
+
+```sh
+npm run build:e2e && node scripts/e2e/fusion.mjs          # Fusion assertions (real models)
+node scripts/eval/build-eval-set.mjs --out eval-set.json  # web eval set (cached, not committed)
+node scripts/e2e/browser-t7-calibration.mjs --eval eval-set.json --out runs.json --runs webgpu:tmr,...
+node scripts/eval/fit-t7.mjs --eval eval-set.json --runs runs.json --md report.md
+```
+
+### Fusion E2E (`scripts/e2e/fusion.mjs`): 5/5
+
+| Check | Result |
+|---|---|
+| 3-detector Fusion (Fakespot + TMR + perplexity): `detectors[]` with device/dtype/weight, `device: "mixed"`, overall and per-sentence agreement recount, calibrated `probability` | ✅ Fakespot wasm/q8, TMR webgpu/fp16, perplexity webgpu/fp16; overall 0.61, P(AI) 0.95, 1/3 agree, `disagree: true` |
+| Methods: vote = median, max = highest, log-odds within range, method recorded | ✅ weighted 0.61, vote 0.47, max 0.64, log-odds 0.53 |
+| Labelled news fixture at default Fusion | ✅ human 0/22 sentences flagged, AI 17/17 |
+| `analyzeTab` with `mode: "classifierLite"` (the auto-run pass) | ✅ lite only, no fusion block, tab status mode recorded |
+| v1 settings (`ensemble` + lite, WebGPU off) migrate | ✅ lite + perplexity, WebGPU turned on |
+
+### WebGPU vs WASM
+
+| | WebGPU path | WASM path |
+|---|---|---|
+| Default Fusion AUROC (web test half) | 0.91 | 0.91 |
+| Human texts flagged / AI flagged | 5% / 68% | 5% / 68% |
+| Display ECE | 0.040 | 0.040 |
+| Warm speed, ms per 1,000 words | TMR 400, lite 207, perplexity 748 (fp16) | TMR ~2,500, lite ~800, perplexity ~2,000, Fakespot ~2,500, ModernBERT ~3,500, Binoculars ~18,000 (4 threads) |
+
+Dtype checks on WebGPU (web eval set): TMR q4f16 0.844 vs fp16 **0.861**; lite q4f16 0.735
+vs fp16 **0.756**; Fakespot q8 0.907 vs 0.932 on WASM and no faster, so WASM; ModernBERT
+fp16 and q4f16 **constant output** (fp32 works, 599 MB), so WASM; Binoculars fp16 constant (as
+q4f16 was in T5), so WASM.
+
+### Findings
+
+1. **ModernBERT and Binoculars are broken on WebGPU at half precision.** Every input gives the same
+   score (ORT-web 1.31 dev, Chrome 153). Both are pinned to WASM (`wasmOnly`).
+2. **The old "51% confidence" was an uncalibrated score.** The UI now gets `probability`,
+   fitted per detector set, device and length. Unedited assistant-voice stories show about 95%.
+3. **TMR's scale is knife-edged.** Its human logits bunch up, so an uncalibrated-slope fit
+   (~18) turned fp16 run-to-run noise into 0.12 score jumps. Slopes are capped at 6.
+4. **Long headless WASM runs crash Chrome under heavy CPU contention** ("Target closed",
+   protocol timeouts). The calibration runner resumes and retries errored texts, and CI runs two
+   passes per shard. CI finished with 0 errors.
+5. `scripts/e2e/chrome.mjs` (the T5 suite) no longer matches the redesigned popup/pill
+   (e.g. `select[aria-label="Detector mode"]` and the pill's "Scan page" button are gone).
+   That's a T9/T12 selector update. The engine paths it covered are exercised by `fusion.mjs`.

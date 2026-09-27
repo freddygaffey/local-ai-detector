@@ -1,13 +1,251 @@
-# Calibration (rough)
+# Calibration
 
-How the engine turns raw detector outputs into the 0..1 "AI likelihood" it
-shows, and the small experiment the constants in
-[`src/engine/calibration.ts`](../src/engine/calibration.ts) come from.
+How the engine turns raw detector outputs into its 0..1 score, how that score
+becomes the probability the UI shows ("AI 91%"), and the experiments the
+constants in [`src/engine/calibration.ts`](../src/engine/calibration.ts) and
+[`src/shared/displayCalibration.ts`](../src/shared/displayCalibration.ts) come from.
 
-**Read the caveats first.** This is a sanity calibration on small samples. It
-is not a benchmark. Expect real web pages to go worse than the numbers below.
+**Read the caveats first.** These are measurements on one eval set of about
+1,900 web texts. It is not a general benchmark. Unseen generators, prompts
+that ask for a human style, and paraphrasing all do worse.
 
-## What ships (T5, 2026-09-27)
+## What ships (T7, 2026-09-27)
+
+Two scales:
+
+- **Engine score** (`AnalyzeResult.overall`, sentence `score`): 0.5 is where 5% of human
+  texts score higher (the "flagged" point; `FLAGGED_THRESHOLD`), and 0.75 is where 1% do
+  (the slop filter; `FILTER_THRESHOLD`). The bands in `src/shared/thresholds.ts` use this scale.
+- **Display probability** (`AnalyzeResult.probability`, `toDisplayProbability()`): the
+  calibrated P(AI) for the detector set, device and text length that produced the score,
+  fitted on held-out web text with a 50/50 mix. Undefined below `MIN_WORDS_FOR_SCORE` (30) words.
+
+Defaults:
+
+| | Choice | Why |
+|---|---|---|
+| Fusion (click / full run) | **Fakespot + TMR, weighted average** (weights 1 : 0.12) | Fakespot is the best single detector on every genre but forum posts. Adding TMR keeps AUROC (0.91) and improves slop-filter precision (99–100% against 98%) and display calibration (ECE 0.040 against 0.045), and the second detector gives the UI an agreement signal. No other set beat it by 0.01 on the fit half. |
+| Auto-run pass | **Lite (e5-small)**, unchanged | Smallest and fastest (200 ms per 1,000 words on WebGPU). It is much weaker (AUROC 0.77), so it rarely reaches the filter threshold: precision 97%, recall 22%. TMR would rank better (0.87) and is already downloaded for Fusion, but its score scale is capped (see "Slopes"), so it barely reaches 0.75. |
+| Device | **WebGPU on by default**, WASM fallback | TMR and lite run fp16 on WebGPU. q4f16 ranked worse (TMR AUROC 0.844 against 0.861, lite 0.735 against 0.756) at the same speed. Perplexity runs fp16. Fakespot (q8-only repo; int8 has no WebGPU kernels, so it was slower and ranked worse there: 0.907 against 0.932), ModernBERT (fp16 and q4f16 give one constant output on WebGPU; fp32 works but is a 599 MB download) and Binoculars (q4f16 and fp16 are both constant) always run on WASM. A default Fusion run is therefore `device: "mixed"`. |
+
+### Results (test half)
+
+AUROC per genre, then over all web genres: human texts flagged (FPR) and AI texts flagged
+(TPR) at score ≥ 0.5, slop-filter precision and recall at ≥ 0.75, and the display
+probability's expected calibration error (ECE, 10 bins). "short" means under 150 words. Emails
+are six AI-only samples, so that column shows the detection rate. Test half: about 900 texts, so
+each genre cell has roughly 50–100 texts and an AUROC uncertainty of about ±0.04–0.06.
+
+#### WebGPU path (primary)
+
+
+| Detector set | forum | answer | review | news | blog | social | story | essay | email | short | long | **all** | flag FPR / TPR | filter precision / recall | ECE |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| fakespot | 0.84 | 0.87 | 0.98 | 0.92 | 0.89 | 0.93 | 0.94 | 0.93 | TPR 0% | 0.91 | 0.92 | **0.91** | 5% / 68% | 98% / 57% | 0.045 |
+| tmr | 0.72 | 0.89 | 0.92 | 0.90 | 0.91 | 0.95 | 0.88 | 0.90 | TPR 100% | 0.88 | 0.85 | **0.87** | 4% / 58% | 100% / 5% | 0.047 |
+| lite | 0.65 | 0.74 | 0.82 | 0.78 | 0.76 | 0.88 | 0.80 | 0.90 | TPR 100% | 0.77 | 0.79 | **0.77** | 6% / 39% | 97% / 22% | 0.071 |
+| modernbert | 0.60 | 0.76 | 0.85 | 0.70 | 0.69 | 0.77 | 0.68 | 0.74 | TPR 100% | 0.79 | 0.66 | **0.72** | 4% / 8% | 67% / 1% | 0.039 |
+| perplexity | 0.79 | 0.66 | 0.83 | 0.68 | 0.69 | 0.83 | 0.75 | 0.92 | TPR 0% | 0.74 | 0.71 | **0.73** | 3% / 17% | 0% / 0% | 0.079 |
+| binoculars | 0.80 | 0.69 | 0.86 | 0.79 | 0.75 | 0.80 | 0.86 | 0.97 | TPR 100% | 0.76 | 0.81 | **0.79** | 5% / 51% | 100% / 2% | 0.061 |
+| **Default Fusion** (fakespot + tmr, weighted) | 0.81 | 0.87 | 0.98 | 0.92 | 0.90 | 0.94 | 0.94 | 0.93 | TPR 0% | 0.91 | 0.91 | **0.91** | 5% / 68% | 99% / 54% | 0.040 |
+| Default set, logodds | 0.77 | 0.91 | 0.96 | 0.93 | 0.93 | 0.96 | 0.92 | 0.92 | TPR 0% | 0.91 | 0.90 | **0.90** | 2% / 64% | 100% / 43% | 0.043 |
+| Default set, vote | 0.79 | 0.90 | 0.94 | 0.94 | 0.93 | 0.95 | 0.91 | 0.91 | TPR 0% | 0.90 | 0.89 | **0.90** | 0% / 54% | 100% / 5% | 0.048 |
+| Default set, max | 0.77 | 0.87 | 0.98 | 0.90 | 0.89 | 0.95 | 0.93 | 0.93 | TPR 100% | 0.91 | 0.89 | **0.90** | 9% / 73% | 98% / 57% | 0.052 |
+| Classic (tmr + perplexity) | 0.76 | 0.85 | 0.90 | 0.88 | 0.90 | 0.92 | 0.88 | 0.92 | TPR 100% | 0.87 | 0.84 | **0.86** | 2% / 49% | – / 0% | 0.045 |
+| Fast (lite + perplexity) | 0.74 | 0.72 | 0.83 | 0.76 | 0.76 | 0.90 | 0.84 | 0.92 | TPR 0% | 0.78 | 0.78 | **0.78** | 2% / 32% | 100% / 1% | 0.072 |
+
+#### WASM path (fallback)
+
+
+| Detector set | forum | answer | review | news | blog | social | story | essay | email | short | long | **all** | flag FPR / TPR | filter precision / recall | ECE |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| fakespot | 0.84 | 0.87 | 0.98 | 0.92 | 0.89 | 0.93 | 0.94 | 0.93 | TPR 0% | 0.91 | 0.92 | **0.91** | 5% / 68% | 98% / 57% | 0.045 |
+| tmr | 0.72 | 0.89 | 0.92 | 0.89 | 0.90 | 0.94 | 0.88 | 0.90 | TPR 100% | 0.88 | 0.85 | **0.87** | 3% / 57% | 100% / 0% | 0.041 |
+| lite | 0.66 | 0.76 | 0.83 | 0.78 | 0.74 | 0.88 | 0.80 | 0.89 | TPR 100% | 0.77 | 0.79 | **0.77** | 6% / 37% | 97% / 18% | 0.063 |
+| modernbert | 0.60 | 0.76 | 0.85 | 0.70 | 0.69 | 0.77 | 0.68 | 0.74 | TPR 100% | 0.79 | 0.66 | **0.72** | 4% / 8% | 67% / 1% | 0.039 |
+| perplexity | 0.77 | 0.65 | 0.81 | 0.67 | 0.67 | 0.81 | 0.74 | 0.91 | TPR 0% | 0.73 | 0.69 | **0.72** | 3% / 13% | 0% / 0% | 0.083 |
+| binoculars | 0.80 | 0.69 | 0.86 | 0.79 | 0.75 | 0.80 | 0.86 | 0.97 | TPR 100% | 0.76 | 0.81 | **0.79** | 5% / 51% | 100% / 2% | 0.061 |
+| **Default Fusion** (fakespot + tmr, weighted) | 0.81 | 0.87 | 0.98 | 0.92 | 0.90 | 0.94 | 0.94 | 0.93 | TPR 0% | 0.91 | 0.91 | **0.91** | 5% / 68% | 100% / 54% | 0.040 |
+| Default set, logodds | 0.77 | 0.91 | 0.96 | 0.93 | 0.92 | 0.95 | 0.92 | 0.92 | TPR 0% | 0.91 | 0.90 | **0.90** | 3% / 64% | 100% / 42% | 0.047 |
+| Default set, vote | 0.78 | 0.90 | 0.94 | 0.94 | 0.93 | 0.95 | 0.92 | 0.92 | TPR 0% | 0.90 | 0.89 | **0.90** | 0% / 53% | 100% / 0% | 0.049 |
+| Default set, max | 0.77 | 0.87 | 0.98 | 0.90 | 0.88 | 0.95 | 0.93 | 0.92 | TPR 100% | 0.91 | 0.89 | **0.90** | 8% / 73% | 98% / 57% | 0.060 |
+| Classic (tmr + perplexity) | 0.75 | 0.85 | 0.90 | 0.88 | 0.88 | 0.91 | 0.89 | 0.92 | TPR 100% | 0.87 | 0.84 | **0.86** | 2% / 47% | – / 0% | 0.050 |
+| Fast (lite + perplexity) | 0.71 | 0.72 | 0.83 | 0.78 | 0.74 | 0.89 | 0.83 | 0.91 | TPR 0% | 0.77 | 0.77 | **0.77** | 3% / 31% | 100% / 1% | 0.080 |
+
+ (score ≥ 0.75), webgpu, test half
+
+Slop filter per genre (WebGPU path; precision / recall / human texts hidden):
+
+| Genre | Default Fusion | Lite (auto-run) |
+|---|---|---|
+| forum | 100% / 41% / 0% | 100% / 20% / 0% |
+| answer | 100% / 45% / 0% | 100% / 10% / 0% |
+| review | 100% / 65% / 0% | 96% / 24% / 1% |
+| news | 100% / 47% / 0% | 100% / 28% / 0% |
+| blog | 95% / 63% / 3% | 93% / 25% / 2% |
+| social | 100% / 50% / 0% | 83% / 18% / 3% |
+| story | 100% / 46% / 0% | 100% / 15% / 0% |
+| essay | 100% / 86% / 0% | 100% / 49% / 0% |
+
+Forum posts and blog / how-to text are the weak spots. Reddit-style posts reach AUROC 0.81 with
+the default and 0.65 with lite. wikiHow and LLMTrace "article" text is where the
+filter's few false positives come from (3% of human blog texts).
+
+### Stories and the "raw ChatGPT story at 51%" report
+
+All AI stories in the set (fit and test halves together; default Fusion, WebGPU path):
+
+| Source | n | Flagged (≥ 0.5) | Filtered (≥ 0.75) | Shown P(AI), mean / median |
+|---|---|---|---|---|
+| Our unedited default-assistant stories ("Write a short story about…") | 12 | 83% | 33% | 95% / 96% |
+| LLMTrace, OpenAI models (GPT-4o, GPT-4.1, o-series) | 9 | 44% | 33% | 61% / 71% |
+| LLMTrace, other 2024–25 models | 51 | 78% | 63% | 89% / 97% |
+| DACTYL r/WritingPrompts stories | 60 | 77% | 50% | 92% / 97% |
+| Human stories (LLMTrace, DACTYL) | 120 | 3% | 0% | – |
+
+So an unedited assistant-voice story now typically shows **"AI 90–98%"**, against the 51%
+("confidence" on the old uncalibrated scale) that was reported. The lowest of our 12 stories
+shows 81%. Stories from OpenAI models in LLMTrace are the weakest group, but there are only nine of them.
+Treat that row as a warning, not a number. The lite auto-run pass alone shows a mean of 69% on our
+stories, so clicking for the full run matters for fiction.
+
+### Display probability
+
+Reliability on the test half, default Fusion (shown → fraction really AI, with n):
+
+- WebGPU path, ECE 0.040: 6% → 4% (68), 14% → 11% (126), 26% → 21% (92), 34% → 30% (132), 44% → 49% (53), 55% → 37% (19), 65% → 56% (27), 75% → 62% (42), 85% → 83% (40), 97% → 99% (298)
+- WASM path, ECE 0.040: 6% → 4% (71), 14% → 11% (124), 27% → 23% (84), 33% → 29% (140), 44% → 48% (46), 54% → 38% (21), 64% → 55% (31), 75% → 63% (48), 86% → 84% (32), 97% → 99% (300)
+
+The middle of the range (50–80%) is thinly populated and runs about 10 points high, because
+most texts land near one end. ECE for single detectors: Fakespot 0.045, TMR 0.041–0.047, lite
+0.063–0.071, perplexity 0.079–0.083.
+
+**`MIN_WORDS_FOR_SCORE` = 30.** Paragraphs of the eval texts, scored as standalone texts by the
+default set and shown through the short-text curve:
+
+| Words | 12–20 | 20–30 | 30–50 | 50–80 | 80–150 |
+|---|---|---|---|---|---|
+| AUROC | 0.93 | 0.91 | 0.88 | 0.84 | 0.86 |
+| ECE | 0.21 | 0.23 | 0.11 | 0.07 | 0.08 |
+
+Ranking holds even for very short text, but under 30 words the shown probability is off by
+more than 20 points on average, so the UI shows "—". The rule: the smallest length from
+which every bin keeps AUROC ≥ 0.75 and ECE ≤ 0.15.
+
+### Eval set
+
+Built by [`scripts/eval/build-eval-set.mjs`](../scripts/eval/build-eval-set.mjs). The rows are
+fetched from the Hugging Face datasets-server API and cached locally; they are **not
+committed**. Only our own AI samples are in the repo. Texts are 30–450 words (longer ones are
+cut at a sentence boundary), so 45% are "short" (under 150 words), which is typical of
+comments and reviews. Every text is assigned to a **fit** half or a **test** half by a hash
+of its text. All constants were fitted on the fit half, and every number below comes from the test half.
+
+| Source | Licence | Genres (our label) | Generators (AI side) | Human side |
+|---|---|---|---|---|
+| [MAGA](https://huggingface.co/datasets/anyangsong/MAGA), config MGB, validation split | MIT | forum (Reddit), answer (Yahoo Answers), review (Amazon, Trustpilot), news (CC News, NPR), blog (wikiHow) | GPT-4o-mini, Gemini-2.0-flash, DeepSeek-V3, Qwen3, Llama-3.1-8B, Mistral-Medium, Gemma-3, Hunyuan, … (12 models, 2024–25) | The same sources' human text |
+| [LLMTrace](https://huggingface.co/datasets/iitolstykh/LLMTrace_classification), English, test split | Apache-2.0 | review, story, news, blog (article), answer (question), social (short_form) | GPT-4o, GPT-4.1, o3, Gemini-2.5-flash, Llama-3.3-70B, Qwen2.5/3, DeepSeek-R1-distill, Command-R, … | Included |
+| [DACTYL](https://huggingface.co/datasets/ShantanuT01/DACTYL), test split (non-adversarial) | MIT | review, story (r/WritingPrompts), essay (student essays) | 11 recent LLMs, one- and few-shot | Included |
+| [mild-rgb/eli5-human-vs-ai](https://huggingface.co/datasets/mild-rgb/eli5-human-vs-ai), test | CC-BY-4.0 | answer (AI side only) | 2026 models (e.g. Gemini 3.x Flash) | Not redistributed by the dataset, so not used |
+| [mild-rgb/aita-human-vs-ai](https://huggingface.co/datasets/mild-rgb/aita-human-vs-ai), test | Apache-2.0 | forum (AI side only) | 2026 models (e.g. Qwen 3.x Max) | As above |
+| [`scripts/calibration/web-ai.json`](../scripts/calibration/web-ai.json) | MIT (this repo) | story, forum, review, blog, answer, email, social, news, essay (67 texts) | Claude, unedited default-assistant voice ("Write a short story about…") | None (AI only) |
+| MAGE test sample (T5) | Apache-2.0 | kept as a legacy check, excluded from fitting | GPT-3.5 era and older | Included |
+
+About 1,870 web texts in total (excluding MAGE), with 60–190 per genre and class. Emails have only
+our own six AI samples, so their row reports detection rate only. Neither default classifier
+(TMR, lite) was trained on any of these datasets. ModernBERT was trained on MAGE's
+training split (not used here). Gradient was trained on MAGA and DACTYL, which makes those rows
+in-distribution for it.
+
+### Method
+
+1. **Browser run** ([`scripts/e2e/browser-t7-calibration.mjs`](../scripts/e2e/browser-t7-calibration.mjs)).
+   The e2e build runs in Chrome for Testing 153 (Apple Silicon, shader-f16 adapter). Each
+   eval text is sent as an `analyze` request, one detector at a time, on WebGPU and on WASM.
+   Texts are split into page-like paragraphs, as in T5. The run records the document score, each paragraph's score, and the
+   device and dtype that actually ran. The raw statistic (classifier logit, log-perplexity) is
+   recovered by inverting the constants recorded with the run.
+2. **Operating points** ([`scripts/eval/fit-t7.mjs`](../scripts/eval/fit-t7.mjs)), fitted on the fit
+   half, per detector, device and level (document / paragraph). Each detector gets two anchors:
+   - **score 0.5** is where 5% of human texts score higher (the flag point; unchanged from T5);
+   - **score 0.75** is where 1% of human texts score higher, and this sets the slope.
+   T5 kept T1's hand-picked slopes. On the web set they left TMR's scores squeezed below
+   about 0.6, because its raw logits for human and AI text both pile up near the top.
+   With two percentile anchors, a score means the same thing for every detector, and the
+   stricter slop-filter threshold lands near 0.75 for each of them.
+3. **Fusion weights**: a logistic regression on the detectors' log-odds (fit half, primary
+   device). The weights are clipped at a minimum and scaled so the largest is 1. The
+   "weighted" method renormalises them over whichever detectors are chosen.
+4. **Display probability** (`toDisplayProbability`, `AnalyzeResult.probability`): isotonic
+   regression of the true label on the engine score. It is fitted per detector set (every single
+   detector, the presets, and the default set with each method), per device, and per length (under /
+   over 150 words), on the fit half with a **50/50 human/AI mix**, then smoothed into at most 10
+   linear pieces with light shrinkage towards 50%. "AI 80%" therefore means "on our web test
+   texts at this length, about 80% of texts scored like this were AI-generated", *given equal
+   numbers of human and AI texts*. On a page where AI text is rarer, the true rate is lower; the
+   formula is `odds × (prior / (1 − prior))`. The ECE and reliability rows below are on the test half.
+5. **Slop-filter threshold** (`FILTER_THRESHOLD`): the stricter of the default Fusion's and the
+   auto-run model's score at 1% human FPR (fit half), and never below 0.5.
+6. **Minimum words** (`MIN_WORDS_FOR_SCORE`): paragraphs of the eval texts, scored as standalone
+   texts, are binned by length. Below the chosen value the default detectors' ranking (AUROC)
+   falls under 0.75 and the short-text curve stops being reliable, so the UI shows "—" instead of a number.
+
+**Slopes.** The two-anchor fit gives TMR a slope of about 18 on the WebGPU path, because its
+human logits bunch up at the top. At that slope, run-to-run fp16 wobble of 0.007 in the logit
+moved scores by 0.12, so slopes are capped at 6. As a result TMR alone reaches 0.75 only far
+out in its tail (filter recall 0–5% when run alone). That doesn't matter in the default set,
+where Fakespot carries the weight, but it is why TMR isn't the auto-run model.
+
+### Candidates evaluated
+
+| Candidate | Licence | ONNX | Result | Decision |
+|---|---|---|---|---|
+| `fakespot-ai/roberta-base-ai-text-detection-v1` (Mozilla/Fakespot) | Apache-2.0 | Not upstream. [`amankrai28/fakespot-roberta-ai-detector-onnx`](https://huggingface.co/amankrai28/fakespot-roberta-ai-detector-onnx) is an INT8 export (no licence tag, so the upstream licence applies). We exported it ourselves with optimum and quantised it: logit correlation 0.995, mean abs. difference 0.37 logits over 100 texts. | Best overall: AUROC 0.91–0.93, TPR 56% at 1% FPR | **Default** (new slot `classifierFakespot`). If upstream ever publishes ONNX, switch the pin to it. |
+| TMR (`Oxidane/tmr-ai-text-detector`) | MIT | onnx-community | AUROC 0.87; weak on forum posts (0.72) | In the default set |
+| e5-small LoRA (lite) | MIT | onnx-community | 0.77 | Auto-run |
+| ModernBERT RAID+MAGE (`GeorgeDrayson/…`) | Apache-2.0 | onnx-community | 0.72 on web text (it was trained on MAGE; our set is newer generators) | Optional (new slot `classifierModernBert`), WASM-only |
+| `tabularisai/ai-text-detection` (ModernBERT, RAID + 6 datasets) | MIT | None; we converted it for evaluation | 0.90 (Node, test half), level with Fakespot on news and stories, worse on forums | Not shipped: nothing hosted to download. Worth adding if someone publishes an ONNX export. |
+| `ShantanuT01/gradient-ai-text-detector` (DeBERTa-v3-large) via `batmac/…-onnx` | MIT | q4 only (408 MB) | Constant output in our pipeline (a single-logit sigmoid head, which the engine doesn't support), and about 10 s per text on CPU | Not shipped |
+| DistilGPT-2 perplexity | Apache-2.0 | Xenova | 0.72–0.73 | Optional in Fusion |
+| Binoculars (SmolLM2-135M pair) | Apache-2.0 | onnx-community | 0.79, strong on essays (0.97), weak on answers | Optional, experimental, WASM-only, about 18 s per 1,000 words |
+
+### Caveats
+
+- One eval set, English only, 30–450-word texts. The AI side is mostly one-shot generations
+  from 2024–26 models. Edited, paraphrased or "write like a human" text is not represented and will
+  mostly pass.
+- 45% of the texts are under 150 words, as in comments. Per-genre cells have about 50–100
+  test texts, so differences under about 0.05 AUROC are noise.
+- The display probability assumes equal numbers of human and AI texts. On a page where AI
+  text is rarer, the real chance is lower than shown.
+- Known bias: detectors like these flag non-native English writers more often (Liang et al.,
+  2023). The eval set doesn't measure that.
+- Fakespot's ONNX comes from a third-party export that we checked against our own. The pin is
+  a fixed revision, so it cannot change underneath a release.
+
+### Reproduce
+
+```sh
+node scripts/eval/build-eval-set.mjs --cache <dir> --n 60 --seed 11 --out eval-set.json
+npm run build:e2e
+node scripts/e2e/browser-t7-calibration.mjs --ext .output/chrome-mv3-e2e --eval eval-set.json --out runs.json \
+  --runs webgpu:tmr,webgpu:lite,webgpu:perplexity          # WebGPU path (needs a GPU)
+# WASM path + Binoculars: .github/workflows/t7-eval.yml (12-shard matrix; merged scores land on
+# the t7-eval-results branch), or the same script with --runs wasm:...
+node scripts/eval/fit-t7.mjs --eval eval-set.json --runs runs.json --default "fakespot+tmr|weighted" \
+  --md report.md --out fit.json --emit                     # writes src/shared/displayCalibration.ts
+node scripts/eval/emit-constants.mjs fit.json              # constants for src/engine/calibration.ts
+```
+
+The WebGPU runs were done locally (Chrome 153, Apple Silicon). The WASM runs were done on GitHub-hosted
+Ubuntu runners (4 vCPU, Chromium from Playwright). The eval set built in CI was identical to
+the local one (all 1,867 ids match).
+
+---
+
+# Previous calibrations (kept for reference)
+
+## T5 (2026-09-27): browser re-calibration on MAGE
 
 The constants in `calibration.ts` were **re-fitted on the extension itself**
 running in Chrome, not on Node. The first calibration (below, "First

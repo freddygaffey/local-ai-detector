@@ -33,8 +33,11 @@ API keys, no accounts, and no data collection.
 
 FEATURES
 
-• Five detector modes: Ensemble (default), Classifier, Classifier-lite,
-  Perplexity, and experimental Binoculars — all on-device ML, no cloud API.
+• Fusion mode (default): mix up to six on-device detectors (Mozilla's Fakespot
+  RoBERTa, TMR, ModernBERT, a lite model, perplexity, experimental Binoculars),
+  pick how they're combined, and see how many agree. No cloud API.
+• Shows a calibrated probability ("AI 91%") rather than a made-up confidence, and
+  "—" when a snippet is too short to judge.
 • Three highlight styles for flagged sentences: heatmap, flagged-only, or
   underline.
 • A hidden/invisible-Unicode-character report, always shown separately from
@@ -63,10 +66,11 @@ Mozilla, because it collects none.
 ACCURACY, HONESTLY
 
 This is a small, transparently-documented project, not a commercial
-forensic tool. It's calibrated to rarely flag real human writing (about a 1%
-false-positive rate on a held-out benchmark), which means it misses a
-substantial share of AI-generated text too, especially anything paraphrased
-or lightly edited. Full methodology, numbers, and caveats are published in
+forensic tool. On about 1,900 held-out web texts (Reddit posts, reviews, news,
+how-tos, stories; AI side from 2024–26 models), the default Fusion tells AI
+filler from human writing with an AUROC of 0.91. Its slop filter hides almost only AI
+text (99% precision), catching about half of it. Unedited assistant-voice filler is
+caught well. Paraphrased or edited text mostly isn't. Full methodology, numbers, and caveats are published in
 the source repository rather than a vague marketing accuracy claim.
 
 OPEN SOURCE

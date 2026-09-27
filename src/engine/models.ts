@@ -401,12 +401,14 @@ export function refKey(ref: ModelRef): string {
  * about 2.5x the WASM figure.
  */
 export const DETECTOR_SPEED_MS_PER_1K_WORDS: Record<FusionDetector, { webgpu: number; wasm: number }> = {
-  fakespot: { webgpu: 1600, wasm: 1600 },
-  tmr: { webgpu: 250, wasm: 1600 },
-  lite: { webgpu: 80, wasm: 450 },
-  modernbert: { webgpu: 350, wasm: 2600 },
-  perplexity: { webgpu: 300, wasm: 2000 },
-  binoculars: { webgpu: 11000, wasm: 11000 },
+  // T7 browser runs (Chrome 153, Apple M-series, 4 WASM threads), rounded up.
+  // WASM-only detectors cost the same on either path.
+  fakespot: { webgpu: 2500, wasm: 2500 },
+  tmr: { webgpu: 400, wasm: 2500 },
+  lite: { webgpu: 200, wasm: 800 },
+  modernbert: { webgpu: 3500, wasm: 3500 },
+  perplexity: { webgpu: 750, wasm: 2000 },
+  binoculars: { webgpu: 20000, wasm: 20000 },
 };
 
 export interface FusionEstimate {

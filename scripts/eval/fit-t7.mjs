@@ -96,10 +96,13 @@ for (const [key, r] of Object.entries(runs.runs)) {
 // score 0.5 where 5% of them score higher (the flag point), score 0.75 where
 // 1% do (near the slop-filter point). So slope = logit(0.75) / (t1% - t5%).
 const FILTER_ANCHOR = 0.75;
+const MAX_SLOPE = 6;
 function anchors(x, y) {
   const t5 = thresholdAtFpr(x, y, FLAG_FPR);
   const t1 = thresholdAtFpr(x, y, FILTER_FPR);
-  return { t5, slope: logit(FILTER_ANCHOR) / Math.max(1e-3, t1 - t5) };
+  // Capped: TMR's human logits bunch up so tightly that the uncapped slope
+  // (~18) turns tiny fp16 run-to-run wobble into large score jumps.
+  return { t5, slope: Math.min(MAX_SLOPE, logit(FILTER_ANCHOR) / Math.max(1e-3, t1 - t5)) };
 }
 function fitDetector(device, det) {
   const d = data[device]?.[det];
@@ -285,7 +288,7 @@ for (const det of ["lite", ...best.dets.filter((d) => d !== "lite")]) {
 }
 // Minimum words: paragraphs scored as standalone texts with the default set,
 // shown through the short-text curve. From the smallest length bin upwards
-// in which every bin (n >= 50) keeps AUROC >= 0.75 and ECE <= 0.1.
+// in which every bin (n >= 50) keeps AUROC >= 0.75 and ECE <= 0.15.
 {
   const dets = best.dets;
   const perPara = new Map(); // key id#index -> {words, ps: {det: p}}
@@ -312,7 +315,7 @@ for (const det of ["lite", ...best.dets.filter((d) => d !== "lite")]) {
   for (let i = out.byLengthDefault.length - 1; i >= 0; i--) {
     const r = out.byLengthDefault[i];
     if (r.n < 50) continue;
-    if (r.auroc >= 0.75 && r.ece <= 0.1) min = r.lo;
+    if (r.auroc >= 0.75 && r.ece <= 0.15) min = r.lo;
     else break;
   }
   out.minWordsForScore = Math.max(20, min ?? 30);

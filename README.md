@@ -79,11 +79,19 @@ are ever stored, and it's fully clearable from Options.
 
 | Mode | What it runs | Notes |
 |---|---|---|
-| **Ensemble** (default) | Classifier (70%) + Perplexity (30%), blended per sentence | Best ranking on held-out data (see [accuracy](#how-accurate-is-it)) |
-| **Classifier** | [`tmr-ai-text-detector`](https://huggingface.co/onnx-community/tmr-ai-text-detector-ONNX) (RoBERTa-base, RAID-trained) | The ensemble's default classifier; ~126 MB |
-| **Classifier-lite** | [`e5-small-lora-ai-generated-detector`](https://huggingface.co/onnx-community/e5-small-lora-ai-generated-detector-ONNX) | ~4× smaller/faster, selectable as the ensemble's classifier too (Options → "Ensemble classifier") |
-| **Perplexity** | [`distilgpt2`](https://huggingface.co/Xenova/distilgpt2), lower perplexity ⇒ more AI-like | Classic GPTZero-style burstiness/perplexity signal |
-| **Binoculars** *(experimental)* | Two [`SmolLM2-135M`](https://huggingface.co/onnx-community/SmolLM2-135M-ONNX) models (base + instruct) | Cross-perplexity ratio; least-tested mode, WASM-only |
+| **Fusion** (default; was "Ensemble") | Any mix of the detectors below, combined by weighted average (default), log-odds average, majority vote or max. Default set: **Fakespot + TMR** | Every result says how many detectors agree, and flags it when they split. Options → Fusion shows the download size and speed of your mix |
+| **Classifier** | [`tmr-ai-text-detector`](https://huggingface.co/onnx-community/tmr-ai-text-detector-ONNX) (RoBERTa-base, RAID-trained, MIT) | ~250 MB (fp16, GPU) / ~130 MB (q8, CPU) |
+| **Classifier-lite** | [`e5-small-lora-ai-generated-detector`](https://huggingface.co/onnx-community/e5-small-lora-ai-generated-detector-ONNX) (MIT) | The quick automatic pass; ~35–70 MB, noticeably weaker |
+| **Perplexity** | [`distilgpt2`](https://huggingface.co/Xenova/distilgpt2), lower perplexity ⇒ more AI-like | Classic GPTZero-style signal; weak on its own |
+| **Binoculars** *(experimental)* | Two [`SmolLM2-135M`](https://huggingface.co/onnx-community/SmolLM2-135M-ONNX) models (base + instruct) | Cross-perplexity ratio; slow, CPU-only |
+
+Fusion-only detectors: **Fakespot** ([`fakespot-ai/roberta-base-ai-text-detection-v1`](https://huggingface.co/fakespot-ai/roberta-base-ai-text-detection-v1),
+Mozilla's RoBERTa detector, Apache-2.0, ~130 MB, CPU) — the best single detector on our web
+test set — and **ModernBERT** ([RAID + MAGE](https://huggingface.co/onnx-community/modernbert-ai-detection-raid-mage-ONNX),
+Apache-2.0, ~155 MB, CPU; weaker on today's models).
+
+Runs on the GPU (WebGPU) by default, with a CPU (WASM) fallback that has its own
+calibration. Fakespot, ModernBERT and Binoculars always use the CPU.
 
 A hidden-Unicode scan (zero-width characters, tag characters, bidi controls,
 etc.) always runs alongside whichever mode is selected, and is shown
@@ -155,53 +163,44 @@ allowlist.
 
 ## How accurate is it?
 
-**Short version: treat every score as a probability, not a proof, and expect
-it to miss things.** This is a hobby-scale, honestly-documented detector, not
-a forensic tool, and it was never meant to be one — see
-[`docs/plan.md`](docs/plan.md): "Accuracy is **not** the goal. The goals are
-open licences, privacy, and honest UI."
+**Short version: good at catching unedited, straight-out-of-the-box AI filler; easy
+to fool on purpose; and tuned so it would rather let slop through than hide a real
+person.** It isn't a forensic tool, and a score isn't proof.
 
-The scale: each detector's 0.5 is calibrated so that only about **5% of
-human-written text scores that high or higher** — a deliberately
-conservative operating point, because we'd rather miss AI text than falsely
-accuse a person. A page scoring 50% means *"scored higher than ~95% of the
-human texts we tested it against,"* not *"there's a 50% chance this is AI."*
+The number you see ("AI 91%") is a **calibrated probability**. On our web test set,
+about 91 of every 100 texts shown at 91% really were AI-generated. That assumes equal amounts of human and AI text. Where AI text is rarer, the real odds are lower.
+Under 30 words there's too little text to say anything, so you'll see "—".
 
-Measured on 595 held-out texts from the [MAGE](https://huggingface.co/datasets/yaful/MAGE)
-benchmark (Apache-2.0; not used to train either classifier), running in the
-extension itself (Chrome, WASM):
+Measured in the extension itself, on the held-out half of about 1,900 web texts: Reddit
+posts, Q&A answers, Amazon/Trustpilot reviews, news, how-to articles, short social posts,
+stories and essays. The AI side comes from 2024–26 models (GPT-4o/4.1, o3, Gemini 2.x, Claude,
+DeepSeek, Qwen, Llama, Mistral, …); the human side comes from the same sites. Full numbers are in
+[`docs/calibration.md`](docs/calibration.md).
 
-| Detector | AUROC | False-positive rate | True-positive rate (catches) |
-|---|---|---|---|
-| Classifier (TMR) | 0.91 | 2% | 68% |
-| Classifier-lite | 0.84 | 6% | 37% |
-| Perplexity | 0.69 | 5% | 26% |
-| **Ensemble (default)** | **0.92** | **1%** | **46%** |
+| | Tells AI from human (AUROC) | Human texts flagged | AI texts flagged | Slop filter: hidden items that were AI / AI caught |
+|---|---|---|---|---|
+| **Fusion (default: Fakespot + TMR)** | **0.91** | **5%** | **68%** | **99%** / 54% |
+| Lite (automatic quick pass) | 0.77 | 6% | 39% | 97% / 22% |
 
-In plain terms: at the default settings, the ensemble almost never wrongly
-flags human writing (about 1 in 100), but it **misses roughly half of the AI
-text** in this benchmark. On our own small 49-text calibration set, it also
-flagged 3 of 28 human texts — all modern, plain US-government prose, the
-hardest case for every detector tested.
+| Genre (default Fusion, AUROC) | Reviews | News | Stories | Essays | Social | Blog / how-to | Answers | Forum posts |
+|---|---|---|---|---|---|---|---|---|
+| | 0.98 | 0.92 | 0.94 | 0.93 | 0.94 | 0.90 | 0.87 | 0.81 |
 
-Known, deliberate weaknesses (see [`docs/calibration.md`](docs/calibration.md)
-for the full breakdown and methodology):
+An unedited assistant-voice story ("write me a short story about…") now shows about
+**AI 95%**, against the "51%" someone reported on the old scale. Stories from OpenAI's own models were the
+hardest group in the test set (a small sample: about 60% shown on average).
 
-- **Paraphrasing defeats it.** Any tool or human edit that rewrites AI text
-  will mostly slip through; this is a documented weakness of every public
-  detector, not specific to this one ([RAID](https://arxiv.org/abs/2405.07940)).
-- **Non-native English writing scores higher on perplexity-style detectors**
-  (a well-known bias in the literature). English-only; not calibrated for
-  other languages.
-- **Plain, formulaic modern prose (legal, government, some technical
-  writing) is the hardest case** for every detector here, human or not.
-- **The calibration data is small and imperfect**: 49 hand-picked texts plus
-  595 MAGE texts, one language, a handful of model families. Don't read the
-  numbers above as a general accuracy claim beyond this benchmark.
-- **Short text is noisy.** Sentences below the minimum word count are folded
-  into their neighbours; treat single-sentence highlights as a relative heat
-  map, not a verdict.
-- Binoculars mode is explicitly experimental and least-tested.
+Known, deliberate weaknesses:
+
+- **Paraphrasing and "humanizer" tools beat it**, as they beat every public
+  detector ([RAID](https://arxiv.org/abs/2405.07940)). So does a person editing the text.
+- **Forum posts are the hardest genre.** Casual Reddit-style AI posts slip through more
+  often than reviews or news.
+- **Non-native English writing** scores higher on detectors like these (a well-known bias).
+  English only.
+- **Short text is noisy.** Comments under about 50 words get wider error bars, and single
+  sentences are always scored together with their neighbours.
+- Binoculars is experimental.
 
 ## Privacy
 
@@ -272,7 +271,7 @@ background (Chrome: service worker · Firefox: event page)
 inference host  (Chrome: an offscreen document · Firefox: a dedicated Worker
                  spawned from the event page)
    transformers.js 4.x + bundled onnxruntime-web WASM (public/ort/, wasmPaths
-   pinned, never a CDN) — WebGPU if opted in, otherwise WASM
+   pinned, never a CDN) — WebGPU by default, WASM fallback
                  also hosts C2PA validation (@contentauth/c2pa-web, its own
                  packaged worker/WASM under public/c2pa/)
 

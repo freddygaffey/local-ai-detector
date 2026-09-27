@@ -63,51 +63,148 @@ export interface Calibration {
   };
 }
 
-/** WASM (q8) — the fallback path. Also used for Node (CPU) scripts. */
+/**
+ * WASM (q8) — the fallback path (Firefox on Linux, no adapter, no
+ * shader-f16), and the device Fakespot, ModernBERT and Binoculars always run
+ * on. Fitted on the CI browser run (.github/workflows/t7-eval.yml). Also used
+ * by the Node (CPU) scripts.
+ */
 export const WASM_CALIBRATION: Calibration = {
   classifier: {
-    classifier: { center: 3.84, slope: 1.27 },
-    classifierLite: { center: 2.7, slope: 1.72 },
-    classifierModernBert: { center: 3.0, slope: 1.0 },
-    classifierFakespot: { center: 3.0, slope: 1.0 },
+    classifierFakespot: {
+      center: 3.525,
+      slope: 0.489,
+    },
+    classifier: {
+      center: 4.217,
+      slope: 6,
+    },
+    classifierLite: {
+      center: 2.327,
+      slope: 2.943,
+    },
+    classifierModernBert: {
+      center: 4.429,
+      slope: 2.374,
+    },
   },
-  perplexity: { tau: 3.17, a: 2.0, tauBurst: 0.58, b: 0 },
-  binoculars: { tau: 0.82, k: 10 },
-  ensemble: { wClassifier: 0.7, wPerplexity: 0.3 },
-  fusionWeights: { fakespot: 1, tmr: 1, lite: 1, modernbert: 1, perplexity: 0.5, binoculars: 0.5 },
+  perplexity: {
+    tau: 3.097,
+    a: 1.043,
+    tauBurst: 0.58,
+    b: 0,
+  },
+  binoculars: {
+    tau: 0.81,
+    k: 6,
+  },
+  ensemble: {
+    wClassifier: 0.7,
+    wPerplexity: 0.3,
+  },
+  fusionWeights: {
+    fakespot: 0.644,
+    tmr: 0.093,
+    lite: 0.049,
+    modernbert: 0.083,
+    perplexity: 0.049,
+    binoculars: 1,
+  },
   unit: {
     classifier: {
-      classifier: { center: 4.2, slope: 1.27 },
-      classifierLite: { center: 2.34, slope: 1.72 },
-      classifierModernBert: { center: 3.0, slope: 1.0 },
-    classifierFakespot: { center: 3.0, slope: 1.0 },
+      classifierFakespot: {
+        center: 4.483,
+        slope: 0.525,
+      },
+      classifier: {
+        center: 4.232,
+        slope: 6,
+      },
+      classifierLite: {
+        center: 2.352,
+        slope: 5.164,
+      },
+      classifierModernBert: {
+        center: 4.365,
+        slope: 2.273,
+      },
     },
-    perplexityTau: 3.02,
-    binocularsTau: 0.82,
+    perplexityTau: 2.81,
+    perplexityA: 0.475,
+    binocularsTau: 0.774,
+    binocularsK: 6,
   },
 };
 
-/** WebGPU (fp16 / q4f16 per model, see models.ts) — the primary path. */
+/**
+ * WebGPU — the primary path (TMR and lite fp16, perplexity fp16; the
+ * WASM-only detectors keep their WASM constants). Fitted on the local
+ * Chrome 153 WebGPU run.
+ */
 export const WEBGPU_CALIBRATION: Calibration = {
   classifier: {
-    classifier: { center: 3.14, slope: 1.27 },
-    classifierLite: { center: 1.91, slope: 1.72 },
-    classifierModernBert: { center: 3.0, slope: 1.0 },
-    classifierFakespot: { center: 3.0, slope: 1.0 },
+    classifierFakespot: {
+      center: 3.525,
+      slope: 0.489,
+    },
+    classifier: {
+      center: 4.195,
+      slope: 6,
+    },
+    classifierLite: {
+      center: 2.481,
+      slope: 3.309,
+    },
+    classifierModernBert: {
+      center: 4.429,
+      slope: 2.374,
+    },
   },
-  perplexity: { tau: 2.93, a: 2.0, tauBurst: 0.58, b: 0 },
-  binoculars: { tau: 0.82, k: 10 },
-  ensemble: { wClassifier: 0.7, wPerplexity: 0.3 },
-  fusionWeights: { fakespot: 1, tmr: 1, lite: 1, modernbert: 1, perplexity: 0.5, binoculars: 0.5 },
+  perplexity: {
+    tau: 2.901,
+    a: 1.155,
+    tauBurst: 0.58,
+    b: 0,
+  },
+  binoculars: {
+    tau: 0.81,
+    k: 6,
+  },
+  ensemble: {
+    wClassifier: 0.7,
+    wPerplexity: 0.3,
+  },
+  fusionWeights: {
+    fakespot: 0.656,
+    tmr: 0.096,
+    lite: 0.049,
+    modernbert: 0.076,
+    perplexity: 0.049,
+    binoculars: 1,
+  },
   unit: {
     classifier: {
-      classifier: { center: 3.87, slope: 1.27 },
-      classifierLite: { center: 2.22, slope: 1.72 },
-      classifierModernBert: { center: 3.0, slope: 1.0 },
-    classifierFakespot: { center: 3.0, slope: 1.0 },
+      classifierFakespot: {
+        center: 4.483,
+        slope: 0.525,
+      },
+      classifier: {
+        center: 4.223,
+        slope: 6,
+      },
+      classifierLite: {
+        center: 2.551,
+        slope: 5.022,
+      },
+      classifierModernBert: {
+        center: 4.365,
+        slope: 2.273,
+      },
     },
-    perplexityTau: 2.81,
-    binocularsTau: 0.82,
+    perplexityTau: 2.644,
+    perplexityA: 0.494,
+    binocularsTau: 0.774,
+    binocularsK: 6,
   },
 };
 

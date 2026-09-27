@@ -35,11 +35,11 @@ accounts, no data collection of any kind.
 
 WHAT IT DOES
 
-• Scores visible text sentence-by-sentence using an on-device AI-text
-  classifier and/or a perplexity model (your choice: Ensemble, Classifier,
-  Classifier-lite, Perplexity, or experimental Binoculars mode), and
-  highlights flagged sentences directly on the page (heatmap, flagged-only,
-  or underline style).
+• Scores visible text with on-device detectors. By default that's Fusion:
+  Mozilla's Fakespot RoBERTa plus TMR, combined, showing how many agree. You
+  can mix in ModernBERT, a lite model, perplexity or experimental Binoculars.
+  It highlights flagged sentences on the page (heatmap, flagged-only, or
+  underline) and shows a calibrated probability ("AI 91%"), not a made-up score.
 • Flags hidden/invisible Unicode characters in text (shown separately, never
   counted as "AI evidence" — ordinary typography and copy-pasting from Word
   or PDFs produce these too).
@@ -54,14 +54,14 @@ WHY IT'S DIFFERENT
 
 • 100% local. All analysis — text scoring, image checks — runs in your
   browser. The only network requests this extension ever makes are
-  downloading AI models from Hugging Face (once, after you consent, ~130–210
-  MB depending on mode) and, only for a site you've explicitly allowed,
+  downloading AI models from Hugging Face (once, after you consent, ~35–400
+  MB depending on the detectors you pick) and, only for a site you've explicitly allowed,
   fetching one image's bytes to check it. Full accounting in our privacy
   policy.
 • Honest about accuracy. This is not a forensic tool and doesn't pretend to
-  be one. It's tuned to rarely flag real human writing (about 1 false
-  positive per 100 human texts on a held-out benchmark) — which means it
-  also misses a lot of AI-generated text, especially anything paraphrased.
+  be one. It's tuned so the slop filter would rather let filler through than
+  hide a real person: on held-out web text, 99% of what it hides is AI, and it
+  catches about half. Paraphrased or edited text mostly passes.
   We publish the actual numbers and their limitations rather than a vague
   "99% accurate" claim.
 • Fully open source (MIT licence). Every model and library it bundles is
