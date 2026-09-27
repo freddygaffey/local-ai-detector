@@ -14,7 +14,7 @@ import { runTabAnalysis, startEngineRouter, unloadIdleModels } from "@/src/engin
 import { getSettings, watchSettings } from "@/src/shared/settings";
 import { clearBadge } from "@/src/ui/badge";
 import { registerProvenanceBackground } from "@/src/provenance/background";
-import { hasImagePermission, originPattern, requestImagePermission } from "@/src/provenance/permissions";
+import { originPattern, requestImagePermission } from "@/src/provenance/permissions";
 import { isIdleTooLong } from "@/src/power/idle";
 import { registerVoiceBackground } from "@/src/voice/background";
 
@@ -50,9 +50,10 @@ async function checkImageInTab(tabId: number, srcUrl: string | undefined): Promi
   if (!srcUrl) return;
   try {
     const pattern = originPattern(srcUrl);
-    if (pattern && !(await hasImagePermission([pattern]))) {
-      await requestImagePermission([pattern]).catch(() => false);
-    }
+    // Request straight away, with no await before it: Firefox only allows
+    // permissions.request() while the click is still being handled, and an
+    // origin that's already granted resolves true without a prompt.
+    if (pattern) await requestImagePermission([pattern]).catch(() => false);
     await sendTabMessage(tabId, "checkImageAtUrl", { srcUrl });
   } catch (err) {
     console.warn("[Local AI Detector] image check failed", err);
@@ -67,7 +68,7 @@ function startExtraContextMenus(): void {
       void browser.runtime.lastError;
     });
     menus.create(
-      { id: MENU_CHECK_IMAGE, title: "Check image for Content Credentials & watermarks", contexts: ["image"] },
+      { id: MENU_CHECK_IMAGE, title: "Check image for Content Credentials and watermarks", contexts: ["image"] },
       () => void browser.runtime.lastError,
     );
     menus.create(
