@@ -197,6 +197,9 @@ does a quick walkthrough per persona, a few screenshots in total, one combined f
 docs/ux/persona-walkthrough-brief.md as a guide, not a checklist. A fix pass follows before
 the final package.
 
+## Design principles (the user's words)
+**Honest, well designed, minimal, in the background and unobtrusive.**
+
 ## Display rules (approved)
 - Every displayed % comes from `toDisplayProbability()`, a calibrated probability on web text.
 - Threads and comment pages show a count in the chip ("3 AI") plus per-item %. Articles show a
