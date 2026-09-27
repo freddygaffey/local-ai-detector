@@ -399,9 +399,11 @@ await step("image provenance on the news page (badges + popup summary)", async (
   await pages.news.evaluate(() => document.querySelector('img[src="/img/c2pa.jpg"]').scrollIntoView({ block: "center" }));
   await sleep(400);
   await shot(pages.news, "page-image-badges.jpg");
+  await popup.setViewport({ width: 380, height: 820 });
   await popup.reload();
   await sleep(1200);
   await shot(popup, "popup-images.png", { fullPage: true });
+  await popup.setViewport({ width: 380, height: 620 });
   if (problems.length) throw new Error(problems.join("; "));
 });
 
