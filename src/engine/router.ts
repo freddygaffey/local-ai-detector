@@ -191,7 +191,8 @@ async function runAnalyze(
         config: {
           mode,
           minWords: settings.minWords,
-          maxTokens: settings.maxTokens,
+          // The Quick pass (and its confirmation) is capped; Deep reads up to maxTokens.
+          maxTokens: req.tier === "quick" ? Math.min(settings.maxTokens, settings.tiers.quickMaxTokens) : settings.maxTokens,
           models,
           fusion,
           itemBlocks: req.itemBlocks,
@@ -208,7 +209,17 @@ async function runAnalyze(
     // Tiers task: echo which pass this was, so the popup/pill can label a
     // Deep result and (once it exists) a YouTube voice check can read the
     // active tier (docs/plan.md "Two tiers").
-    const tagged = req.tier ? { ...result, tier: req.tier } : result;
+    const tagged = req.tier
+      ? {
+          ...result,
+          tier: req.tier,
+          // Quick is capped by design (settings.tiers.quickMaxTokens); point at Deep, not at the global limit.
+          notes:
+            req.tier === "quick"
+              ? result.notes.map((n) => (n.startsWith("Only the first ~") ? "Quick check read part of the page. Deep check (↻) reads all of it." : n))
+              : result.notes,
+        }
+      : result;
     if (tabId >= 0) {
       broadcastStatus(tabId, { state: "done", mode, result: tagged, finishedAt: Date.now() });
       // The badge shows the same calibrated P(AI) as every other surface; nothing when too short to score.

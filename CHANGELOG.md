@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [0.2.0] — 2026-09-28
 
+- Quick check reads at most ~1,024 tokens (setting: Tiers → Quick check length); the Deep check (↻) still reads the whole page. Keeps long pages fast, notably on Firefox.
+
 **First public release.** There is no public 0.1.0 — that version number was
 an internal development milestone only, never packaged or submitted to a
 store (see [`docs/plan.md`](docs/plan.md) "Phases and release"). Everything

@@ -35,7 +35,8 @@ export function mountTierSettings(el: HTMLElement): () => void {
     </style>
     <fieldset class="quick"><legend>Quick detectors</legend></fieldset>
     <label class="row"><input type="checkbox" class="confirm"><span>Confirm high Quick scores with Fusion</span></label>
-    <fieldset class="deep"><legend>Deep detectors</legend></fieldset>`;
+    <fieldset class="deep"><legend>Deep detectors</legend></fieldset>
+    <label class="row budget"><span>Quick check length</span> <input type="number" min="128" max="32000" step="128" /> <span class="blurb">tokens</span></label>`;
   // Whether the quick check runs automatically is controlled in one place only:
   // Presence → Auto-run. (A second checkbox here contradicted it.)
   el.append(root);
@@ -79,6 +80,12 @@ export function mountTierSettings(el: HTMLElement): () => void {
     return boxes;
   }
 
+  const budgetBox = root.querySelector<HTMLInputElement>(".budget input")!;
+  budgetBox.addEventListener("change", () => {
+    if (!settings) return;
+    save({ ...settings.tiers, quickMaxTokens: Number(budgetBox.value) });
+  });
+
   const quickBoxes = boxesFor(quickEl, "quickDetectors");
   const confirmBox = root.querySelector<HTMLInputElement>("input.confirm")!;
   confirmBox.addEventListener("change", () => {
@@ -92,6 +99,7 @@ export function mountTierSettings(el: HTMLElement): () => void {
     for (const [d, box] of quickBoxes) box.checked = t.quickDetectors.includes(d);
     confirmBox.checked = t.confirmQuick;
     for (const [d, box] of deepBoxes) box.checked = t.deepDetectors.includes(d);
+    if (document.activeElement !== budgetBox) budgetBox.value = String(t.quickMaxTokens);
   }
 
   let alive = true;

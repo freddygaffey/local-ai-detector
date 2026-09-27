@@ -314,6 +314,12 @@ export interface TierSettings {
   quickDetectors: FusionDetector[];
   /** Detectors an on-demand Deep run uses. Default: everything the registry has. */
   deepDetectors: FusionDetector[];
+  /**
+   * Token budget for the automatic Quick pass (and its Fusion confirmation).
+   * The Quick pass is a glance: capping it keeps long pages fast, notably on
+   * Firefox's single-threaded WASM. Deep always reads up to `maxTokens`.
+   */
+  quickMaxTokens: number;
   /** "Run quick check automatically" -- off means no automatic pass at all (Deep still runs on click). */
   autoRunQuick: boolean;
   /**
@@ -337,6 +343,7 @@ export const CHIP_AUTO_HIDE_DEFAULT = 0.7;
 export const DEFAULT_TIERS: TierSettings = {
   quickDetectors: ["tmr"],
   deepDetectors: [...ALL_TIER_DETECTORS],
+  quickMaxTokens: 1024,
   autoRunQuick: true,
   confirmQuick: true,
 };
@@ -465,6 +472,10 @@ export function sanitizeTiers(t: Partial<TierSettings> | undefined): TierSetting
   return {
     quickDetectors: sanitizeTierDetectors(t?.quickDetectors, DEFAULT_TIERS.quickDetectors),
     deepDetectors: sanitizeTierDetectors(t?.deepDetectors, DEFAULT_TIERS.deepDetectors),
+    quickMaxTokens:
+      typeof t?.quickMaxTokens === "number" && Number.isFinite(t.quickMaxTokens)
+        ? Math.min(32000, Math.max(128, Math.round(t.quickMaxTokens)))
+        : DEFAULT_TIERS.quickMaxTokens,
     autoRunQuick: t?.autoRunQuick ?? DEFAULT_TIERS.autoRunQuick,
     confirmQuick: t?.confirmQuick ?? DEFAULT_TIERS.confirmQuick,
   };

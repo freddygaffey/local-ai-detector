@@ -83,19 +83,19 @@ describe("settings migration", () => {
     expect(out.fusion).toEqual({ detectors: ["tmr"], method: "max" });
   });
   it("v2 settings on the old Quick defaults move to TMR and a 70% chip", () => {
-    const out = merged({ settingsVersion: 2, tiers: { quickDetectors: ["lite"], deepDetectors: ["tmr"], autoRunQuick: true, confirmQuick: true }, chipAutoHideThreshold: 0.35 });
+    const out = merged({ settingsVersion: 2, tiers: { quickDetectors: ["lite"], deepDetectors: ["tmr"], autoRunQuick: true, confirmQuick: true, quickMaxTokens: 1024 }, chipAutoHideThreshold: 0.35 });
     expect(out.tiers.quickDetectors).toEqual(["tmr"]);
     expect(out.tiers.deepDetectors).toEqual(["tmr"]);
     expect(out.chipAutoHideThreshold).toBe(0.7);
     expect(out.settingsVersion).toBe(3);
   });
   it("v2 settings keep a deliberate Quick set and chip threshold", () => {
-    const out = merged({ settingsVersion: 2, tiers: { quickDetectors: ["lite", "perplexity"], deepDetectors: ["tmr"], autoRunQuick: true, confirmQuick: true }, chipAutoHideThreshold: 0.5 });
+    const out = merged({ settingsVersion: 2, tiers: { quickDetectors: ["lite", "perplexity"], deepDetectors: ["tmr"], autoRunQuick: true, confirmQuick: true, quickMaxTokens: 1024 }, chipAutoHideThreshold: 0.5 });
     expect(out.tiers.quickDetectors).toEqual(["lite", "perplexity"]);
     expect(out.chipAutoHideThreshold).toBe(0.5);
   });
   it("v3 settings are left alone (lite chosen after the move stays)", () => {
-    const out = merged({ settingsVersion: 3, tiers: { quickDetectors: ["lite"], deepDetectors: ["tmr"], autoRunQuick: true, confirmQuick: true }, chipAutoHideThreshold: 0.35 });
+    const out = merged({ settingsVersion: 3, tiers: { quickDetectors: ["lite"], deepDetectors: ["tmr"], autoRunQuick: true, confirmQuick: true, quickMaxTokens: 1024 }, chipAutoHideThreshold: 0.35 });
     expect(out.tiers.quickDetectors).toEqual(["lite"]);
     expect(out.chipAutoHideThreshold).toBe(0.35);
   });
