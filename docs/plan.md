@@ -98,6 +98,14 @@ calibration.md and qa.md. Owner model: Opus. Runs after T5 (same files).
 - Re-calibrate on the browser runtime. The displayed score must be meaningful, so show a band
   and wording instead of a bare "confidence". Target: unedited ChatGPT/Claude stories clearly
   flagged, with a low human FPR. Report honest per-genre numbers.
+- **WebGPU on by default (user decision).** `useWebGPU` defaults to true. The WebGPU
+  calibration becomes the primary one (browser-fitted, with the same rigour as the CPU one),
+  and CPU constants stay for the fallback (Firefox on Linux, no adapter, no shader-f16). Pick
+  the weights per model on WebGPU: use fp16 or fp32 wherever q4f16 is materially worse
+  (q4f16 broke Binoculars), and accept larger downloads if needed. Binoculars stays CPU unless
+  a WebGPU dtype is verified correct. Record the device used in AnalyzeResult so the UI can
+  show it. Update the setting's help text, calibration.md, qa.md, README and PRIVACY (no change
+  expected).
 - Owner: T7 (Opus).
 
 ## T8: Battery saver (merged into T9 below)
@@ -110,6 +118,8 @@ brackets):
   in the pill and popup
 - pause under serious/critical CPU pressure [on]
 - unload models after N minutes idle [5]
+- use CPU instead of GPU when on battery [off]
+- show the device used (GPU/CPU) in the popup detail view
 - manual "battery saver" toggle, shown prominently where the battery API is unavailable
   (Firefox)
 Implemented as part of T9.
