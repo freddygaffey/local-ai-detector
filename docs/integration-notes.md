@@ -17,3 +17,10 @@
 - The popup drives analysis itself: `extractText` goes to the tab, then analyze, then `renderHighlights` goes to the tab. Check that this doesn't duplicate T1's background-driven flow (autoRun, context menu). There should be one path.
 - `AnalyzeResult.images` is T3's *proposed* summary shape. Reconcile it with T4's real provenance result and `provenanceScanImages` flow.
 - Popup resyncs through `getTabStatus` and `onAnalysisStatus`.
+
+## From T2 (content script)
+- The pill's own "Scan page"/autoRun path sends `analyze` with `tabId: 0`. The background must use `HandlerMeta.senderTabId` for requests that come from content scripts.
+- The context menu "Analyze selection" is not wired yet. It belongs in the background: create the menu entry, then on click send `extractText{target:'selection'}` to the tab, run `analyze`, and send back `renderHighlights`.
+- There are three analysis entry points (popup, pill, context menu), so unify them in one background orchestration if possible.
+- `happy-dom` is recommended as a devDependency for DOM tests of extraction and highlighting (not installed).
+- Only the first range of a selection is used, so multi-range selections are ignored.
