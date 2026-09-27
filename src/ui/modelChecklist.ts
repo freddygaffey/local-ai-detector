@@ -22,9 +22,9 @@ import { h } from "./dom";
 /** Short, plain-language role blurb per detector -- "a few words," not a sentence. */
 export const DETECTOR_ROLE: Record<FusionDetector, string> = {
   fakespot: "Main classifier (Mozilla/Fakespot).",
-  tmr: "Second classifier (RAID-trained).",
+  tmr: "Automatic pass; second classifier (RAID-trained).",
   modernbert: "Extra classifier (RAID + MAGE).",
-  lite: "Small & fast; used for the automatic pass.",
+  lite: "Small & fast.",
   perplexity: "Predictability to a small language model.",
   binoculars: "Compares two small models. Slow.",
 };
