@@ -81,9 +81,16 @@ function createWorkerClient(): HostClient {
     stopKeepAlive();
   }
 
+  // Models are loaded in the worker. Chrome's offscreen document keeps them
+  // until the idle-unload alarm (background.ts) calls "unload"; do the same
+  // here, or Firefox drops the event page (and the worker, and every loaded
+  // model) ~30 s after each run and the next page pays a full reload.
+  let warm = false;
+
   // Firefox unloads an idle event page (and with it this worker) after ~30 s
-  // without extension events. Touch a cheap extension API while work is in
-  // flight so a long download/analysis isn't cut off. T5: verify in Firefox.
+  // without extension events. Touching a cheap extension API resets that
+  // timer (checked in Firefox 156), so keep touching it while work is in
+  // flight or models are loaded.
   function startKeepAlive() {
     if (keepAlive) return;
     keepAlive = setInterval(() => {
@@ -91,7 +98,7 @@ function createWorkerClient(): HostClient {
     }, 15_000);
   }
   function stopKeepAlive() {
-    if (keepAlive && pending.size === 0) {
+    if (keepAlive && pending.size === 0 && !warm) {
       clearInterval(keepAlive);
       keepAlive = null;
     }
@@ -116,6 +123,7 @@ function createWorkerClient(): HostClient {
       e.preventDefault?.();
       console.error("[engine] inference worker error", e.message);
       worker = null;
+      warm = false;
       w.terminate();
       failAll(new Error(`Inference worker crashed: ${e.message || "unknown error"}`));
     };
@@ -138,9 +146,17 @@ function createWorkerClient(): HostClient {
           stopKeepAlive();
           reject(e instanceof Error ? e : new Error(String(e)));
         }
-      }).then((res) => unwrap(res as HostResponseEnvelope<typeof op>, op));
+      }).then((res) => {
+        const out = unwrap(res as HostResponseEnvelope<typeof op>, op);
+        if (op === "analyze" || op === "prepare") warm = true;
+        else if (op === "unload" && !(payload as HostOps["unload"]["req"]).refs) warm = false;
+        if (warm) startKeepAlive();
+        else stopKeepAlive();
+        return out;
+      });
     },
     async reset() {
+      warm = false;
       worker?.terminate();
       worker = null;
       failAll(new Error("Inference host was reset"));

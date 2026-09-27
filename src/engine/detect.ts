@@ -110,6 +110,21 @@ interface ClassifierOut {
   rawOverall: number;
 }
 
+// Raw P(ai) per chunk text, kept across runs for as long as the loaded model
+// object lives. The Quick tier's confirmation pass re-runs the Quick
+// detector on exactly the same chunks (router.ts runTabAnalysis); on
+// Firefox's single-threaded WASM that repeat alone cost tens of seconds.
+const RUN_MEMO_MAX = 2000;
+const runMemo = new WeakMap<LoadedClassifier, Map<string, { raw: number; tokens: number }>>();
+function memoFor(m: LoadedClassifier): Map<string, { raw: number; tokens: number }> {
+  let map = runMemo.get(m);
+  if (!map) {
+    map = new Map();
+    runMemo.set(m, map);
+  }
+  return map;
+}
+
 async function runClassifier(
   slot: ClassifierSlot,
   m: LoadedClassifier,
@@ -133,12 +148,21 @@ async function runClassifier(
     const hit = memo.get(key);
     if (hit) return hit;
     const text = doc.text.slice(doc.sentences[ch.first]!.start, doc.sentences[ch.last]!.end);
+    const shared = memoFor(m);
+    const seen = shared.get(text);
+    if (seen) {
+      memo.set(key, seen);
+      counter.tick("Running classifier");
+      return seen;
+    }
     const enc = m.tokenizer(text, { truncation: true, max_length: m.maxLength }) as unknown as Record<string, Tensor>;
     const out = (await (m.model as unknown as (x: unknown) => Promise<{ logits: Tensor }>)(enc)).logits;
     const logits = out.type === "float32" ? out : out.to("float32");
     const probs = softmax(logits.data as Float32Array);
     const r = { raw: probs[m.aiIndex] ?? Number.NaN, tokens: Number(enc.input_ids?.dims?.[1] ?? 1) };
     memo.set(key, r);
+    if (shared.size >= RUN_MEMO_MAX) shared.delete(shared.keys().next().value!);
+    shared.set(text, r);
     counter.tick("Running classifier");
     return r;
   };
