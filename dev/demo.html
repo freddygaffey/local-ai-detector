@@ -1,0 +1,366 @@
+<!doctype html>
+<!--
+  T2 manual-QA demo page. Not shipped with the extension (dev/ is outside
+  entrypoints/ and src/, so WXT never bundles it).
+
+  Faithful to the same colour formula, threshold and highlight-style rules as
+  src/content/colors.ts + highlightStyles.ts (duplicated here in plain JS
+  since this page has no bundler), so what you see here should match what
+  the real content script renders on a live page. It fakes an AnalyzeResult
+  and lets you inspect the pill, tooltips, unicode markers and the 3
+  highlight styles without running any model.
+
+  Open directly in a browser: `open dev/demo.html` (or drag it into a tab).
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AI Detector -- T2 demo</title>
+<style>
+  body {
+    font: 16px/1.6 Georgia, "Times New Roman", serif;
+    max-width: 720px;
+    margin: 40px auto;
+    padding: 0 20px 200px;
+    color: #1a1a1a;
+    background: #fafaf7;
+  }
+  @media (prefers-color-scheme: dark) {
+    body { color: #eee; background: #16181d; }
+  }
+  h1 { font-family: -apple-system, sans-serif; font-size: 1.4rem; }
+  .meta { font-family: -apple-system, sans-serif; font-size: 0.85rem; opacity: 0.7; margin-bottom: 2em; }
+  article p { margin: 1.1em 0; }
+  nav.fake-chrome, aside.fake-chrome {
+    font-family: -apple-system, sans-serif; font-size: 0.8rem; opacity: 0.5;
+    border: 1px dashed currentColor; padding: 8px; margin: 1em 0;
+  }
+  .controls {
+    font-family: -apple-system, sans-serif; font-size: 0.85rem;
+    position: fixed; left: 20px; bottom: 20px; background: rgba(127,127,127,0.12);
+    border-radius: 10px; padding: 10px 14px; max-width: 260px;
+  }
+  .controls button, .controls select { margin: 3px 2px; }
+</style>
+</head>
+<body>
+  <h1>Local AI Detector -- demo page</h1>
+  <p class="meta">
+    Mixed human/AI-style paragraphs, plus one paragraph with hidden Unicode
+    characters. Use the controls (bottom-left) to fake an analysis and see
+    the pill, highlight styles and tooltips.
+  </p>
+
+  <nav class="fake-chrome">Fake nav -- should never be extracted or highlighted.</nav>
+
+  <article>
+    <main>
+    <p id="p-human-1">
+      I spent most of Sunday trying to fix the leak under the kitchen sink,
+      and honestly I should have just called a plumber from the start. The
+      pipe joint was corroded in a way that made me nervous about the rest
+      of the plumbing in this house. My dad walked me through it over the
+      phone, half amused, half worried I'd flood the place.
+    </p>
+
+    <p id="p-ai-1">
+      In today's rapidly evolving digital landscape, it is important to
+      recognize that leveraging cutting-edge solutions can significantly
+      enhance overall productivity. By implementing a robust, scalable
+      framework, organizations can seamlessly navigate the complexities of
+      modern workflows while simultaneously driving sustainable growth and
+      long-term value creation.
+    </p>
+
+    <p id="p-human-2">
+      Couldn't sleep, so I ended up rewatching the first two seasons of that
+      show everyone told me to drop after episode four. They were right,
+      honestly, but I regret nothing.
+    </p>
+
+    <p id="p-ai-2">
+      Furthermore, it is worth noting that the aforementioned approach not
+      only streamlines operational efficiency but also empowers stakeholders
+      to make data-driven decisions. This holistic methodology ultimately
+      fosters a culture of continuous improvement and innovation across the
+      entire organization.
+    </p>
+
+    <p id="p-unicode">
+      This paragraph looks ordinary&#8203;but hides a few zero&#8203;width
+      spaces and a smuggled&#xe0000;&#xe0068;&#xe0069;&#xe0000; tag-character
+      payload right&#8203;here.
+    </p>
+    </main>
+  </article>
+
+  <aside class="fake-chrome">Fake aside/comments widget -- should never be extracted or highlighted.</aside>
+
+  <div class="controls">
+    <div><button id="run">▶ Fake-analyze</button></div>
+    <div>
+      <label>Style
+        <select id="style">
+          <option value="heatmap">Heatmap</option>
+          <option value="flagged">Flagged only</option>
+          <option value="underline">Underline</option>
+        </select>
+      </label>
+    </div>
+    <div><button id="clear">✕ Clear</button></div>
+  </div>
+
+<script type="module">
+  // ---- Duplicated from src/content/colors.ts (kept in sync manually; see
+  // file header) -----------------------------------------------------------
+  const FLAGGED_THRESHOLD = 0.6;
+  const BUCKETS = 12;
+  const clamp01 = (n) => Math.max(0, Math.min(1, n));
+  const scoreHue = (s) => { s = clamp01(s); return s <= 0.5 ? 120 - 75 * (s / 0.5) : 45 - 45 * ((s - 0.5) / 0.5); };
+  const bucket = (s) => Math.min(BUCKETS - 1, Math.floor(clamp01(s) * BUCKETS));
+  const riskLevel = (s) => (s >= 0.75 ? "high" : s >= 0.4 ? "medium" : "low");
+  const isDark = () => matchMedia("(prefers-color-scheme: dark)").matches;
+
+  function colorFor(style, score) {
+    const hue = scoreHue(score);
+    const dark = isDark();
+    if (style === "underline") {
+      return { bg: "transparent", decoration: `hsl(${hue}, 85%, ${dark ? 60 : 42}%)`, wavy: true };
+    }
+    if (style === "flagged") {
+      return { bg: `hsla(${hue}, 90%, ${dark ? 45 : 60}%, ${dark ? 0.55 : 0.45})`, decoration: `hsl(${hue}, 85%, ${dark ? 65 : 35}%)` };
+    }
+    return { bg: `hsla(${hue}, 85%, ${dark ? 42 : 55}%, ${dark ? 0.32 : 0.24})`, decoration: `hsl(${hue}, 80%, ${dark ? 62 : 38}%)` };
+  }
+
+  const supportsHighlight = typeof Highlight !== "undefined" && !!CSS.highlights;
+  let styleTag = null;
+  function ensureStyle() {
+    if (styleTag) return;
+    styleTag = document.createElement("style");
+    document.head.appendChild(styleTag);
+  }
+  function renderStylesheet(style, sentences) {
+    ensureStyle();
+    const rules = [];
+    for (const s of sentences) {
+      const name = `demo-hl-${style}-${bucket(s.score)}${s.muted ? "-m" : ""}`;
+      const c = colorFor(style, s.score);
+      const alpha = s.muted ? (isDark() ? 0.12 : 0.1) : null;
+      const bg = alpha !== null && c.bg !== "transparent" ? c.bg.replace(/[\d.]+\)$/, `${alpha})`) : c.bg;
+      let deco = "";
+      if (c.wavy) {
+        deco = `text-decoration-line:underline; text-decoration-style:${s.muted ? "dotted" : "wavy"}; text-decoration-color:${c.decoration}; text-underline-offset:3px;`;
+      } else if (s.muted) {
+        deco = `text-decoration-line:underline; text-decoration-style:dotted; text-decoration-color:${c.decoration}; text-underline-offset:2px;`;
+      }
+      rules.push(`::highlight(${name}) { background-color:${bg}; ${deco} } .${name} { background-color:${bg}; ${deco} }`);
+    }
+    styleTag.textContent = rules.join("\n");
+  }
+
+  // ---- Sentence segmentation + fake scoring --------------------------------
+  const segmenter = new Intl.Segmenter("en", { granularity: "sentence" });
+  function segment(text) {
+    return [...segmenter.segment(text)].map((s) => ({ start: s.index, end: s.index + s.segment.length }));
+  }
+
+  // Deterministic fake score: paragraphs tagged "ai" score high, "human" low,
+  // with a little per-sentence jitter so it isn't perfectly flat.
+  function fakeScore(paragraph, seed) {
+    const base = paragraph.id.includes("ai") ? 0.78 : paragraph.id.includes("unicode") ? 0.5 : 0.15;
+    const jitter = (Math.sin(seed * 12.9898) * 0.15 + 0.15) - 0.15;
+    return clamp01(base + jitter);
+  }
+
+  const paragraphs = [...document.querySelectorAll("article p")];
+  let activeMarks = [];
+  let activeHighlightNames = [];
+  let sentences = [];
+  let flagged = [];
+  let cursor = -1;
+
+  function clearAll() {
+    for (const n of activeHighlightNames) CSS.highlights?.delete(n);
+    activeHighlightNames = [];
+    for (const m of activeMarks) m.replaceWith(...m.childNodes);
+    activeMarks = [];
+    clearUnicodeMarkers();
+    sentences = [];
+    flagged = [];
+    cursor = -1;
+    document.getElementById("counter")?.remove();
+    hideTip();
+    pillIdle();
+  }
+
+  // Collapses raw HTML-source whitespace (indentation/newlines) to single
+  // spaces before segmenting -- mirrors src/content/extract.ts's
+  // appendCollapsedRun, since feeding raw source whitespace straight into
+  // Intl.Segmenter produces bogus mid-sentence breaks. `map[i]` is the
+  // original-node offset of collapsed-text char `i`.
+  function collapse(raw) {
+    let out = "";
+    const map = [];
+    let i = 0;
+    while (i < raw.length) {
+      const isWs = /[ \t\n\r\f]/.test(raw[i]);
+      let j = i + 1;
+      while (j < raw.length && /[ \t\n\r\f]/.test(raw[j]) === isWs) j++;
+      if (isWs) {
+        if (out.length > 0 && !out.endsWith(" ")) { map.push(i); out += " "; }
+      } else {
+        for (let k = i; k < j; k++) map.push(k);
+        out += raw.slice(i, j);
+      }
+      i = j;
+    }
+    return { out, map };
+  }
+  function firstTextNode(el) {
+    for (const n of el.childNodes) if (n.nodeType === Node.TEXT_NODE) return n;
+    return null;
+  }
+
+  // Rebuilds which ranges belong to which named Highlight group for `style`
+  // (names include the style, mirroring src/content/highlightStyles.ts) --
+  // switchable live, same ranges, no re-analysis. A plain stylesheet
+  // recolor alone can't express "flagged" mode's filtering, since that
+  // changes registry *membership*, not just colour.
+  function applyHighlights(style) {
+    for (const n of activeHighlightNames) CSS.highlights?.delete(n);
+    activeHighlightNames = [];
+    for (const m of activeMarks) m.replaceWith(...m.childNodes);
+    activeMarks = [];
+    renderStylesheet(style, sentences);
+    const groups = new Map();
+    for (const s of sentences) {
+      if (style === "flagged" && s.score < FLAGGED_THRESHOLD) continue;
+      const name = `demo-hl-${style}-${bucket(s.score)}${s.muted ? "-m" : ""}`;
+      if (supportsHighlight) {
+        let hl = groups.get(name);
+        if (!hl) { hl = new Highlight(); groups.set(name, hl); }
+        hl.add(s.range);
+      } else {
+        const mark = document.createElement("mark");
+        mark.className = name;
+        mark.style.all = "revert";
+        try { s.range.surroundContents(mark); } catch { const f = s.range.extractContents(); mark.appendChild(f); s.range.insertNode(mark); }
+        activeMarks.push(mark);
+      }
+    }
+    for (const [name, hl] of groups) { CSS.highlights.set(name, hl); activeHighlightNames.push(name); }
+  }
+
+  function analyze(style) {
+    clearAll();
+    let seed = 0;
+    for (const p of paragraphs) {
+      const node = firstTextNode(p);
+      if (!node) continue;
+      const { out: text, map } = collapse(node.data);
+      for (const span of segment(text)) {
+        seed++;
+        const range = new Range();
+        range.setStart(node, map[span.start] ?? 0);
+        range.setEnd(node, (map[span.end - 1] ?? node.data.length - 1) + 1);
+        const score = fakeScore(p, seed);
+        const words = text.slice(span.start, span.end).trim().split(/\s+/).filter(Boolean).length;
+        sentences.push({ range, score, muted: words < 8, sources: { classifier: score, perplexity: clamp01(score + 0.05) } });
+      }
+    }
+    applyHighlights(style);
+    flagged = sentences.filter((s) => s.score >= FLAGGED_THRESHOLD);
+    cursor = -1;
+    const overall = sentences.reduce((a, s) => a + s.score, 0) / Math.max(1, sentences.length);
+    pillDone(overall, flagged.length);
+    renderUnicodeMarkers();
+  }
+
+  // ---- Unicode markers (mirrors src/content/unicodeMarkers.ts, simplified) --
+  let activeUnicodeMarkers = [];
+  function clearUnicodeMarkers() {
+    for (const m of activeUnicodeMarkers) m.remove();
+    activeUnicodeMarkers = [];
+  }
+  function renderUnicodeMarkers() {
+    clearUnicodeMarkers();
+    const p = document.getElementById("p-unicode");
+    const walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
+    const targets = [];
+    let n;
+    while ((n = walker.nextNode())) targets.push(n);
+    for (const node of targets) {
+      const text = node.data;
+      for (let i = text.length - 1; i >= 0; i--) {
+        const cp = text.codePointAt(i);
+        const isZW = cp === 0x200b;
+        const isTag = cp >= 0xe0000 && cp <= 0xe007f;
+        if (!isZW && !isTag) continue;
+        const marker = document.createElement("span");
+        marker.textContent = isTag ? "⟦TAG⟧" : "⟦ZW⟧";
+        marker.tabIndex = 0;
+        marker.style.cssText = "font-size:0.75em;opacity:.75;padding:0 1px;border-radius:2px;background:rgba(128,128,128,.25);cursor:help;vertical-align:super;";
+        marker.title = isTag ? "U+E00xx TAG CHARACTER -- part of a hidden-message payload" : "U+200B ZERO WIDTH SPACE";
+        const after = node.splitText(i + 1);
+        node.parentNode.insertBefore(marker, after);
+        activeUnicodeMarkers.push(marker);
+      }
+    }
+  }
+
+  // ---- Tooltip (mirrors src/content/tooltip.ts) ----------------------------
+  let tip = document.createElement("div");
+  tip.style.cssText = "position:fixed; z-index:999999; max-width:280px; font:13px/1.4 -apple-system,sans-serif; background:#1f2430; color:#f2f2f2; border-radius:8px; padding:8px 10px; box-shadow:0 4px 16px rgba(0,0,0,.35); display:none;";
+  document.body.appendChild(tip);
+  function showTip(rect, title, lines) {
+    tip.innerHTML = `<div style="font-weight:600;margin-bottom:4px">${title}</div>` + lines.map((l) => `<div style="opacity:.85;margin-top:2px">${l}</div>`).join("");
+    tip.style.display = "block";
+    tip.style.left = `${rect.left}px`;
+    tip.style.top = `${Math.max(4, rect.top - tip.offsetHeight - 8)}px`;
+  }
+  function hideTip() { tip.style.display = "none"; }
+
+  // Hit-testing via caret position, same approach as src/content/hover.ts.
+  document.addEventListener("pointermove", (e) => {
+    const pos = document.caretPositionFromPoint?.(e.clientX, e.clientY) ?? null;
+    if (!pos) return hideTip();
+    const hit = sentences.find((s) => {
+      try { return s.range.comparePoint(pos.offsetNode, pos.offset) === 0; } catch { return false; }
+    });
+    if (!hit) return hideTip();
+    const pct = Math.round(hit.score * 100);
+    showTip(hit.range.getClientRects()[0] ?? hit.range.getBoundingClientRect(),
+      `AI likelihood: ${pct}% (${riskLevel(hit.score)})`,
+      [`Classifier: ${Math.round(hit.sources.classifier * 100)}%`, `Perplexity: ${Math.round(hit.sources.perplexity * 100)}%`,
+       hit.muted ? "Low confidence: short sentence." : "Probability, not proof."]);
+  });
+
+  // ---- Fake pill ------------------------------------------------------------
+  const pill = document.createElement("div");
+  pill.style.cssText = "position:fixed; right:16px; bottom:16px; font:13px -apple-system,sans-serif; background:#202430; color:#f2f2f2; border-radius:999px; padding:6px 10px; box-shadow:0 6px 20px rgba(0,0,0,.35); display:flex; gap:8px; align-items:center;";
+  document.body.appendChild(pill);
+  function pillIdle() { pill.textContent = "▶ Scan page (fake)"; }
+  function pillDone(overall, count) {
+    const pct = Math.round(overall * 100);
+    pill.innerHTML = `<span style="font-weight:700;color:${riskLevel(overall) === "high" ? "#e5484d" : riskLevel(overall) === "medium" ? "#d99e30" : "#3ba55d"}">AI likelihood ${pct}%</span> <span style="opacity:.75">· ${count} flagged</span> <button id="prev">▲</button><span id="counter" style="opacity:.85">${count ? "1/" + count : "0/0"}</span><button id="next">▼</button>`;
+    pill.querySelector("#prev").onclick = () => nav(-1);
+    pill.querySelector("#next").onclick = () => nav(1);
+  }
+  function nav(dir) {
+    if (!flagged.length) return;
+    cursor = cursor < 0 ? (dir === 1 ? 0 : flagged.length - 1) : (cursor + dir + flagged.length) % flagged.length;
+    document.getElementById("counter").textContent = `${cursor + 1}/${flagged.length}`;
+    const r = flagged[cursor].range.getClientRects()[0] ?? flagged[cursor].range.getBoundingClientRect();
+    window.scrollTo({ top: window.scrollY + r.top - window.innerHeight / 2, behavior: "smooth" });
+    showTip(r, `AI likelihood: ${Math.round(flagged[cursor].score * 100)}%`, ["Jumped via ▲/▼ nav."]);
+  }
+  pillIdle();
+
+  document.getElementById("run").onclick = () => analyze(document.getElementById("style").value);
+  document.getElementById("style").onchange = (e) => { if (sentences.length) applyHighlights(e.target.value); };
+  document.getElementById("clear").onclick = clearAll;
+</script>
+</body>
+</html>
