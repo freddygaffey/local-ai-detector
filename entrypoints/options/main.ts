@@ -55,7 +55,7 @@ interface State {
   settings: Settings;
   cache: { slots: Partial<Record<ModelSlot, ModelSlotCacheInfo>>; totalBytes: number } | null;
   cacheError: string | null;
-  updates: Partial<Record<ModelSlot, ModelUpdateInfo | "checking" | "none">>;
+  updates: Partial<Record<ModelSlot, ModelUpdateInfo | "checking" | "none" | "current">>;
   actionBusy: Set<ModelSlot>;
   actionError: Partial<Record<ModelSlot, string>>;
   customRepoInput: Partial<Record<ModelSlot, string>>;
@@ -793,7 +793,11 @@ async function checkAllUpdates(): Promise<void> {
   try {
     const updates = await sendMessage("checkModelUpdates", undefined);
     const bySlot = new Map(updates.map((u) => [u.slot, u]));
-    for (const slot of SLOTS) state.updates[slot] = bySlot.get(slot) ?? "none";
+    for (const slot of SLOTS) {
+      const u = bySlot.get(slot);
+      // Only a different revision is an update; the pinned one coming back means "up to date".
+      state.updates[slot] = !u || !u.latestRevision ? "none" : u.latestRevision === u.currentRevision ? "current" : u;
+    }
   } catch (err) {
     for (const slot of SLOTS) state.actionError[slot] = err instanceof Error ? err.message : String(err);
     for (const slot of SLOTS) state.updates[slot] = "none";
@@ -851,6 +855,8 @@ function renderModelRow(slot: ModelSlot): HTMLElement {
 
   if (update === "checking") {
     rows.push(h("p", { class: "status-line" }, "Checking Hugging Face for a newer revision…"));
+  } else if (update === "current") {
+    rows.push(h("p", { class: "status-line" }, "Up to date."));
   } else if (update && typeof update === "object") {
     rows.push(
       h(
