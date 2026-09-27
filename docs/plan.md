@@ -223,7 +223,13 @@ checking to catch the low-hanging fruit", i.e. clean TTS narration):
   **Spectra-AASIST3** (Apache-2.0, best measured accuracy, note: "training data undisclosed").
 - Run: **auto on YouTube, sampling one 10 s clip (default)** / on click only.
 - Sensitivity: Strict (default) / Balanced / Sensitive.
-- Sample: 10 s (default) / 30 s / whole video. The model is ticked in the download checklist.
+- Sample: **spread across playback, not the start**. The default is ~10 s total as 3 clips of
+  ~3–4 s (the model's input length), taken at roughly 10% / 40% / 70% of the video, or spaced over
+  what the user actually watches (captureStream only hears what is playing; never seek or fetch
+  the audio separately). Skip the first ~15 s intro, and skip clips with little speech (VAD /
+  energy gate). The score updates progressively ("Voice: AI 72% · 2/3 clips"). Options:
+  10 s spread (default) / 30 s spread / continuous while playing. The model is ticked in the
+  download checklist.
 Mechanics: capture with video.captureStream / mozCaptureStream (no tabCapture), resample in a
 16 kHz AudioContext, onnxruntime-web directly (not transformers.js), in the offscreen doc /
 worker. The model is part of the download checklist. Display: "Voice: AI 72%". Owner: Opus,
