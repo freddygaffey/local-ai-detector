@@ -33,6 +33,15 @@ export interface Calibration {
     wClassifier: number;
     wPerplexity: number;
   };
+  /**
+   * Paragraph-level operating points for sentence colours / "flagged"
+   * (a paragraph is much shorter and noisier than a document): classifier
+   * logit centres and the perplexity threshold. Slopes are shared.
+   */
+  unit: {
+    classifier: Partial<Record<"classifier" | "classifierLite", { center: number; slope: number }>>;
+    perplexityTau: number;
+  };
 }
 
 export const CALIBRATION: Calibration = {
@@ -55,6 +64,13 @@ export const CALIBRATION: Calibration = {
   // (experimental, not re-checked on the browser data).
   binoculars: { tau: 0.82, k: 10 },
   ensemble: { wClassifier: 0.7, wPerplexity: 0.3 },
+  unit: {
+    classifier: {
+      classifier: { center: 3.84, slope: 1.27 },
+      classifierLite: { center: 2.7, slope: 1.72 },
+    },
+    perplexityTau: 3.17,
+  },
 };
 
 /**
@@ -62,12 +78,19 @@ export const CALIBRATION: Calibration = {
  * raw outputs (docs/calibration.md, "WASM vs WebGPU"), so it gets its own
  * operating points, fitted the same way on the same texts.
  */
-export const WEBGPU_CALIBRATION: Pick<Calibration, "classifier" | "perplexity"> = {
+export const WEBGPU_CALIBRATION: Pick<Calibration, "classifier" | "perplexity" | "unit"> = {
   classifier: {
     classifier: { center: 3.14, slope: 1.27 },
     classifierLite: { center: 1.91, slope: 1.72 },
   },
   perplexity: { tau: 2.93, a: 2.0, tauBurst: 0.58, b: 0 },
+  unit: {
+    classifier: {
+      classifier: { center: 3.14, slope: 1.27 },
+      classifierLite: { center: 1.91, slope: 1.72 },
+    },
+    perplexityTau: 2.93,
+  },
 };
 
 /** Constants for the device a model actually ran on. */

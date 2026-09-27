@@ -186,6 +186,8 @@ export function packChunks(
   maxTokens: number,
   targetTokens: number = maxTokens,
   blockStart?: boolean[],
+  /** Start a new chunk at every block start (one chunk per paragraph). */
+  splitEveryBlock = false,
 ): Span[] {
   const target = Math.min(targetTokens, maxTokens);
   const chunks: Span[] = [];
@@ -225,7 +227,7 @@ export function packChunks(
     if (cur && curTokens + ut > maxTokens) flush();
     // Prefer to start a new chunk where a new block starts, once the current
     // chunk is at least half the target (keeps different authors apart).
-    if (cur && blockStart?.[unit.first] && curTokens >= target / 2) flush();
+    if (cur && blockStart?.[unit.first] && (splitEveryBlock || curTokens >= target / 2)) flush();
     if (!cur) {
       cur = { first: unit.first, last: unit.last };
       curTokens = ut;

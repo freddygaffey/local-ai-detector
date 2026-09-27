@@ -9,7 +9,9 @@ import type { AnalyzeResult, TextBlock } from "../shared/messages";
 import { DEFAULT_SETTINGS, getSettings, setSettings, watchSettings } from "../shared/settings";
 import type { HighlightStyle, Settings } from "../shared/settings";
 import { FLAGGED_THRESHOLD } from "./colors";
-import { extractVisibleBlocks, getRangeForOffsets, toWireBlocks } from "./extract";
+// The popup's "Flagged sentences" uses the same function on the same result.
+import { countFlaggedSentences } from "../ui/breakdown";
+import { extractVisibleBlocks, getRangeForOffsets, proseBlocks, toWireBlocks } from "./extract";
 import { renderHighlights as renderPageHighlights, clearHighlights as clearPageHighlights } from "./highlightStyles";
 import { buildHoverIndex, hitTestPoint, type HoverIndex } from "./hover";
 import {
@@ -134,7 +136,10 @@ async function boot(): Promise<void> {
 // ---- Extraction ------------------------------------------------------------
 
 function doExtract(target: "page" | "selection"): TextBlock[] {
-  const records = target === "selection" ? selectionRecords() : extractVisibleBlocks(document);
+  // Our markers are removed before reading the page, so their text nodes
+  // never end up in (and then vanish from) the block mapping.
+  clearUnicodeMarkers();
+  const records = target === "selection" ? selectionRecords() : proseBlocks(extractVisibleBlocks(document));
   blocksById = new Map(records.map((r) => [r.id, r]));
   blockOrder = records.map((r) => r.id);
   return toWireBlocks(records);
@@ -217,7 +222,7 @@ function applyResult(result: AnalyzeResult, style: HighlightStyle): void {
 
     pill?.setDone({
       overall: result.overall,
-      flaggedCount: flaggedOrder.length,
+      flaggedCount: countFlaggedSentences(result.sentences),
       current: flaggedCursor,
       total: flaggedOrder.length,
       style,
@@ -237,7 +242,7 @@ function changeStyle(style: HighlightStyle): void {
     if (lastResult) {
       pill?.setDone({
         overall: lastResult.overall,
-        flaggedCount: flaggedOrder.length,
+        flaggedCount: countFlaggedSentences(lastResult.sentences),
         current: flaggedCursor,
         total: flaggedOrder.length,
         style,

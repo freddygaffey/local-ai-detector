@@ -119,39 +119,83 @@ body {
   max-width: 30ch;
 }
 
+/* Result cards below the gauge: same surface/border/radius language as the
+   options page panels; one title, then label/value rows. */
+.result {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6em;
+}
+.result-card {
+  padding: 0.65em 0.8em 0.75em;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45em;
+}
+.card-title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 0.1em;
+}
+.card-subtitle {
+  font-size: 0.78rem;
+  color: var(--ink-faint);
+  margin-top: 0.25em;
+}
+.result-card .field-hint {
+  font-size: 0.8rem;
+}
+.result-card .btn-block {
+  margin-top: 0.25em;
+}
+
 .stat-row {
   display: flex;
   justify-content: space-between;
-  gap: 0.5em;
+  align-items: baseline;
+  gap: 0.75em;
   font-size: 0.88rem;
+  line-height: 1.35;
+}
+.stat-row > span:first-child {
+  color: var(--ink-soft);
 }
 .stat-row .num {
   font-family: var(--font-mono);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.stat-row .num.is-warn {
+  color: var(--band-mixed);
 }
 
 .breakdown-list {
   display: flex;
   flex-direction: column;
-  gap: 0.4em;
+  gap: 0.45em;
 }
 .breakdown-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px 3.2em;
   align-items: center;
-  gap: 0.6em;
+  gap: 0.7em;
   font-size: 0.85rem;
 }
 .breakdown-row .label {
-  flex: 1;
   color: var(--ink-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .breakdown-row .num {
   font-family: var(--font-mono);
-  width: 3.2em;
   text-align: right;
 }
 .breakdown-row .bar {
-  width: 60px;
-  height: 5px;
+  height: 6px;
   border-radius: 999px;
   background: var(--surface-sunken);
   overflow: hidden;
@@ -160,12 +204,32 @@ body {
   display: block;
   height: 100%;
   background: var(--accent);
+  border-radius: inherit;
 }
 
-.section-title {
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--ink-soft);
+.btn-small {
+  padding: 0.4em 0.7em;
+  font-size: 0.85em;
+}
+.btn-icon-text {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35em;
+}
+.btn-icon-text svg {
+  width: 1em;
+  height: 1em;
+  flex: none;
+}
+.btn-row {
+  align-items: stretch;
+}
+.btn-row > .btn {
+  white-space: nowrap;
+}
+.btn-row > .btn-icon-text {
+  flex: 0 0 auto;
 }
 
 .quick-selects {

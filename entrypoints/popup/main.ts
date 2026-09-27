@@ -346,29 +346,29 @@ function renderResultSection(): HTMLElement {
   // prefers-reduced-motion via the CSS transition itself.
   queueMicrotask(() => updateGauge(svg, result ? result.overall : 0, bandClassName(band)));
 
-  const container = h("div", null, wrap);
-  if (result) container.append(renderStats(result), renderBreakdown(result), renderUnicodeSummary(result), renderProvenanceSummary(result));
+  const container = h("div", { class: "result" }, wrap);
+  if (result) {
+    container.append(renderSentencesCard(result));
+    const unicode = renderUnicodeCard(result);
+    if (unicode) container.append(unicode);
+    container.append(renderImagesCard(result));
+  }
   return container;
 }
 
-function renderStats(result: AnalyzeResult): HTMLElement {
-  const flagged = countFlaggedSentences(result.sentences);
-  return h(
-    "div",
-    { class: "stat-row" },
-    h("span", null, "Flagged sentences"),
-    h("span", { class: "num" }, `${flagged} / ${result.sentences.length}`),
-  );
+function card(title: string, ...children: (Node | null)[]): HTMLElement {
+  return h("section", { class: "panel result-card" }, h("h2", { class: "card-title" }, title), ...children);
 }
 
-function renderBreakdown(result: AnalyzeResult): HTMLElement {
+function statRow(label: string, value: string, tone?: "warn"): HTMLElement {
+  return h("div", { class: "stat-row" }, h("span", null, label), h("span", { class: `num${tone ? " is-warn" : ""}` }, value));
+}
+
+function renderSentencesCard(result: AnalyzeResult): HTMLElement {
+  const flagged = countFlaggedSentences(result.sentences);
   const sources = aggregateSources(result.sentences);
   const entries = Object.entries(sources) as [keyof typeof SOURCE_LABEL, number][];
-  const list = h(
-    "div",
-    { class: "breakdown-list" },
-    entries.length === 0 ? h("p", { class: "field-hint" }, "No per-detector scores were reported.") : null,
-  );
+  const list = h("div", { class: "breakdown-list" });
   for (const [source, value] of entries) {
     list.append(
       h(
@@ -380,61 +380,58 @@ function renderBreakdown(result: AnalyzeResult): HTMLElement {
       ),
     );
   }
-  return h("div", null, h("div", { class: "section-title" }, "Per-detector breakdown"), list);
+  return card(
+    "Text",
+    statRow("Flagged sentences", `${flagged} / ${result.sentences.length}`, flagged ? "warn" : undefined),
+    entries.length ? h("div", { class: "card-subtitle" }, "Per-detector score") : null,
+    entries.length ? list : h("p", { class: "field-hint" }, "No per-detector scores were reported."),
+  );
 }
 
-function renderUnicodeSummary(result: AnalyzeResult): HTMLElement {
-  if (!ctx.settings.showUnicode) return h("div");
+function renderUnicodeCard(result: AnalyzeResult): HTMLElement | null {
+  if (!ctx.settings.showUnicode) return null;
   const { totalSuspicious } = result.unicode;
-  return h(
-    "div",
-    null,
-    h(
-      "div",
-      { class: "stat-row" },
-      h("span", null, "Unusual characters"),
-      h("span", { class: "num" }, String(totalSuspicious)),
-    ),
+  return card(
+    "Hidden characters",
+    statRow("Unusual characters", String(totalSuspicious), totalSuspicious ? "warn" : undefined),
     totalSuspicious > 0
-      ? h(
-          "p",
-          { class: "field-hint" },
-          `${pluralize(totalSuspicious, "unusual character")} found — not evidence of AI on its own.`,
-        )
+      ? h("p", { class: "field-hint" }, `${pluralize(totalSuspicious, "unusual character")} (zero-width, tag or odd spaces). Not evidence of AI on its own; they're marked in the page.`)
       : null,
   );
 }
 
-function renderProvenanceSummary(result: AnalyzeResult): HTMLElement {
+function renderImagesCard(result: AnalyzeResult): HTMLElement {
   const images = result.images;
   if (!ctx.settings.checkImages || images?.disabled) {
-    return h("div", { class: "field-hint" }, "Images: provenance checks are off (Settings).");
+    return card("Images", h("p", { class: "field-hint" }, "Provenance checks are off (Settings)."));
   }
-  if (!images) return h("div", { class: "field-hint" }, "Images: checking…");
-  if (images.total === 0) return h("div", { class: "field-hint" }, "Images: none large enough to check on this page.");
-  const parts = [`${images.checked} of ${pluralize(images.total, "image")} checked`];
+  if (!images) return card("Images", h("p", { class: "field-hint" }, "Checking…"));
+  if (images.total === 0) return card("Images", h("p", { class: "field-hint" }, "No images large enough to check."));
+  const rows: HTMLElement[] = [statRow("Checked", `${images.checked} / ${images.total}`)];
   if (images.withCredentials > 0) {
-    parts.push(
-      `${images.withCredentials} with Content Credentials` +
-        (images.trustedCredentials > 0 ? ` (${images.trustedCredentials} from a trusted signer)` : ""),
-    );
-  }
-  if (images.aiSignals > 0) parts.push(`${images.aiSignals} with an AI signal`);
-  if (images.withUnsignedClaim > 0) parts.push(`${images.withUnsignedClaim} with an unsigned AI-generator claim`);
-  if (images.withWatermark > 0) parts.push(`${images.withWatermark} with an open-source watermark`);
-  if (images.checked > 0 && images.aiSignals === 0) parts.push("no AI signals found (that doesn't mean human-made)");
-  const wrap = h("div", { class: "field-hint" }, `Images: ${parts.join(" · ")}.`);
-  if (images.permissionNeeded.length > 0) {
-    wrap.append(
-      h("br"),
-      h(
-        "button",
-        { class: "btn btn-ghost", type: "button", onclick: () => void grantImageAccess(images.permissionNeeded) },
-        `Allow image checks on ${images.permissionNeeded.length === 1 ? hostOf(images.permissionNeeded[0]!) : `${images.permissionNeeded.length} sites`}`,
+    rows.push(
+      statRow(
+        "Content Credentials (C2PA)",
+        images.trustedCredentials > 0 ? `${images.withCredentials} (${images.trustedCredentials} trusted)` : String(images.withCredentials),
       ),
     );
   }
-  return wrap;
+  if (images.aiSignals > 0) rows.push(statRow("With an AI signal", String(images.aiSignals), "warn"));
+  if (images.withUnsignedClaim > 0) rows.push(statRow("Unsigned AI-generator claim", String(images.withUnsignedClaim)));
+  if (images.withWatermark > 0) rows.push(statRow("Open-source watermark", String(images.withWatermark), "warn"));
+  const hint =
+    images.checked > 0 && images.aiSignals === 0
+      ? h("p", { class: "field-hint" }, "No AI signals found. That doesn't mean the images are human-made.")
+      : null;
+  const grant =
+    images.permissionNeeded.length > 0
+      ? h(
+          "button",
+          { class: "btn btn-block btn-small", type: "button", onclick: () => void grantImageAccess(images.permissionNeeded) },
+          `Allow image checks on ${images.permissionNeeded.length === 1 ? hostOf(images.permissionNeeded[0]!) : `${images.permissionNeeded.length} sites`}`,
+        )
+      : null;
+  return card("Images", ...rows, hint, grant);
 }
 
 function hostOf(pattern: string): string {
@@ -464,7 +461,12 @@ function renderButtons(): HTMLElement {
       { class: "btn", type: "button", onclick: () => void runAnalyze("selection") },
       "Analyze selection",
     ),
-    h("button", { class: "btn btn-ghost", type: "button", onclick: () => void clearHighlights() }, closeIcon(), " Clear"),
+    h(
+      "button",
+      { class: "btn btn-icon-text", type: "button", title: "Clear highlights", onclick: () => void clearHighlights() },
+      closeIcon(),
+      h("span", null, "Clear"),
+    ),
   );
 }
 

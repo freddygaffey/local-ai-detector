@@ -92,6 +92,10 @@ function isHiddenElement(el: Element): boolean {
 
 function shouldSkipSubtree(el: Element): boolean {
   if (SKIP_TAGS.has(el.tagName)) return true;
+  // Our own hidden-Unicode markers ("⟦ZW⟧"): never part of the page's text.
+  // (Including them made re-analysis score the marker text and lose the
+  // ranges of those sentences once the markers were removed.)
+  if (el.classList?.contains("ai-detector-unicode-marker")) return true;
   if (isHiddenElement(el)) return true;
   if (isContentEditableAncestor(el)) return true;
   return false;
@@ -252,6 +256,27 @@ export function extractVisibleBlocks(doc: Document = document): BlockRecord[] {
   } catch {
     return [];
   }
+}
+
+/** Elements whose text is a label, not prose: never scored on a whole-page scan. */
+const NON_PROSE_TAGS = new Set(["H1", "H2", "H3", "H4", "H5", "H6", "FIGCAPTION", "CAPTION", "TH", "DT", "SUMMARY"]);
+
+/** Blocks shorter than this (words) are labels, bylines, buttons-as-text…, not prose. */
+export const MIN_PROSE_WORDS = 12;
+
+/**
+ * Keeps the blocks worth scoring on a whole-page scan: drops headings,
+ * captions and very short blocks (bylines, dates, labels). Scoring them
+ * either folds them into a neighbouring paragraph's score or gives them a
+ * meaningless one of their own. If nothing is left (a page of short
+ * snippets), everything is kept.
+ */
+export function proseBlocks(records: BlockRecord[]): BlockRecord[] {
+  const kept = records.filter((r) => {
+    if (NON_PROSE_TAGS.has(r.owner.tagName)) return false;
+    return r.text.split(/\s+/).filter(Boolean).length >= MIN_PROSE_WORDS;
+  });
+  return kept.length ? kept : records;
 }
 
 /** Strips DOM references for the wire format sent to the background/engine. */

@@ -6,7 +6,7 @@
 // API path is covered by the Chrome E2E suite (scripts/e2e/chrome.mjs).
 
 import { afterEach, describe, expect, it } from "vitest";
-import { extractVisibleBlocks, getRangeForOffsets, isBlockStale } from "./extract";
+import { extractVisibleBlocks, getRangeForOffsets, isBlockStale, proseBlocks } from "./extract";
 import { clearHighlights, renderHighlights } from "./highlightStyles";
 import { extractSelectionBlock } from "./selection";
 import { clearUnicodeMarkers, groupRuns, renderUnicodeMarkers } from "./unicodeMarkers";
@@ -77,6 +77,32 @@ describe("extractVisibleBlocks", () => {
     expect(isBlockStale(block!)).toBe(false);
     document.getElementById("p")!.remove();
     expect(isBlockStale(block!)).toBe(true);
+  });
+});
+
+describe("proseBlocks / marker exclusion", () => {
+  it("drops headings, captions and bylines from a whole-page scan", () => {
+    document.body.innerHTML = `<article>
+      <h1>Supervolcano fears overblown, geologists say as new sensors come online today</h1>
+      <p>By Staff · Updated 3 March 2026</p>
+      <figure><img alt=""><figcaption>Sample image with Content Credentials from the test fixtures of the SDK.</figcaption></figure>
+      <p>${LONG}</p></article>`;
+    const kept = proseBlocks(extractVisibleBlocks(document)).map((b) => b.text);
+    expect(kept).toEqual([LONG]);
+  });
+
+  it("keeps short blocks when there is nothing else", () => {
+    document.body.innerHTML = `<main><p>Just a short note.</p></main>`;
+    expect(proseBlocks(extractVisibleBlocks(document)).map((b) => b.text)).toEqual(["Just a short note."]);
+  });
+
+  it("never reads our own Unicode markers as page text", () => {
+    document.body.innerHTML = `<main><p>Text with a zero\u200bwidth space in it.</p></main>`;
+    const [block] = extractVisibleBlocks(document);
+    renderUnicodeMarkers(block!);
+    const [again] = extractVisibleBlocks(document);
+    expect(again!.text).toBe("Text with a zero\u200bwidth space in it.");
+    expect(again!.text).not.toContain("⟦");
   });
 });
 

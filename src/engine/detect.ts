@@ -107,27 +107,46 @@ async function runClassifier(
   doc: Doc,
   n: number,
   counter: Counter,
-  chunks: Span[],
+  docChunks: Span[],
+  sentenceChunks: Span[],
 ): Promise<ClassifierOut> {
   const perSentence = new Float64Array(n).fill(Number.NaN);
-  const chunkP: number[] = [];
-  const chunkRaw: number[] = [];
-  const chunkW: number[] = [];
   // Recalibrate only the pinned default repo; a custom model has its own scale.
-  const cal = m.ref.repo === DEFAULT_MODELS[slot].repo ? calibrationFor(m.device).classifier[slot] : undefined;
-  for (const ch of chunks) {
+  const isDefault = m.ref.repo === DEFAULT_MODELS[slot].repo;
+  const cal = calibrationFor(m.device);
+  const docCal = isDefault ? cal.classifier[slot] : undefined;
+  const unitCal = isDefault ? cal.unit.classifier[slot] : undefined;
+  // Raw P(ai) per chunk, memoised: the overall score and the sentence colours
+  // use different packings (see analyzeBlocks) that often share chunks.
+  const memo = new Map<string, { raw: number; tokens: number }>();
+  const rawOf = async (ch: Span) => {
+    const key = `${ch.first}-${ch.last}`;
+    const hit = memo.get(key);
+    if (hit) return hit;
     const text = doc.text.slice(doc.sentences[ch.first]!.start, doc.sentences[ch.last]!.end);
     const enc = m.tokenizer(text, { truncation: true, max_length: m.maxLength }) as unknown as Record<string, Tensor>;
     const out = (await (m.model as unknown as (x: unknown) => Promise<{ logits: Tensor }>)(enc)).logits;
     const logits = out.type === "float32" ? out : out.to("float32");
     const probs = softmax(logits.data as Float32Array);
-    const raw = probs[m.aiIndex] ?? Number.NaN;
-    const p = recalibrateClassifier(raw, cal);
-    for (let i = ch.first; i <= ch.last; i++) perSentence[i] = p;
-    chunkP.push(p);
-    chunkRaw.push(raw);
-    chunkW.push(Number(enc.input_ids?.dims?.[1] ?? 1));
+    const r = { raw: probs[m.aiIndex] ?? Number.NaN, tokens: Number(enc.input_ids?.dims?.[1] ?? 1) };
+    memo.set(key, r);
     counter.tick("Running classifier");
+    return r;
+  };
+  // Sentence colours: one chunk per paragraph, mapped with the paragraph-level calibration.
+  for (const ch of sentenceChunks) {
+    const p = recalibrateClassifier((await rawOf(ch)).raw, unitCal);
+    for (let i = ch.first; i <= ch.last; i++) perSentence[i] = p;
+  }
+  // Overall: document-sized chunks, mapped with the document-level calibration.
+  const chunkP: number[] = [];
+  const chunkRaw: number[] = [];
+  const chunkW: number[] = [];
+  for (const ch of docChunks) {
+    const { raw, tokens } = await rawOf(ch);
+    chunkP.push(recalibrateClassifier(raw, docCal));
+    chunkRaw.push(raw);
+    chunkW.push(tokens);
   }
   return { perSentence, overall: weightedMean(chunkP, chunkW), rawOverall: weightedMean(chunkRaw, chunkW) };
 }
@@ -161,10 +180,14 @@ async function runPerplexity(m: LoadedLM, pieceIds: number[][], units: Span[], c
   const nll = await sequenceNLL(m.forward, seq, m.window, m.overlap, () => counter.tick("Measuring perplexity"));
   const { mean, count } = perSentenceMean(nll, tokenSentence, n);
   const burst = burstiness(mean, count);
-  const pcal = calibrationFor(m.device).perplexity;
+  const cal = calibrationFor(m.device);
+  const pcal = cal.perplexity;
+  // Per-unit (paragraph-sized) log-PPL is noisier than a whole document's,
+  // so units get their own threshold (docs/calibration.md).
+  const ucal = { ...pcal, tau: cal.unit.perplexityTau };
   const perSentence = new Float64Array(n).fill(Number.NaN);
   for (const u of units) {
-    const p = perplexityProbability(spanMean(mean, count, u.first, u.last), burst, pcal);
+    const p = perplexityProbability(spanMean(mean, count, u.first, u.last), burst, ucal);
     for (let i = u.first; i <= u.last; i++) perSentence[i] = p;
   }
   const docLogPPL = finiteMean(nll);
@@ -282,10 +305,15 @@ export async function analyzeBlocks(
         : "classifier";
     const m = need(models, slot, "classifier");
     const counts = idsFor(m).map((ids) => ids.length);
-    const chunks = packChunks(units, counts, m.maxLength - 2, CLASSIFIER_TARGET_TOKENS, starts);
-    total += chunks.length;
+    // Overall: document-sized chunks (what the calibration was fitted on).
+    const docChunks = packChunks(units, counts, m.maxLength - 2, CLASSIFIER_TARGET_TOKENS, starts);
+    // Sentence colours: never mix paragraphs (different paragraphs are often
+    // different authors: comments, quotes, pasted AI text).
+    const sentenceChunks = packChunks(units, counts, m.maxLength - 2, CLASSIFIER_TARGET_TOKENS, starts, true);
+    const keys = new Set([...docChunks, ...sentenceChunks].map((c) => `${c.first}-${c.last}`));
+    total += keys.size;
     plan.push(async () => {
-      cls = await runClassifier(slot, m, doc, n, counterRef.c!, chunks);
+      cls = await runClassifier(slot, m, doc, n, counterRef.c!, docChunks, sentenceChunks);
     });
   }
   if (opts.mode === "perplexity" || opts.mode === "ensemble") {

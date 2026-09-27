@@ -265,6 +265,59 @@ await step("engine info (device, threads, crossOriginIsolated, cache)", async (n
 await setMode("ensemble");
 await ext(popup, "analyzeTab", { tabId: newsTabId, target: "page" });
 
+/** Share of sentences flagged in paragraphs labelled data-src="human" / "ai" (fixture ground truth). */
+async function flagRates(page) {
+  return page.evaluate(() => {
+    const groups = [...CSS.highlights.keys()].filter((k) => k.startsWith("ai-detector-hl") && CSS.highlights.get(k).size);
+    const labelOf = (r) => r.startContainer.parentElement?.closest("[data-src]")?.getAttribute("data-src") ?? "none";
+    const out = {};
+    for (const k of groups) {
+      // Bucket index -> score range; flagged = bucket at/above the 0.5 threshold.
+      const m = /-(n|m)(\d+)$/.exec(k);
+      const bucket = m ? Number(m[2]) : 0;
+      for (const r of CSS.highlights.get(k)) {
+        const lab = labelOf(r);
+        const o = (out[lab] ??= { sentences: 0, flagged: 0 });
+        o.sentences++;
+        if (bucket >= 6) o.flagged++; // 12 buckets: 6 = [0.5, 0.58)
+      }
+    }
+    for (const o of Object.values(out)) o.rate = +(o.flagged / o.sentences).toFixed(2);
+    return out;
+  });
+}
+
+await step("per-paragraph flag rates on labelled fixtures (ensemble, default device)", async (note) => {
+  await setMode("ensemble");
+  const rates = {};
+  for (const name of ["news", "blog"]) {
+    const id = await tabIdOf(`${BASE}/${name}.html`);
+    await popup.select('select[aria-label="Highlight style"]', "heatmap");
+    await ext(popup, "analyzeTab", { tabId: id, target: "page" });
+    await sleep(500);
+    rates[name] = await flagRates(pages[name]);
+    note(`${name}: human ${JSON.stringify(rates[name].human)}, ai ${JSON.stringify(rates[name].ai)}, unlabelled ${JSON.stringify(rates[name].none ?? {})}`);
+    // Pill and popup must report the same flagged count (same data).
+    const pill = (await piercedTexts(pages[name], (tag, a) => a.role === "region" && a["aria-label"] === "AI text detector")).join(" ");
+    const pillN = Number(/(\d+) flagged/.exec(pill)?.[1]);
+    const st = await ext(popup, "getTabStatus", { tabId: id });
+    const popupN = st.result.sentences.filter((x) => x.score >= 0.5).length;
+    note(`${name}: pill ${pillN} flagged, popup ${popupN}/${st.result.sentences.length}`);
+    if (pillN !== popupN) throw new Error(`${name}: pill says ${pillN} flagged, popup ${popupN}`);
+  }
+  report.facts.flagRates = rates;
+  const bad = [];
+  for (const [name, r] of Object.entries(rates)) {
+    if (!r.human || !r.ai) bad.push(`${name}: missing labelled paragraphs`);
+    else {
+      if (r.human.rate > 0.2) bad.push(`${name}: ${Math.round(r.human.rate * 100)}% of human sentences flagged`);
+      if (r.ai.rate <= r.human.rate) bad.push(`${name}: AI paragraphs not flagged more than human ones`);
+    }
+    if (r.none?.flagged) bad.push(`${name}: ${r.none.flagged} flagged sentences outside labelled paragraphs (headline/byline/caption?)`);
+  }
+  if (bad.length) throw new Error(bad.join("; "));
+});
+
 await step("highlight styles switch live (heatmap -> flagged -> underline -> heatmap)", async (note) => {
   await pages.news.bringToFront();
   await pages.news.evaluate(() => window.scrollTo(0, 0));
