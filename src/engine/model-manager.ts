@@ -174,7 +174,7 @@ export function refsSafeToDelete(old: ModelRef, target: ModelRef, settings: Sett
     if (s === slot) continue;
     if (sameRef(activeModel(s, settings.modelOverrides), old)) return [];
   }
-  return [old];
+  return [{ repo: old.repo, revision: old.revision }];
 }
 
 async function switchSlot(
