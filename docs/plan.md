@@ -160,7 +160,21 @@ an explanation of detector disagreement, never a bare "51% confidence". Owner mo
 Runs alongside T7. T7 exposes its fusion settings as a self-contained options module and adds
 agreement data to results; T9 mounts and displays them.
 
-## Design personas (T9 must design for all of these; walkthroughs run after T7/T9)
+## Target user (user decision, overrides earlier defaults)
+**Slightly technical, anti-AI readers who want to cut AI slop from everyday reading**: articles,
+Reddit, HN, forums, reviews, YouTube comments, search results. Essay checkers (students,
+teachers) are secondary, because ZeroGPT/GPTZero already serve them for free. Consequences:
+- Default Presence is the Status chip with auto-run on, using classifierLite; clicking runs the
+  full Fusion.
+- A slop filter (off by default, offered prominently) dims or collapses likely-AI comments,
+  posts and reviews, with "show anyway"; search-result markers use snippet text only.
+- Site memory is optional and local (domain + score + date).
+- Calibration is weighted to web genres and short texts, and optimised for precision, with a
+  stricter filterThreshold.
+- Copy is terse and technical, and Details may show raw numbers.
+- README and store lead with "Free, private AI-slop filter. Runs on your device."
+
+## Design personas (primary: 4 and 5; the others secondary; walkthroughs run after T7/T9)
 1. **High-school English teacher**: checks a stack of student essays. Time-poor, and terrified
    of falsely accusing a student. Wants a clear, defensible, non-accusatory summary.
 2. **Non-native-English university student**: checks their own essay before submitting. Anxious,
