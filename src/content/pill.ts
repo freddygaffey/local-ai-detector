@@ -39,6 +39,12 @@ export interface PillApi {
   setError(message: string): void;
   updateCounter(current: number, total: number): void;
   setStale(): void;
+  /**
+   * Docks the pill just above/below the status chip in the chip's corner while
+   * the chip is expanded (so the pill never covers the chip's collapse
+   * control); `null` restores the user's own corner.
+   */
+  dockToChip(chipCorner: Corner | null): void;
   destroy(): void;
 }
 
@@ -131,13 +137,16 @@ function nearestCorner(rect: DOMRect): Corner {
   return `${vertical}-${horizontal}` as Corner;
 }
 
-function applyCorner(el: HTMLElement, corner: Corner): void {
+// Room left for the status chip (its margin + height + a gap) when docked to it.
+const CHIP_CLEARANCE = 44;
+
+function applyCorner(el: HTMLElement, corner: Corner, extraVertical = 0): void {
   el.style.left = "";
   el.style.right = "";
   el.style.top = "";
   el.style.bottom = "";
   const [v, h] = corner.split("-") as ["top" | "bottom", "left" | "right"];
-  el.style[v] = `${MARGIN}px`;
+  el.style[v] = `${MARGIN + extraVertical}px`;
   el.style[h] = `${MARGIN}px`;
 }
 
@@ -162,6 +171,10 @@ export function createPill(callbacks: PillCallbacks): PillApi {
   (document.body ?? document.documentElement).appendChild(host);
 
   let corner: Corner = "bottom-right";
+  // While the status chip is expanded, the pill docks next to it (clear of its
+  // collapse control) instead of sitting on top of it in the same corner.
+  let docked: Corner | null = null;
+  const place = () => (docked ? applyCorner(pill, docked, CHIP_CLEARANCE) : applyCorner(pill, corner));
   browser.storage.local
     .get(STORAGE_KEY)
     .then((res: Record<string, unknown>) => {
@@ -169,10 +182,10 @@ export function createPill(callbacks: PillCallbacks): PillApi {
       if (typeof stored === "string" && ["top-left", "top-right", "bottom-left", "bottom-right"].includes(stored)) {
         corner = stored as Corner;
       }
-      applyCorner(pill, corner);
+      place();
     })
-    .catch(() => applyCorner(pill, corner));
-  applyCorner(pill, corner);
+    .catch(place);
+  place();
 
   // --- Dragging -----------------------------------------------------------
   let dragging = false;
@@ -216,6 +229,7 @@ export function createPill(callbacks: PillCallbacks): PillApi {
     }
     if (moved) {
       corner = nearestCorner(pill.getBoundingClientRect());
+      docked = null; // the user placed it; stop following the chip
       applyCorner(pill, corner);
       void browser.storage.local.set({ [STORAGE_KEY]: corner }).catch(() => {});
     }
@@ -393,6 +407,11 @@ export function createPill(callbacks: PillCallbacks): PillApi {
       notice.append(text, again);
       pill.appendChild(notice);
       announce(text.textContent);
+    },
+
+    dockToChip(chipCorner) {
+      docked = chipCorner;
+      place();
     },
 
     destroy() {

@@ -324,11 +324,13 @@ function reconcileSurfaces(): void {
         onExpand: () => {
           chipExpanded = true;
           ensurePill();
+          pill?.dockToChip(settings.chipCorner);
           chip?.setExpanded(true);
           void runFullAnalysis();
         },
         onCollapse: () => {
           chipExpanded = false;
+          pill?.dockToChip(null);
           chip?.setExpanded(false);
           teardownPillIfUnwanted();
         },

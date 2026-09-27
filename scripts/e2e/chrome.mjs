@@ -898,16 +898,9 @@ await step("status chip: label, colour graduation, expand/collapse", async (note
   await waitFor(async () => (await ext(popup, "getTabStatus", { tabId: newsTabId })).state === "done", { timeout: 20_000, what: "chip-triggered analysis to finish" });
   const collapse = await piercedCenter(pages.news, (tag, a) => a["aria-label"] === "Hide the AI detection panel");
   if (!collapse.length) throw new Error("no collapse (\"×\") control on the expanded chip");
-  // KNOWN ISSUE (found while fixing this suite, not a test artifact): the
-  // pill and the chip both dock to the same corner by default, and the pill
-  // -- created after the chip in DOM order -- paints on top of it at equal
-  // z-index, so `document.elementFromPoint` at the chip's own reported
-  // coordinates resolves to <ai-detector-pill-host>, not the chip. The "×"
-  // is genuinely unreachable by mouse once expanded; worth flagging to the
-  // lead. Collapsing here through the same tab message the "toggle
-  // visibility" keyboard command sends (also exercised in the presence-modes
-  // step above) instead of a coordinate click that can't actually land.
-  await swEval((id) => chrome.tabs.sendMessage(id, { kind: "request", id: "e2e-chip-collapse", type: "toggleVisibility", payload: undefined }), newsTabId);
+  // The pill docks above the expanded chip (pill.dockToChip), so the chip's
+  // "×" is reachable by a real mouse click in the shared corner.
+  await pages.news.mouse.click(collapse[0].x, collapse[0].y);
   await sleep(500);
   const pillAfterCollapse = (await piercedCenter(pages.news, (tag, a) => a.role === "region" && a["aria-label"] === "AI text detector")).length > 0;
   note(`collapse control -> pill visible: ${pillAfterCollapse}`);
