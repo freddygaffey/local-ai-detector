@@ -96,14 +96,23 @@ const EXT_ORIGIN = swTarget.url().match(/^chrome-extension:\/\/[^/]+/)[0];
 const sw = await swTarget.worker();
 report.facts.extensionOrigin = EXT_ORIGIN;
 
+const openOrder = []; // URLs in the order newTab opened them
 async function newTab(url, viewport = { width: 1000, height: 720 }) {
+  openOrder.push(url);
   const p = await browser.newPage();
   await p.setViewport(viewport);
   await p.goto(url, { waitUntil: "load" });
   return p;
 }
 async function tabIdOf(url) {
-  return sw.evaluate(async (u) => (await chrome.tabs.query({})).find((t) => t.url === u)?.id, url);
+  const byUrl = await sw.evaluate(async (u) => (await chrome.tabs.query({})).find((t) => t.url === u)?.id, url);
+  if (byUrl !== undefined) return byUrl;
+  // The production build has no "tabs" permission or host access to the
+  // fixture server, so tab URLs are hidden: fall back to creation order (tab
+  // ids increase; the first tab is the browser's initial blank page).
+  const ids = await sw.evaluate(async () => (await chrome.tabs.query({})).map((t) => t.id).sort((a, b) => a - b));
+  const i = openOrder.indexOf(url);
+  return i >= 0 ? ids[i + 1] : undefined;
 }
 /** Sends a typed request envelope from an extension page (src/shared/messages.ts wire format). */
 async function ext(page, type, payload) {
@@ -424,7 +433,7 @@ await step("SPA client-side navigation clears highlights", async (note) => {
   if (n) throw new Error("stale highlights after SPA navigation");
 });
 
-await step("classifier vs lite on fixture pages (overall scores)", async (note) => {
+if (!PROD) await step("classifier vs lite on fixture pages (overall scores)", async (note) => {
   const out = {};
   const targets = {
     "blog (human NPS/USGS + 2 AI comments)": `${BASE}/blog.html`,
@@ -451,7 +460,7 @@ await step("classifier vs lite on fixture pages (overall scores)", async (note) 
   await p.close();
 });
 
-await step("WebGPU vs WASM (settings.useWebGPU) on the same pages", async (note) => {
+if (!PROD) await step("WebGPU vs WASM (settings.useWebGPU) on the same pages", async (note) => {
   const out = {};
   const p = await newTab(`${BASE}/spa.html?a=ai`);
   const setGpu = (on) =>
