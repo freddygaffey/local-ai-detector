@@ -10,6 +10,7 @@ import {
   CONSENT_REQUIRED_ERROR,
   registerHandlers,
   sendProgress,
+  sendTabMessage,
   type AnalysisStatusEnvelope,
   type AnalyzeRequest,
   type AnalyzeResult,
@@ -86,7 +87,9 @@ async function runAnalyze(
 ): Promise<AnalyzeResult> {
   const settings = await getSettings();
   const mode = req.mode ?? settings.mode;
-  const tabId = typeof req.tabId === "number" && req.tabId >= 0 ? req.tabId : meta.senderTabId ?? -1;
+  // A content script doesn't know its own tab id (T2 sends tabId 0), so the
+  // sender's tab wins; the popup passes the real id of the active tab.
+  const tabId = meta.senderTabId ?? (typeof req.tabId === "number" && req.tabId >= 0 ? req.tabId : -1);
   const models = activeModelsForMode(mode, settings.modelOverrides);
   if (!Array.isArray(req.blocks)) throw new Error("analyze: `blocks` must be an array");
 
@@ -143,6 +146,46 @@ async function runAnalyze(
   }
 }
 
+const MENU_ID = "lad-analyze-selection";
+
+/**
+ * "Analyze selected text" context-menu entry: asks the tab's content script
+ * for the selection (extractText), analyzes it here, and sends the result
+ * back for highlighting (renderHighlights). The menu is (re)created on
+ * install/update, as MV3 menus persist across service-worker restarts.
+ */
+function startContextMenu(): void {
+  const menus = browser.contextMenus;
+  if (!menus?.create || !menus.onClicked) return;
+  browser.runtime.onInstalled?.addListener(() => {
+    void Promise.resolve(menus.removeAll?.())
+      .catch(() => {})
+      .then(() => {
+        menus.create({ id: MENU_ID, title: "Check selected text for AI writing", contexts: ["selection"] }, () => {
+          void browser.runtime.lastError; // swallow "duplicate id"
+        });
+      });
+  });
+  menus.onClicked.addListener((info, tab) => {
+    if (info.menuItemId !== MENU_ID || tab?.id === undefined || tab.id < 0) return;
+    const tabId = tab.id;
+    void (async () => {
+      try {
+        const settings = await getSettings();
+        const { blocks } = await sendTabMessage(tabId, "extractText", { target: "selection" });
+        if (!blocks.length) throw new Error("No selected text found.");
+        const result = await runAnalyze(
+          { tabId, mode: settings.mode, blocks },
+          { requestId: `menu-${Date.now().toString(36)}` },
+        );
+        await sendTabMessage(tabId, "renderHighlights", { result, style: settings.highlightStyle });
+      } catch (e) {
+        console.warn("[engine] context-menu analysis failed", e);
+      }
+    })();
+  });
+}
+
 /** Registers every engine message handler. Call once from the background entry. */
 export function startEngineRouter(): void {
   const progressTo = (requestId: string) => (p: ProgressEvent) => sendProgress(requestId, p);
@@ -179,6 +222,8 @@ export function startEngineRouter(): void {
       badge.clear(tabId);
     }
   });
+
+  startContextMenu();
 
   // Optional daily update check (off by default; never auto-installs).
   void maybeAutoCheck(managerDeps()).catch((e) => console.warn("[engine] update check failed", e));
