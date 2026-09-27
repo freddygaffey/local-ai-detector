@@ -5,12 +5,15 @@ Node prototypes run locally (scratchpad, not committed) against the real model f
 
 ## TL;DR verdict
 
-| Mode | Verdict | Model(s) | Download (quantized) |
-|---|---|---|---|
-| 1. Classifier | **Feasible, verified** | `onnx-community/tmr-ai-text-detector-ONNX` (RoBERTa-base, RAID-trained) | 126 MB (q8) |
-| 2. Perplexity / burstiness | **Feasible, verified** (logits exposed) | `Xenova/distilgpt2` (`decoder_model_merged`, q8) | 85 MB |
-| 3. Binoculars | **Feasible, verified** with a small pair; accuracy unproven at this scale, so ship as "experimental" | `onnx-community/SmolLM2-135M-ONNX` + `onnx-community/SmolLM2-135M-Instruct-ONNX` | 2 × 117 MB (q4f16) / 2 × 136 MB (q8) |
-| 4. Ensemble (1+2, default) | **Feasible** | the models from 1 and 2 | ~211 MB total |
+| Mode | Verdict | Model(s) | Download (quantized) | Licence |
+|---|---|---|---|---|
+| 1. Classifier | **Feasible, verified** | `onnx-community/tmr-ai-text-detector-ONNX` (RoBERTa-base, RAID-trained) | 126 MB (q8) | MIT (RAID data: MIT) |
+| 2. Perplexity / burstiness | **Feasible, verified** (logits exposed) | `Xenova/distilgpt2` (`decoder_model_merged`, q8) | 85 MB | Apache-2.0 |
+| 3. Binoculars | **Feasible, verified** with a small pair; accuracy unproven at this scale, so ship as "experimental" | `onnx-community/SmolLM2-135M-ONNX` + `onnx-community/SmolLM2-135M-Instruct-ONNX` | 2 × 117 MB (q4f16) / 2 × 136 MB (q8) | Apache-2.0 |
+| 4. Ensemble (1+2, default) | **Feasible** | the models from 1 and 2 | ~211 MB total | MIT + Apache-2.0 |
+
+Every recommended model and library is openly licensed (MIT, Apache-2.0 or BSD-style), ungated,
+and compatible with an MIT extension. See [§8 Licensing](#8-licensing).
 
 Nothing blocks the project. The main platform gap is **Firefox**: it has no offscreen API, no
 cross-origin isolation for extension pages (so WASM runs single-threaded), and WebGPU is missing on
@@ -98,13 +101,13 @@ Linux. It works there, just more slowly.
 ONNX AI-text classifiers **already exist** as transformers.js-ready `onnx-community` ports, so no
 conversion is needed.
 
-| Model ID | Base | q8 (`model_quantized.onnx`) | q4f16 | Notes |
-|---|---|---|---|---|
-| **`onnx-community/tmr-ai-text-detector-ONNX`** (recommended) | RoBERTa-base, labels `human`/`ai`, 512 tok | 125.9 MB | 127.5 MB | Source [`Oxidane/tmr-ai-text-detector`](https://huggingface.co/Oxidane/tmr-ai-text-detector), MIT. Card claims RAID AUROC 99.28% (all settings), TPR 90% at 1% FPR |
-| `onnx-community/modernbert-ai-detection-raid-mage-ONNX` | ModernBERT-base, 8k ctx | 150.9 MB | 140.2 MB | RAID + MAGE, Apache-2.0 |
-| `onnx-community/e5-small-lora-ai-generated-detector-ONNX` | e5-small (BERT) | **34.2 MB** | 36.5 MB | Small and fast; offer as a "lite" option |
-| `onnx-community/chatgpt-detector-roberta-ONNX` | RoBERTa (HC3) | 125.9 MB | 127.5 MB | ChatGPT-era data |
-| `onnx-community/roberta-base-openai-detector-ONNX` | RoBERTa (GPT-2 outputs) | 125.9 MB | 127.5 MB | The requested one. Trained on GPT-2 output and weak on modern LLMs, so don't make it the default |
+| Model ID | Base | q8 (`model_quantized.onnx`) | q4f16 | Licence (upstream card / training data) | Notes |
+|---|---|---|---|---|---|
+| **`onnx-community/tmr-ai-text-detector-ONNX`** (recommended) | RoBERTa-base, labels `human`/`ai`, 512 tok | 125.9 MB | 127.5 MB | **MIT** ([`Oxidane/tmr-ai-text-detector`](https://huggingface.co/Oxidane/tmr-ai-text-detector); RAID data MIT) | Card claims RAID AUROC 99.28% (all settings), TPR 90% at 1% FPR |
+| `onnx-community/modernbert-ai-detection-raid-mage-ONNX` | ModernBERT-base, 8k ctx | 150.9 MB | 140.2 MB | **Apache-2.0** (RAID MIT, MAGE Apache-2.0) | Alternative |
+| `onnx-community/e5-small-lora-ai-generated-detector-ONNX` | e5-small (BERT) | **34.2 MB** | 36.5 MB | **MIT** ([`MayZhou/…`](https://huggingface.co/MayZhou/e5-small-lora-ai-generated-detector); base `intfloat/e5-small` MIT; RAID MIT) | Small and fast; offer as a "lite" option |
+| ~~`onnx-community/chatgpt-detector-roberta-ONNX`~~ | RoBERTa (HC3) | 125.9 MB | 127.5 MB | **None declared** on model card; HC3 data is CC-BY-SA-4.0 | **Excluded**: unlicensed weights, share-alike data |
+| `onnx-community/roberta-base-openai-detector-ONNX` | RoBERTa (GPT-2 outputs) | 125.9 MB | 127.5 MB | **MIT** ([`openai-community/roberta-base-openai-detector`](https://huggingface.co/openai-community/roberta-base-openai-detector)) | The requested one. Trained on GPT-2 output and weak on modern LLMs, so don't make it the default |
 
 Prototype (Node, transformers.js 4.3.0, `pipeline('text-classification', …, {dtype:'q8'})`):
 - It works. Casual human sentence gave `ai 0.82`, a **false positive on short text**. Formal
@@ -128,6 +131,10 @@ in the `onnx/` subfolder with `model_quantized.onnx` naming.
   merged-decoder q8 is.
   `Xenova/gpt2` only has `decoder_model_merged_quantized.onnx` (128 MB). Default loading fails
   with "Could not locate file model_quantized.onnx", so `model_file_name` is required there too.
+- Licence: distilgpt2 is **Apache-2.0** ([`distilbert/distilgpt2`](https://huggingface.co/distilbert/distilgpt2)).
+  GPT-2 is **MIT** ([`openai-community/gpt2`](https://huggingface.co/openai-community/gpt2)).
+  The Xenova ONNX repos declare no licence of their own. They are format conversions, so the
+  upstream licence applies.
 - Max context is 1024 tokens. Chunk long pages with a sliding window.
 
 ### Mode 3: Binoculars
@@ -137,12 +144,16 @@ in the `onnx/` subfolder with `model_quantized.onnx` naming.
 - **Recommended pair:** `onnx-community/SmolLM2-135M-ONNX` (observer) +
   `onnx-community/SmolLM2-135M-Instruct-ONNX` (performer). Verified that the token IDs match
   (vocab 49152). q4f16 is 117 MB each (the base uses `.onnx` + `.onnx_data` external data);
-  q8 is ~136 MB each, and q8 should be used on WASM.
+  q8 is ~136 MB each, and q8 should be used on WASM. Licence: **Apache-2.0**
+  ([SmolLM2-135M](https://huggingface.co/HuggingFaceTB/SmolLM2-135M),
+  [-Instruct](https://huggingface.co/HuggingFaceTB/SmolLM2-135M-Instruct)). Neither is gated.
 - Prototype: Binoculars score **0.869 (human) vs 0.659 (AI-style)**, lower meaning more AI, as
   expected. Two forward passes over about 50 tokens took ~120 ms on CPU.
 - Larger options: `onnx-community/SmolLM2-360M-ONNX` + `HuggingFaceTB/SmolLM2-360M-Instruct`
   (q4f16 272 MB each), or `onnx-community/Qwen2.5-0.5B` + `-Instruct` (q4f16 483 MB each, ~1 GB
-  total). These are too heavy for a default.
+  total). These are too heavy for a default. Both pairs are Apache-2.0 (checked on the upstream
+  `HuggingFaceTB/*` and `Qwen/Qwen2.5-0.5B*` cards). Note that some larger Qwen sizes use
+  different licences, so re-check before swapping sizes.
 - Caveat: the published Binoculars accuracy is for 7B models. With 135M models the threshold must
   be calibrated by us, and accuracy will be clearly lower. **Ship it as "experimental".**
   gpt2/distilgpt2 share a tokenizer but aren't a base/instruct pair, so they are a poor Binoculars
@@ -241,6 +252,43 @@ settings in storage.sync; models in Cache API (IndexedDB fallback)
   5. Cache results per URL and content hash.
 - Load models lazily per mode. Sessions are re-creatable, since the Firefox event page and a
   Chrome offscreen recreation can both drop them.
+
+## 8. Licensing
+
+Checked 2026-09-27 against the Hugging Face API `cardData.license` and `gated` fields, the model
+cards, and the npm `package.json` files. The project itself is MIT.
+
+| Item | Licence | Gated? | OK in an MIT extension? |
+|---|---|---|---|
+| `Oxidane/tmr-ai-text-detector` → `onnx-community/tmr-ai-text-detector-ONNX` | MIT (both repos) | No | Yes |
+| Its training data, RAID ([`liamdugan/raid`](https://huggingface.co/datasets/liamdugan/raid), [repo](https://github.com/liamdugan/raid)) | MIT | No | Yes (see note) |
+| `MayZhou/e5-small-lora-ai-generated-detector` (lite) → `onnx-community/…-ONNX` | MIT (base `intfloat/e5-small` MIT, RAID MIT). The ONNX port has no tag and inherits the upstream licence | No | Yes |
+| `openai-community/roberta-base-openai-detector` → ONNX port | MIT | No | Yes |
+| `GeorgeDrayson/modernbert-ai-detection-raid-mage` (alternative) | Apache-2.0 (MAGE Apache-2.0) | No | Yes |
+| `Hello-SimpleAI/chatgpt-detector-roberta` | **None declared**; HC3 data CC-BY-SA-4.0 | No | **Excluded** |
+| `distilbert/distilgpt2` → `Xenova/distilgpt2` | Apache-2.0 | No | Yes |
+| `openai-community/gpt2` → `Xenova/gpt2` | MIT | No | Yes |
+| `HuggingFaceTB/SmolLM2-135M` / `-135M-Instruct` → onnx-community ports | Apache-2.0 | No | Yes |
+| `@huggingface/transformers` 4.3.0 | Apache-2.0 | – | Yes, bundled. Ship its LICENSE |
+| `onnxruntime-web` 1.30/1.31 (bundled `.wasm`/`.mjs`) | MIT | – | Yes, bundled. Ship its LICENSE and ThirdPartyNotices |
+| `wxt` 0.21.4 | MIT | – | Yes (build-time only) |
+
+Notes:
+- **No research-only, non-commercial, or gated models are recommended.** The only problem item,
+  `chatgpt-detector-roberta`, has no licence and share-alike training data, so it is dropped.
+  The MIT-licensed `tmr-ai-text-detector` (default) and `e5-small` (lite) cover that role.
+- **Weights are not redistributed.** The extension downloads them from Hugging Face at runtime, so
+  the package contains only our MIT code plus the Apache-2.0/MIT libraries. Still, put an
+  attribution list of models and licences in the About or settings page and in `THIRD_PARTY.md`.
+  Apache-2.0 requires keeping its LICENSE/NOTICE when transformers.js is bundled.
+- **RAID caveat (low risk):** the RAID dataset is MIT, but it contains outputs from commercial
+  LLMs (GPT-4/ChatGPT, Llama-2-chat, Mistral, Cohere, etc.). Some vendor terms restrict using
+  outputs to build *competing generative models*. A binary detector is not such a model, and those
+  terms bind the dataset creators rather than downstream users of MIT weights. Mention it for
+  transparency; it does not block us.
+- The onnx-community and Xenova conversion repos often have no licence tag. Treat the upstream
+  model's licence as authoritative, and pin the exact repo revision (commit hash) in code so the
+  files can't change underneath us.
 
 ## Blockers / risks
 1. **Firefox has no WASM multithreading** (bug 1673477) and **no WebGPU on Linux**. Firefox runs
