@@ -10,7 +10,15 @@ Accuracy is **not** the goal. The goals are open licences, privacy, and honest U
   Binoculars (experimental).
 - **Highlight style is a setting:** Heatmap (default), Flagged-only (Ctrl+F style), Underline.
 - A hidden-Unicode scan always runs (`src/detectors/unicode.ts`, already done).
-- Provenance and watermarks for page images: scope comes from watermarks.md.
+- **Provenance and watermarks (T4, per watermarks.md):** C2PA / Content Credentials via
+  `@contentauth/c2pa-web` (running in the offscreen doc / worker, with a bundled C2PA Trust List,
+  CC-BY-4.0 attribution, no remote fetching). IPTC DigitalSourceType and generator metadata
+  (ExifReader plus our own PNG chunk parser), labelled "unsigned claim". SD/SDXL/FLUX
+  invisible-watermark DWT-DCT decoder (our own MIT JS): a hit is a positive, a miss means nothing.
+  NovelAI alpha metadata. C2PA text manifests via `c2pa-text`.
+  **Always shown as "cannot be checked locally":** SynthID (Google, and OpenAI images and audio),
+  Claude text watermark (Aug 2026, keyed), Gemini text, Meta Content Seal, Digimarc, TrustMark.
+  The UI must say "no watermark found ≠ human-made".
 - A floating in-page pill shows progress, then the score, with ▲/▼ to step through flagged
   sentences and ✕ to clear. The toolbar badge shows a spinner, then the %.
 - Packaging: store-ready Chrome zip, Firefox zip, AMO sources zip. **No publishing or signing
@@ -68,5 +76,5 @@ T1–T4 run in parallel after T0. Each task commits only its own paths locally a
 Only T0 edits package.json. Later tasks ask the lead if they need a dependency.
 
 ## Out of scope for v1
-Remote APIs, SynthID (needs Google keys), non-English calibration, and store publishing
+Remote APIs (incl. Anthropic's planned watermark-detection API and SynthID), VideoSeal/AudioSeal/TrustMark (35–228 MB models, v2), non-English calibration, and store publishing
 (done by the user).
