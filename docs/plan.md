@@ -160,6 +160,29 @@ an explanation of detector disagreement, never a bare "51% confidence". Owner mo
 Runs alongside T7. T7 exposes its fusion settings as a self-contained options module and adds
 agreement data to results; T9 mounts and displays them.
 
+## Design personas (T9 must design for all of these; walkthroughs run after T7/T9)
+1. **High-school English teacher**: checks a stack of student essays. Time-poor, and terrified
+   of falsely accusing a student. Wants a clear, defensible, non-accusatory summary.
+2. **Non-native-English university student**: checks their own essay before submitting. Anxious,
+   because detectors are known to over-flag non-native writers. Needs reassurance, an
+   explanation of why something was flagged, and a paste box.
+3. **Journalist or fact-checker**: verifies images and quotes on deadline. Wants provenance
+   evidence they can cite, and speed.
+4. **Casual reader tired of AI slop** (Reddit, blogs, reviews): wants zero friction and a
+   glanceable signal, and hates anything covering the page.
+5. **Privacy-minded developer**: reads permissions and network requests, and uninstalls on any
+   phoning home. Wants power-user settings and transparency.
+6. **Older, less technical user**: was forwarded a suspicious email or article. Easily
+   overwhelmed; needs plain words and a single clear answer.
+UI copy rules: plain words at a Year-8 reading level, no jargon on the main surfaces
+(perplexity, C2PA, calibration, WebGPU and q8 go behind "Details"), one short caveat instead of
+repeated hedging, and every number paired with words.
+
+## UX walkthroughs (after T7 + T9, before final package)
+Run six Sonnet persona agents **one at a time** (user request), using
+docs/ux/persona-walkthrough-brief.md against the finished build. Then the lead synthesises
+docs/ux/findings.md, and a fix pass follows before the final package.
+
 ## Out of scope for v1
 Remote APIs (incl. Anthropic's planned watermark-detection API and SynthID), VideoSeal/AudioSeal/TrustMark (35–228 MB models, v2), non-English calibration, and store publishing
 (done by the user).
