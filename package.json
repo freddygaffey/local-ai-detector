@@ -5,6 +5,10 @@
   "version": "0.1.0",
   "type": "module",
   "license": "MIT",
+  "engines": {
+    "node": ">=22 <26",
+    "npm": ">=10"
+  },
   "scripts": {
     "dev": "wxt",
     "dev:firefox": "wxt -b firefox",
@@ -28,7 +32,8 @@
     "prezip:firefox": "node scripts/copy-vendor-assets.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "package": "node scripts/package.mjs"
   },
   "dependencies": {
     "@contentauth/c2pa-web": "0.15.2",
