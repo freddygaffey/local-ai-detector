@@ -85,6 +85,21 @@ total download size and a speed estimate for the chosen set. Calibrate on the br
 like T5 did, and add unit tests and E2E coverage. Update README, THIRD_PARTY, store listing,
 calibration.md and qa.md. Owner model: Opus. Runs after T5 (same files).
 
+## T7b: Accuracy pass (merged into T7; user feedback: a raw ChatGPT story scored only 51%)
+- Eval set of modern LLM output (GPT-5-class, Claude, Gemini style) across genres: stories and
+  creative writing, chat answers, essays, emails. Plus matched human text (public domain or
+  permissively licensed). Record where each item comes from and its licence.
+- Evaluate candidate open-licensed detectors that ship ONNX or can be converted:
+  - current: tmr, e5-lite, ModernBERT raid-mage
+  - Mozilla/Fakespot `fakespot-ai/roberta-base-ai-text-detection-v1` (check the licence)
+  - other recent RAID/MAGE/M4-trained detectors
+  - plus perplexity and binoculars
+  Pick the defaults and the fusion set by per-genre results.
+- Re-calibrate on the browser runtime. The displayed score must be meaningful, so show a band
+  and wording instead of a bare "confidence". Target: unedited ChatGPT/Claude stories clearly
+  flagged, with a low human FPR. Report honest per-genre numbers.
+- Owner: T7 (Opus).
+
 ## T8: Battery saver (merged into T9 below)
 Browsers don't expose OS low-power mode (macOS Low Power Mode / Windows battery saver), so use
 the available signals: Battery Status API (Chrome: charging, level; verify Firefox
@@ -113,7 +128,12 @@ Underlying settings (the preset maps onto them, and "Custom" appears when edited
 policy with per-site rules (always / never / ask); result surfaces (popup, badge, chip,
 highlights, side panel); chip corner; auto-hide threshold; a keyboard command to toggle
 visibility; "never on this site".
-Plus the battery saver from T8. Owner model: Sonnet. Owns entrypoints/popup, entrypoints/options
+Plus the battery saver from T8.
+**Chat-site adapters** (src/content/adapters/): on chatgpt.com, claude.ai, gemini.google.com,
+copilot.microsoft.com, perplexity.ai and similar sites, analyse only assistant messages (never
+the user's prompt, the sidebar or UI chrome), with a per-reply score. There is a generic fallback
+that excludes nav, aside, buttons, forms and short UI strings. Result wording shows a band plus
+an explanation of detector disagreement, never a bare "51% confidence". Owner model: Sonnet. Owns entrypoints/popup, entrypoints/options
 (layout), entrypoints/content, src/content, src/ui, src/power, and a new sidepanel entrypoint.
 Runs alongside T7. T7 exposes its fusion settings as a self-contained options module and adds
 agreement data to results; T9 mounts and displays them.
