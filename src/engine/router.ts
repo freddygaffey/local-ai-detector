@@ -296,6 +296,10 @@ export function startEngineRouter(): void {
           .catch(() => null),
         lastUpdateCheck(deps),
       ]);
+      // Before the first analysis the host reports what it detected; with
+      // useWebGPU off, analyses will run on WASM, so say that.
+      const settings = await getSettings();
+      if (runtime && runtime.device === "webgpu" && !settings.useWebGPU) runtime.device = "wasm";
       return { runtime, lastUpdateCheck: last };
     },
   });

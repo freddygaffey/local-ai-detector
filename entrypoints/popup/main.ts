@@ -121,7 +121,10 @@ function applyStatus(status: TabAnalysisStatus): void {
 function currentState(): PopupState {
   return derivePopupState({
     consentedDownload: ctx.settings.consentedDownload,
-    tabUrl: ctx.tabUrl,
+    // A tab whose URL we can't see (no host access, e.g. the popup opened as a
+    // page for a tab it wasn't invoked on) isn't known to be unsupported: let
+    // the background try, it reports a clear error if it can't read the page.
+    tabUrl: ctx.tabId !== null && !ctx.tabUrl ? "https://url-not-visible.invalid/" : ctx.tabUrl,
     progress: ctx.progress,
     result: ctx.result,
     error: ctx.error,

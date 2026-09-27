@@ -165,6 +165,7 @@ async function setMode(mode) {
   await waitFor(async () => (await popup.evaluate(async () => (await chrome.storage.sync.get("settings")).settings?.mode)) === mode, {
     what: `mode ${mode}`,
   });
+  await sleep(400); // the popup re-renders on the settings change
 }
 
 async function analyzeViaPopup(mode, label) {
