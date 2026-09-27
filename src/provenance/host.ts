@@ -37,23 +37,39 @@ export async function hostVerifyTextManifest(manifestB64: string): Promise<TextP
     return { ...base, detail: `${base.detail} The manifest could not be read: ${err instanceof Error ? err.message : String(err)}` };
   }
   if (!summary) return base;
-  const bindingCodes = /^(assertion\.(dataHash|boxesHash|bmffHash|collectionHash)|assertion\.hashedURI|manifest\.(missing|inaccessible))/;
-  const sigFailures = summary.failures.filter((c) => !bindingCodes.test(c) && c !== "signingCredential.untrusted");
+  return { ...base, ...interpretTextManifest(summary) };
+}
+
+/** Codes that only concern the binding between a manifest and its asset. */
+const BINDING_CODES =
+  /^(assertion\.(dataHash|boxesHash|bmffHash|collectionHash)\.|assertion\.hashedURI\.|manifest\.(missing|inaccessible))/;
+
+/**
+ * Interprets a detached (text) manifest's validation: binding failures are
+ * expected (the text itself is not hashed here), so the validation state is
+ * always "Invalid"; judge the signature and signer from the other codes.
+ */
+export function interpretTextManifest(
+  summary: C2paSummary,
+): Pick<TextProvenanceResult, "verification" | "detail" | "c2pa"> {
+  const nonBinding = summary.failures.filter((c) => !BINDING_CODES.test(c));
+  const untrusted = nonBinding.some((c) => c.startsWith("signingCredential."));
+  const sigFailures = nonBinding.filter((c) => !c.startsWith("signingCredential.untrusted"));
+  const trusted = !untrusted && !sigFailures.length;
+  const c2pa: C2paSummary = { ...summary, trusted };
   const signer = summary.signer ?? "an unknown signer";
   if (sigFailures.length) {
     return {
-      ...base,
-      c2pa: summary,
+      c2pa,
       verification: "failed",
       detail: `C2PA text manifest signed by ${signer}, but signature validation failed (${sigFailures.slice(0, 3).join(", ")}).`,
     };
   }
   return {
-    ...base,
-    c2pa: summary,
+    c2pa,
     verification: "verified",
     detail:
-      `C2PA text manifest signature by ${signer} is valid${summary.trusted ? " and the signer is on the C2PA Trust List" : " (signer not on the bundled C2PA Trust List)"}. ` +
+      `C2PA text manifest signature by ${signer} is valid${trusted ? " and the signer is on the C2PA Trust List" : " (signer not on the bundled C2PA Trust List)"}. ` +
       "Whether the manifest still matches this exact text was not checked.",
   };
 }

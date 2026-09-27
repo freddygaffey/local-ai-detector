@@ -1,0 +1,8 @@
+Test fixtures from the C2PA Rust SDK (contentauth/c2pa-rs), licensed
+MIT OR Apache-2.0: https://github.com/contentauth/c2pa-rs
+
+  CA.jpg                     sdk/tests/fixtures/CA.jpg (signed with the SDK's test CA)
+  test_cert_root_bundle.pem  sdk/tests/fixtures/certs/trust/test_cert_root_bundle.pem
+
+Retrieved 2026-09-27 from the `main` branch. Used only by
+src/provenance/c2pa.wasm.test.ts; never shipped in the extension.

@@ -196,25 +196,26 @@ async function loadTrustList(): Promise<string> {
   return await res.text();
 }
 
+/** Reader settings used everywhere (also exercised by c2pa.wasm.test.ts). */
+export function readerSettings(trustAnchorsPem: string): Settings {
+  return {
+    verify: {
+      verifyTrust: true,
+      verifyAfterReading: true,
+      // Stay offline: never fetch remote manifests or OCSP responses.
+      remoteManifestFetch: false,
+      ocspFetch: false,
+      // Timestamp authorities are not in the claim-signer list; checking
+      // their trust would mark every timestamped asset as untrusted.
+      verifyTimestampTrust: false,
+    },
+    // PEM text (not a URL), so c2pa-web never fetches anything itself.
+    trust: { trustAnchors: trustAnchorsPem },
+  };
+}
+
 export function getReaderContext(): Promise<Context> {
-  contextPromise ??= (async () => {
-    const pem = await loadTrustList();
-    const settings: Settings = {
-      verify: {
-        verifyTrust: true,
-        verifyAfterReading: true,
-        // Stay offline: never fetch remote manifests or OCSP responses.
-        remoteManifestFetch: false,
-        ocspFetch: false,
-        // Timestamp authorities are not in the claim-signer list; checking
-        // their trust would mark every timestamped asset as untrusted.
-        verifyTimestampTrust: false,
-      },
-      // PEM text (not a URL), so c2pa-web never fetches anything itself.
-      trust: { trustAnchors: pem },
-    };
-    return new Context(settings);
-  })().catch((err: unknown) => {
+  contextPromise ??= (async () => new Context(readerSettings(await loadTrustList())))().catch((err: unknown) => {
     contextPromise = undefined;
     throw err;
   });
