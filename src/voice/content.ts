@@ -11,7 +11,7 @@
 // Pause/seek handling and all sampling rules live in ./capture.ts.
 
 import { browser } from "wxt/browser";
-import { DEFAULT_SETTINGS, getSettings, watchSettings, type Settings } from "../shared/settings";
+import { DEFAULT_SETTINGS, getSettings, setSettings, watchSettings, type Settings } from "../shared/settings";
 import { decidePowerAction, readBatteryState, readPressureState } from "../power/battery";
 import { VoiceSession, type VoiceState } from "./capture";
 import { createVoiceChip, type VoiceChipApi } from "./ui";
@@ -74,6 +74,15 @@ function ensureChip(fixedOnly: boolean): VoiceChipApi {
       },
       onSeek: (t) => {
         if (session && Number.isFinite(t)) session.video.currentTime = Math.max(0, t);
+      },
+      onConsent: () => {
+        // Same global consent the popup's "Download & enable" sets; grant it
+        // and retry the session so the chip moves straight to downloading.
+        void setSettings({ consentedDownload: true }).then((s) => {
+          settings = s;
+          const v = fixedOnly ? lastContextVideo : youTubeVideo();
+          if (v) void startSession(v, fixedOnly);
+        });
       },
     },
     { fixedOnly },

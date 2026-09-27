@@ -9,11 +9,14 @@ import { scoreColor } from "../content/colors";
 import { formatVoice } from "./aggregate";
 import type { VoiceState } from "./capture";
 import { VOICE_MODELS } from "../engine/voiceModels";
+import { formatBytes } from "../ui/format";
 import type { VoiceSettings } from "./settings";
 
 export interface VoiceChipCallbacks {
   onRun(): void;
   onSeek(seconds: number): void;
+  /** Model download not consented to yet ("consent" state): grants it and retries. */
+  onConsent(): void;
 }
 
 export interface VoiceChipApi {
@@ -66,6 +69,9 @@ const CSS = `
     border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
   .chip.muted { color: var(--muted); font-weight: 500; }
   .chip:hover, .chip:focus-visible { border-color: var(--fg); outline: none; }
+  .action { font: inherit; font-weight: 600; cursor: pointer; border-radius: 999px; padding: 4px 12px;
+    border: 1px solid var(--link); background: var(--bg); color: var(--link); }
+  .action:hover, .action:focus-visible { background: var(--link); color: var(--bg); outline: none; }
   .details { margin-top: 6px; width: min(560px, 90vw); border: 1px solid var(--line); border-radius: 10px; padding: 8px;
     background: var(--bg); color: var(--fg); }
   .details[hidden] { display: none; }
@@ -76,8 +82,8 @@ const CSS = `
   .axis { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; margin-top: 2px;
     font-variant-numeric: tabular-nums; }
   .meta { margin-top: 6px; color: var(--muted); font-size: 11px; }
-  :host { --bg: #fff; --fg: #0f0f0f; --muted: #606060; --line: rgba(0,0,0,0.15); --track: rgba(0,0,0,0.06); }
-  :host(.dark) { --bg: #212121; --fg: #f1f1f1; --muted: #aaa; --line: rgba(255,255,255,0.2); --track: rgba(255,255,255,0.08); }
+  :host { --bg: #fff; --fg: #0f0f0f; --muted: #606060; --line: rgba(0,0,0,0.15); --track: rgba(0,0,0,0.06); --link: #065fd4; }
+  :host(.dark) { --bg: #212121; --fg: #f1f1f1; --muted: #aaa; --line: rgba(255,255,255,0.2); --track: rgba(255,255,255,0.08); --link: #3ea6ff; }
 `;
 
 function anchor(): Element | null {
@@ -122,6 +128,22 @@ export function createVoiceChip(cb: VoiceChipCallbacks, opts: { fixedOnly?: bool
   const renderDetails = () => {
     details.replaceChildren();
     if (!state) return;
+    if (state.status === "consent") {
+      const bytes = meta ? VOICE_MODELS[meta.settings.model].bytes : undefined;
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "action";
+      btn.textContent = bytes !== undefined ? `Download model (${formatBytes(bytes)})` : "Download model";
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        cb.onConsent();
+      });
+      const note = document.createElement("div");
+      note.className = "meta";
+      note.textContent = "Needed once, on-device; nothing leaves this device.";
+      details.append(btn, note);
+      return;
+    }
     const clips = state.clips;
     const dur = Number.isFinite(state.durationS) && state.durationS > 0 ? state.durationS : Math.max(1, ...clips.map((c) => c.atS + 4));
     const tl = document.createElement("div");
@@ -148,7 +170,6 @@ export function createVoiceChip(cb: VoiceChipCallbacks, opts: { fixedOnly?: bool
       meta ? `${meta.rate} rate` : "",
       state.device && state.msPerClip !== undefined ? `${state.device} ${state.msPerClip} ms/clip` : "",
       state.status === "unavailable" ? "no audio (cross-origin, DRM or silent)" : "",
-      state.status === "consent" ? "model not downloaded" : "",
       "experimental; misses some AI voices, esp. with music; probability, not proof",
     ].filter(Boolean);
     m.textContent = parts.join(" · ");
@@ -160,12 +181,19 @@ export function createVoiceChip(cb: VoiceChipCallbacks, opts: { fixedOnly?: bool
     chip.textContent = l.text;
     chip.classList.toggle("muted", l.muted);
     chip.style.color = l.score !== undefined ? scoreColor(l.score, theme()) : "";
-    chip.setAttribute("aria-label", state ? `${l.text}. Show voice timeline.` : "Check the voice for AI speech");
+    // Needing consent isn't a state a click should have to uncover: show the
+    // download action up front (never a silent "Voice: --" with no way on).
+    if (state?.status === "consent") details.hidden = false;
+    chip.setAttribute(
+      "aria-label",
+      state?.status === "consent" ? `${l.text}. Model download needs your consent.` : state ? `${l.text}. Show voice timeline.` : "Check the voice for AI speech",
+    );
     renderDetails();
   };
 
   chip.addEventListener("click", () => {
     if (!state || state.status === "stopped") return cb.onRun();
+    if (state.status === "consent") return; // the action is already visible in Details
     details.hidden = !details.hidden;
   });
 
