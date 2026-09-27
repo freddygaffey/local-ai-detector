@@ -5,7 +5,10 @@ import type { ScoreSource, SentenceScore } from "../shared/messages";
 
 /** Same threshold as verdict.ts's "ai" band — a sentence scoring at or above
  * this is what "flagged sentences" counts. */
-export const FLAG_THRESHOLD = 0.65;
+import { FLAGGED_THRESHOLD } from "../shared/thresholds";
+
+/** Same threshold the in-page pill counts with. */
+export const FLAG_THRESHOLD = FLAGGED_THRESHOLD;
 
 export function countFlaggedSentences(sentences: SentenceScore[], threshold = FLAG_THRESHOLD): number {
   return sentences.filter((s) => s.score >= threshold).length;

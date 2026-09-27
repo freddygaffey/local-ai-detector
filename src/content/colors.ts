@@ -13,7 +13,9 @@ export type RiskLevel = "low" | "medium" | "high";
 export type Theme = "light" | "dark";
 
 /** Sentences scoring at/above this are "flagged" in Ctrl+F style mode. */
-export const FLAGGED_THRESHOLD = 0.6;
+import { FLAGGED_THRESHOLD } from "../shared/thresholds";
+
+export { FLAGGED_THRESHOLD };
 
 /** Number of discrete colour buckets used for CSS Custom Highlight groups. */
 export const COLOR_BUCKETS = 12;
