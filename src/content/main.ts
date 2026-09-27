@@ -234,6 +234,8 @@ async function boot(): Promise<void> {
     ) {
       reconcileSurfaces();
     }
+    // Slop filter switched on/off or retuned in Options: apply to what's already scored.
+    if (JSON.stringify(prev.slopFilter) !== JSON.stringify(next.slopFilter) && lastResult) applyStructuredExtras(lastResult);
   });
 
   // Follow the background's per-tab state, whoever started the run (popup,
@@ -647,20 +649,27 @@ function perBlockScores(result: AnalyzeResult): BlockScoreItem[] {
 }
 
 function applyStructuredExtras(result: AnalyzeResult): void {
-  if (!structuredMatch || !shouldPaintOnPage()) {
+  if (!structuredMatch) {
     clearSlopFilter();
     clearItemLabels();
     return;
   }
   const items = perBlockScores(result);
   const category = slopCategoryForHost(hostname, structuredMatch.site);
+  // The filter is its own setting: it acts whenever it's on, whatever the
+  // Presence (with the default chip, it used to act only once the chip was
+  // expanded). Per-item labels stay a paint-on-page surface.
   const filterAllowed = settings.slopFilter.enabled && (category === null || settings.slopFilter.sites[category] !== false);
   if (filterAllowed) {
     applySlopFilter(items, settings.slopFilter);
   } else {
     clearSlopFilter();
   }
-  const willFilter = (i: BlockScoreItem) => filterAllowed && !i.tooShort && i.score >= settings.slopFilter.threshold;
+  if (!shouldPaintOnPage()) {
+    clearItemLabels();
+    return;
+  }
+  const willFilter = (i: BlockScoreItem) => filterAllowed && !i.tooShort && !i.unscored && i.score >= settings.slopFilter.threshold;
   renderItemLabels(items.filter((i) => !willFilter(i)));
 }
 
