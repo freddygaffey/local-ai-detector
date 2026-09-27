@@ -32,3 +32,9 @@
 - A jsdelivr fallback string remains in the bundle, though it's overridden at runtime. Confirm no requests go to it, and strip it if the store review might object.
 - `AnalyzeResult.unicode` indices are into the blocks joined with "\n\n". Check that T2's markers don't double-scan or misalign.
 - Test first: returned-promise onMessage in Chrome, the offscreen thread count via getEngineInfo, no CDN requests, the Firefox module worker, caching in private windows, keepalive during long downloads, and whether WebGPU scores differ from the q8 calibration.
+
+## For T12 (after T7): leftovers from T9 and persona pass 1
+- Engine hooks that T9 couldn't wire because they're T7's files: idle-unload handler for the battery-saver alarm; a per-request `useCpuOnBattery` device channel; gate the toolbar badge on `surfaces.badge` (router.ts always sets it).
+- Persona items not yet done: cache loads are still labelled "Downloading model" (src/ui/state.ts, src/content/pill.ts), so say "Loading…" unless it's a network fetch; colour/weight graduation within the AI band; mixed-article chip (`AI 54% · 15/41`); a quiet "not checked" cue for images without permission; verify defaults on a fresh install (the persona saw autoRun on).
+- E2E not extended or re-run for presence modes, adapters, filter or entry points, and screenshots were not re-taken. Chat/Reddit/search adapters are fixture-tested only, so verify them on live public pages (Reddit, HN, Google results; no logins).
+- Then: freeze the contract (contractVersion), add `npm run dev:ui` mock-engine mode, and write docs/ui-dev.md.
