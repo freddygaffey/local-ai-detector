@@ -59,6 +59,10 @@ const browser = await puppeteer.launch({
   enableExtensions: [EXT],
   userDataDir: PROFILE,
   defaultViewport: null,
+  // Default is 180s: fail a wedged CDP call fast rather than stalling a whole
+  // step (and everything after it, if the stall corrupts a shared page's
+  // session) for three minutes.
+  protocolTimeout: 60_000,
   args: [
     "--no-first-run",
     "--no-default-browser-check",
@@ -93,8 +97,26 @@ browser.on("targetcreated", watchTarget);
 
 const swTarget = await browser.waitForTarget((t) => t.type() === "service_worker" && t.url().endsWith("/background.js"));
 const EXT_ORIGIN = swTarget.url().match(/^chrome-extension:\/\/[^/]+/)[0];
-const sw = await swTarget.worker();
+let sw = await swTarget.worker();
 report.facts.extensionOrigin = EXT_ORIGIN;
+
+/**
+ * `swEval()`, refreshing the service-worker handle first if Chrome
+ * already terminated it (MV3 workers go idle after ~30s; a run with long
+ * gaps between background calls -- e.g. around a slow analysis -- can hit
+ * this). Every background call in this file goes through here instead of
+ * `sw.evaluate` directly.
+ */
+async function swEval(fn, ...args) {
+  try {
+    return await sw.evaluate(fn, ...args);
+  } catch (e) {
+    if (!/detached frame or worker|Session closed|Target closed/i.test(String(e))) throw e;
+    const t = await browser.waitForTarget((t) => t.type() === "service_worker" && t.url().endsWith("/background.js"), { timeout: 10_000 });
+    sw = await t.worker();
+    return await sw.evaluate(fn, ...args);
+  }
+}
 
 const openOrder = []; // URLs in the order newTab opened them
 async function newTab(url, viewport = { width: 1000, height: 720 }) {
@@ -105,12 +127,12 @@ async function newTab(url, viewport = { width: 1000, height: 720 }) {
   return p;
 }
 async function tabIdOf(url) {
-  const byUrl = await sw.evaluate(async (u) => (await chrome.tabs.query({})).find((t) => t.url === u)?.id, url);
+  const byUrl = await swEval(async (u) => (await chrome.tabs.query({})).find((t) => t.url === u)?.id, url);
   if (byUrl !== undefined) return byUrl;
   // The production build has no "tabs" permission or host access to the
   // fixture server, so tab URLs are hidden: fall back to creation order (tab
   // ids increase; the first tab is the browser's initial blank page).
-  const ids = await sw.evaluate(async () => (await chrome.tabs.query({})).map((t) => t.id).sort((a, b) => a - b));
+  const ids = await swEval(async () => (await chrome.tabs.query({})).map((t) => t.id).sort((a, b) => a - b));
   const i = openOrder.indexOf(url);
   return i >= 0 ? ids[i + 1] : undefined;
 }
@@ -135,32 +157,43 @@ const highlightCount = (page) =>
 const highlightNames = (page) => page.evaluate(() => [...CSS.highlights.keys()].filter((k) => k.startsWith("ai-detector-hl") && CSS.highlights.get(k).size));
 /** Merges a partial Settings object into storage.sync from the service worker (an extension context; fixture pages have no chrome.* APIs). */
 const mergeSettings = (partial) =>
-  sw.evaluate(async (partial) => {
+  swEval(async (partial) => {
     const cur = (await chrome.storage.sync.get("settings")).settings ?? {};
     await chrome.storage.sync.set({ settings: { ...cur, ...partial } });
   }, partial);
-const getStoredSettings = () => sw.evaluate(async () => (await chrome.storage.sync.get("settings")).settings ?? null);
+const getStoredSettings = () => swEval(async () => (await chrome.storage.sync.get("settings")).settings ?? null);
 
 // ---------------------------------------------------------------------------
 
 await step("presence: force Inspector for the fixture suite below (docs/plan.md 'T9' -- default is Status chip)", async (note) => {
   // The pill/highlight assertions in this file predate presence modes and
-  // test the Inspector surface set specifically (auto pill + highlights on
-  // every page). The shipped *default* preset is "Status chip" (chip only,
-  // no auto pill/highlights) -- covered by the dedicated "presence modes"
-  // steps near the end of this file instead of changing the product default.
-  await mergeSettings({ presence: "inspector", autoRunPolicy: "always", surfaces: { popup: true, badge: true, chip: false, highlights: true, sidePanel: false } });
-  note("presence -> inspector (surfaces.highlights: true) for this run");
+  // test the Inspector surface set specifically (pill + highlights whenever
+  // an analysis runs). The shipped *default* preset is "Status chip" (chip
+  // only, no auto pill/highlights) -- covered by the dedicated "presence
+  // modes" steps near the end of this file instead of changing the product
+  // default. autoRunPolicy stays "never": this suite triggers every analysis
+  // itself (popup clicks, direct analyzeTab calls); autoRun firing on its own
+  // on every page load would race the suite's own popup-driven mode changes
+  // (the popup reactively shows a progress screen -- no mode <select> -- for
+  // ANY analysis on its tab, including one autoRun started).
+  await mergeSettings({ presence: "inspector", autoRunPolicy: "never", surfaces: { popup: true, badge: true, chip: false, highlights: true, sidePanel: false } });
+  note("presence -> inspector (surfaces.highlights: true), autoRun off, for this run");
 });
 const pages = {};
 await step("open fixture pages (news, blog, spa, demo)", async (note) => {
   for (const name of ["news", "blog", "spa", "demo"]) {
     pages[name] = await newTab(`${BASE}/${name}.html`);
   }
-  await sleep(800);
-  // The content script's pill host is present on every page.
-  const pill = await piercedCenter(pages.news, (tag, a) => tag === "button" && a["aria-label"] === "Scan this page for AI-written text");
-  if (!pill.length) throw new Error("pill 'Scan page' button not found");
+  // The content script's pill region is present on every page under Inspector,
+  // regardless of its current state (idle/analyzing/done) -- with a consented,
+  // already-cached profile (a rerun) autoRun (autoRunPolicy: "always") can
+  // race past the idle "Scan page" button before this check runs, so this
+  // checks the pill's own state-independent region rather than that one button.
+  const pill = await waitFor(() => piercedCenter(pages.news, (tag, a) => a.role === "region" && a["aria-label"] === "AI text detector"), {
+    timeout: 5000,
+    what: "pill region",
+  });
+  if (!pill.length) throw new Error("pill region not found");
   note(`pill visible at ${Math.round(pill[0].x)},${Math.round(pill[0].y)}`);
 });
 
@@ -425,7 +458,7 @@ await step("image provenance on the news page (badges + popup summary)", async (
 });
 
 if (!PROD) await step("C2PA details (c2pa-web worker ran in the offscreen document)", async (note) => {
-  const res = await sw.evaluate(async (src) => {
+  const res = await swEval(async (src) => {
     const r = await chrome.runtime.sendMessage({ kind: "request", id: "x", type: "provenanceHostAnalyze", payload: { images: [{ src }] } });
     return r;
   }, `${BASE}/img/c2pa.jpg`);
@@ -479,7 +512,7 @@ await step("context menu 'Check selected text' (same handler, via hook)", async 
     getSelection().addRange(r);
   });
   const spaTab = await tabIdOf(pages.spa.url());
-  await sw.evaluate((id) => globalThis.__ladContextMenuSelection(id), spaTab);
+  await swEval((id) => globalThis.__ladContextMenuSelection(id), spaTab);
   const s = await ext(popup, "getTabStatus", { tabId: spaTab });
   if (s.state !== "done") throw new Error(`state ${s.state} ${s.error ?? ""}`);
   const blocks = new Set(s.result.sentences.map((x) => x.blockId));
@@ -494,7 +527,7 @@ await step("context menu 'Check selected text' (same handler, via hook)", async 
     getSelection().removeAllRanges();
     getSelection().addRange(r);
   });
-  await sw.evaluate((id) => globalThis.__ladContextMenuSelection(id), spaTab);
+  await swEval((id) => globalThis.__ladContextMenuSelection(id), spaTab);
   const s2 = await ext(popup, "getTabStatus", { tabId: spaTab });
   if (s2.state !== "done") throw new Error(`single-text-node selection: ${s2.state} ${s2.error ?? ""}`);
   note(`single-text-node selection: ${s2.result.sentences.length} sentences`);
@@ -628,39 +661,50 @@ await step("options: model download checklist (checkbox toggles fusion.detectors
   const rowsBefore = await options.$$eval(".model-checklist-row", (els) => els.length);
   const totalBefore = await options.$eval(".model-checklist-footer .value", (e) => e.textContent);
   note(`${rowsBefore} rows, total ${totalBefore}`);
-  // Uncheck a non-locked detector row (Fusion's default set has 3+, so this never hits the "keep at least one" floor).
-  const checkable = await options.$$(".model-checklist-row input[type=checkbox]:not([disabled])");
-  if (!checkable.length) throw new Error("no uncheckable checklist row (mode has only one detector?)");
-  await checkable[0].click();
+  // Uncheck a non-locked detector row (Fusion's default set is 2, so this never hits the "keep at least one" floor).
+  // Every click re-renders the whole options page (clearChildren + rebuild), detaching prior element handles,
+  // so the checkbox is re-queried fresh each time rather than reusing one handle.
+  const checkableSelector = ".model-checklist-row input[type=checkbox]:not([disabled])";
+  if (!(await options.$(checkableSelector))) throw new Error("no uncheckable checklist row (mode has only one detector?)");
+  await options.click(checkableSelector);
   await waitFor(async () => (await options.$eval(".model-checklist-footer .value", (e) => e.textContent)) !== totalBefore, {
     what: "checklist total to change after unchecking a row",
   });
   const totalAfter = await options.$eval(".model-checklist-footer .value", (e) => e.textContent);
   note(`after unchecking one row: total ${totalAfter}`);
   await shot(options, "options-checklist.jpg");
-  await checkable[0].click(); // put it back for later steps
+  await options.click(checkableSelector); // put it back for later steps (the same selector now matches the same still-unchecked row)
   await waitFor(async () => (await options.$eval(".model-checklist-footer .value", (e) => e.textContent)) === totalBefore, { what: "checklist total restored" });
 });
 
 await step("toasts: 'Analyze selection' dims with no selection, toasts instead of erroring", async (note) => {
   await pages.spa.bringToFront();
   await pages.spa.evaluate(() => getSelection().removeAllRanges());
-  await popup.reload();
-  await popup.waitForSelector("button::-p-text(Analyze page)");
+  const spaTabId = await tabIdOf(pages.spa.url());
+  // A dedicated popup instance pinned to the SPA tab, rather than
+  // re-navigating the suite's shared `popup` (opened once, pinned to the
+  // news tab, at the top of this file): re-navigating that long-lived page
+  // via goto()/location.search here has been observed to wedge its CDP
+  // session for the rest of the run (every later call on it then hangs
+  // until Puppeteer's protocolTimeout). A fresh page behaves like a real
+  // popup actually does -- a new one each time it's opened.
+  let spaPopup = await newTab(`${EXT_ORIGIN}/popup.html?tabId=${spaTabId}`, { width: 380, height: 620 });
+  await spaPopup.waitForSelector("button::-p-text(Analyze page)");
   await sleep(400); // popup's getSelectionInfo round-trip to the content script
-  const dimmed = await popup.$eval("button::-p-text(Selection)", (b) => ({ ariaDisabled: b.getAttribute("aria-disabled"), title: b.title }));
+  const dimmed = await spaPopup.$eval("button::-p-text(Selection)", (b) => ({ ariaDisabled: b.getAttribute("aria-disabled"), title: b.title }));
   note(`Selection button: aria-disabled=${dimmed.ariaDisabled}, title="${dimmed.title}"`);
   if (dimmed.ariaDisabled !== "true" || dimmed.title !== "Select text first") throw new Error("Selection button should be dimmed with a tooltip when nothing is selected");
-  const stateBefore = await ext(popup, "getTabStatus", { tabId: await tabIdOf(pages.spa.url()) });
-  await popup.click("button::-p-text(Selection)");
-  await popup.waitForSelector(".lad-toast.is-visible", { timeout: 3000 });
-  const toastText = await popup.$eval(".lad-toast", (e) => e.textContent);
+  const stateBefore = await ext(spaPopup, "getTabStatus", { tabId: spaTabId });
+  await spaPopup.click("button::-p-text(Selection)");
+  await spaPopup.waitForSelector(".lad-toast.is-visible", { timeout: 3000 });
+  const toastText = await spaPopup.$eval(".lad-toast", (e) => e.textContent);
   note(`toast: "${toastText}"`);
   if (toastText !== "No text selected") throw new Error(`unexpected toast text: "${toastText}"`);
-  await shot(popup, "popup-toast.png");
-  const stateAfter = await ext(popup, "getTabStatus", { tabId: await tabIdOf(pages.spa.url()) });
+  await shot(spaPopup, "popup-toast.png");
+  const stateAfter = await ext(spaPopup, "getTabStatus", { tabId: spaTabId });
   if (JSON.stringify(stateAfter) !== JSON.stringify(stateBefore)) throw new Error("clicking a dimmed Selection button should leave popup/tab state untouched");
-  // Now make a real selection and confirm the button re-enables and works.
+  await spaPopup.close();
+  // Now make a real selection and confirm a *fresh* popup instance re-enables the button.
   await pages.spa.evaluate(() => {
     const p = document.querySelector("article p");
     const r = document.createRange();
@@ -668,11 +712,12 @@ await step("toasts: 'Analyze selection' dims with no selection, toasts instead o
     getSelection().removeAllRanges();
     getSelection().addRange(r);
   });
-  await popup.reload();
-  await popup.waitForSelector("button::-p-text(Analyze page)");
+  spaPopup = await newTab(`${EXT_ORIGIN}/popup.html?tabId=${spaTabId}`, { width: 380, height: 620 });
+  await spaPopup.waitForSelector("button::-p-text(Analyze page)");
   await sleep(400);
-  const enabled = await popup.$eval("button::-p-text(Selection)", (b) => b.getAttribute("aria-disabled"));
+  const enabled = await spaPopup.$eval("button::-p-text(Selection)", (b) => b.getAttribute("aria-disabled"));
   note(`after a real selection: aria-disabled=${enabled}`);
+  await spaPopup.close();
   if (enabled === "true") throw new Error("Selection button should re-enable once there's a selection");
 });
 
@@ -689,36 +734,38 @@ await step("presence modes: onClick / badge / statusChip / inspector / sidePanel
       await mergeSettings({ presence });
     });
     await presenceTab.reload({ waitUntil: "load" });
-    await sleep(1500); // autoRun (classifierLite) + surface reconciliation
+    await sleep(2200); // autoRun (classifierLite) + surface reconciliation
     const settings = await getStoredSettings();
     const pillVisible = (await piercedCenter(presenceTab, (tag, a) => a.role === "region" && a["aria-label"] === "AI text detector")).length > 0;
     const chipVisible = (await piercedTexts(presenceTab, (tag, a) => a["aria-label"]?.startsWith("AI detection"))).length > 0;
     results[presence] = { surfaces: settings.surfaces, pillVisible, chipVisible };
     note(`${presence}: surfaces=${JSON.stringify(settings.surfaces)}, pill=${pillVisible}, chip=${chipVisible}`);
+    // Taken inside the loop, on the "inspector" iteration specifically --
+    // a shot() after the loop would show whatever preset ran last (sidePanel).
+    if (presence === "inspector") await shot(presenceTab, "page-presence-inspector.jpg");
   }
   report.facts.presenceModes = results;
   if (results.onClick.pillVisible) throw new Error("onClick preset should show no pill automatically");
   if (results.badge.pillVisible || results.badge.chipVisible) throw new Error("badge preset should show neither pill nor chip");
   if (!results.inspector.pillVisible) throw new Error("inspector preset should auto-show the pill");
-  await shot(presenceTab, "page-presence-inspector.jpg");
 
   // Back to onClick: "Show on page" should turn the pill on for this visit only.
   await mergeSettings({ presence: "onClick" });
   await presenceTab.reload({ waitUntil: "load" });
   await sleep(800);
   const onClickTabId = await tabIdOf(`${BASE}/blog.html`);
-  await popup.evaluate((id) => { location.search = `?tabId=${id}`; }, onClickTabId);
-  await popup.waitForNavigation().catch(() => {});
-  await popup.waitForSelector("button::-p-text(Show on page)", { timeout: 5000 });
-  await popup.click("button::-p-text(Show on page)");
+  // A dedicated popup instance (see the toasts step above for why: re-navigating the shared `popup` has wedged its CDP session before).
+  const onClickPopup = await newTab(`${EXT_ORIGIN}/popup.html?tabId=${onClickTabId}`, { width: 380, height: 620 });
+  await onClickPopup.waitForSelector("button::-p-text(Show on page)", { timeout: 5000 });
+  await onClickPopup.click("button::-p-text(Show on page)");
   await sleep(600);
+  await onClickPopup.close();
   const shown = (await piercedCenter(presenceTab, (tag, a) => a.role === "region" && a["aria-label"] === "AI text detector")).length > 0;
   note(`onClick + "Show on page": pill visible = ${shown}`);
   if (!shown) throw new Error(`"Show on page" should reveal the pill for this visit`);
 
   // "toggle-visibility" command path: same handler as the keyboard shortcut, via the tab message directly.
-  await ext(presenceTab, undefined, undefined).catch(() => {}); // no-op; presenceTab isn't an extension page
-  await sw.evaluate((id) => chrome.tabs.sendMessage(id, { kind: "request", id: "e2e-toggle", type: "toggleVisibility", payload: undefined }), onClickTabId);
+  await swEval((id) => chrome.tabs.sendMessage(id, { kind: "request", id: "e2e-toggle", type: "toggleVisibility", payload: undefined }), onClickTabId);
   await sleep(500);
   const hiddenAfterToggle = (await piercedCenter(presenceTab, (tag, a) => a.role === "region" && a["aria-label"] === "AI text detector")).length === 0;
   note(`toggleVisibility once: pill hidden = ${hiddenAfterToggle}`);
@@ -731,8 +778,13 @@ await step("presence modes: onClick / badge / statusChip / inspector / sidePanel
 await step("status chip: label, colour graduation, expand/collapse", async (note) => {
   await mergeSettings({ presence: "statusChip", autoRunPolicy: "always" });
   await pages.news.reload({ waitUntil: "load" });
-  await sleep(1500); // autoRun classifierLite pass
-  const chip = await piercedCenter(pages.news, (tag, a) => a["aria-label"]?.startsWith("AI detection"));
+  // The chip host mounts at content-script boot (before any analysis
+  // finishes), but boot itself can lag behind Puppeteer's own "load" event
+  // under system load, so poll rather than a single timed check.
+  const chip = await waitFor(() => piercedCenter(pages.news, (tag, a) => a["aria-label"]?.startsWith("AI detection")), {
+    timeout: 10_000,
+    what: "chip host",
+  });
   if (!chip.length) throw new Error("chip not found on the default (Status chip) preset");
   const before = await piercedTexts(pages.news, (tag, a) => a["aria-label"]?.startsWith("AI detection"));
   note(`chip label: "${before.join("")}"`);
@@ -755,7 +807,12 @@ await step("status chip: label, colour graduation, expand/collapse", async (note
 
 await step("slop filter: dims/collapses AI-scored forum comments, 'Show' reveals one", async (note) => {
   await mergeSettings({ presence: "inspector", autoRunPolicy: "always" });
-  await mergeSettings({ slopFilter: { enabled: true, threshold: 0.5, style: "dim", sites: { reddit: true, hackernews: true, youtube: true, twitter: true, forum: true, review: true }, searchMarkers: true } });
+  // threshold near 0: this checks the filtering *mechanism* (dim + "Show" +
+  // reveal-on-click), not classifierLite's accuracy on this synthetic text --
+  // classifierLite trends low on this style of prose (see the blog.html
+  // fixture's own comments, ~0.004 overall), so a realistic 0.5+ threshold
+  // could legitimately filter nothing here and tell us nothing about the UI.
+  await mergeSettings({ slopFilter: { enabled: true, threshold: 0.05, style: "dim", sites: { reddit: true, hackernews: true, youtube: true, twitter: true, forum: true, review: true }, searchMarkers: true } });
   const commentsPage = await newTab(`${BASE}/comments.html`);
   await sleep(2500); // autoRun classifierLite over 5 comment blocks
   const badges = await commentsPage.$$eval(".ai-detector-slop-badge", (els) => els.map((e) => e.textContent));
@@ -785,7 +842,7 @@ await step("context menu 'Check text in this box' (editable, via hook)", async (
     ta.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true }));
   });
   const spaTab = await tabIdOf(pages.spa.url());
-  await sw.evaluate((id) => globalThis.__ladContextMenuEditable(id), spaTab);
+  await swEval((id) => globalThis.__ladContextMenuEditable(id), spaTab);
   const s = await waitFor(
     async () => {
       const st = await ext(popup, "getTabStatus", { tabId: spaTab });
@@ -802,6 +859,13 @@ await step("side panel: follows the active tab, lists flagged sentences, scroll-
   await pages.news.bringToFront();
   await ext(popup, "analyzeTab", { tabId: await tabIdOf(pages.news.url()), target: "page" });
   const sidepanel = await newTab(`${EXT_ORIGIN}/sidepanel.html`, { width: 380, height: 700 });
+  // A real side panel isn't a tab, so `browser.tabs.query({active:true})`
+  // (sidepanel/main.ts's `followActiveTab`) normally still resolves to the
+  // page it's docked next to. Here it's opened as an ordinary tab (Chrome
+  // testing has no API to dock a real side panel), which makes IT the
+  // active tab -- so re-activate the news tab, which the panel's own
+  // `tabs.onActivated` listener picks up.
+  await pages.news.bringToFront();
   await sidepanel.waitForSelector(".sp-summary, .sp-empty", { timeout: 10_000 });
   await sleep(500);
   const score = await sidepanel.$eval(".sp-score", (e) => e.textContent).catch(() => null);
@@ -818,6 +882,8 @@ await step("side panel: follows the active tab, lists flagged sentences, scroll-
   }
   await sidepanel.close();
 });
+
+await mergeSettings({ presence: "inspector", autoRunPolicy: "never" }); // leave storage in a known state before the final network check
 
 // ---- network: only huggingface.co / *.hf.co (+ the local fixture server) ----
 await step("network: only Hugging Face hosts (and the local fixture server)", async (note) => {
