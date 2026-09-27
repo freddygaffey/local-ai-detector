@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- Monochrome variant for dark backgrounds/toolbars: white line-art, no
+       fill background (transparent), so it sits on dark UI chrome. -->
+  <rect x="39" y="46.5" width="26" height="8" rx="4" fill="#F5A623"/>
+  <rect x="39" y="58.5" width="17" height="8" rx="4" fill="#FF6B57"/>
+  <circle cx="52" cy="54" r="24.5" fill="none" stroke="#FFFFFF" stroke-width="9"/>
+  <line x1="70.5" y1="72.5" x2="95" y2="97" stroke="#FFFFFF" stroke-width="12" stroke-linecap="round"/>
+</svg>

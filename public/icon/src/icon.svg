@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- Local AI Detector mark: a magnifying glass (inspection) revealing two
+       highlighted "flagged sentence" bars, echoing the heatmap/flagged
+       highlight styles the extension draws on a page. Original artwork,
+       not based on or resembling any company logo. -->
+  <rect x="4" y="4" width="120" height="120" rx="27" fill="#154A5E"/>
+  <!-- subtle inner lens tint -->
+  <circle cx="52" cy="54" r="24.5" fill="#FFFFFF" opacity="0.08"/>
+  <!-- flagged-text bars, visible inside the lens -->
+  <rect x="39" y="46.5" width="26" height="8" rx="4" fill="#F5A623"/>
+  <rect x="39" y="58.5" width="17" height="8" rx="4" fill="#FF6B57"/>
+  <!-- magnifying glass ring + handle -->
+  <circle cx="52" cy="54" r="24.5" fill="none" stroke="#FFFFFF" stroke-width="9"/>
+  <line x1="70.5" y1="72.5" x2="95" y2="97" stroke="#FFFFFF" stroke-width="12" stroke-linecap="round"/>
+</svg>
