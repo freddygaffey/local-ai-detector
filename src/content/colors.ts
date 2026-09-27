@@ -87,6 +87,26 @@ export function mutedAlpha(theme: Theme): number {
   return theme === "dark" ? 0.12 : 0.1;
 }
 
+/**
+ * Graduates font-weight within the "high" (AI) band -- FLAGGED_THRESHOLD is
+ * a big band (e.g. 50-100%) and a flat colour+weight across all of it hides
+ * the difference between a borderline 54% and a confident 97% (persona
+ * finding, docs/integration-notes.md "For T12"). Below the band this is
+ * just the normal weight; within it, weight climbs from 600 to 800.
+ */
+export function bandWeight(score: number): number {
+  const s = clamp01(score);
+  if (s < FLAGGED_THRESHOLD) return 600;
+  const t = (s - FLAGGED_THRESHOLD) / (1 - FLAGGED_THRESHOLD);
+  return Math.round(600 + t * 200);
+}
+
+/** Solid text colour for a score, continuous across the whole 0..1 range (never a flat per-band swatch). */
+export function scoreColor(score: number, theme: Theme = "light"): string {
+  const hue = scoreHue(score);
+  return theme === "dark" ? `hsl(${hue.toFixed(1)}, 75%, 68%)` : `hsl(${hue.toFixed(1)}, 75%, 38%)`;
+}
+
 /** In "flagged" style, only sentences at/above FLAGGED_THRESHOLD are rendered/hoverable. */
 export function sentenceQualifies(style: HighlightStyle, score: number): boolean {
   return style !== "flagged" || score >= FLAGGED_THRESHOLD;

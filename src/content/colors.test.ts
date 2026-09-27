@@ -1,9 +1,11 @@
 import { describe, expect, test } from "vitest";
 import {
   FLAGGED_THRESHOLD,
+  bandWeight,
   bucketScore,
   heatmapColor,
   riskLevel,
+  scoreColor,
   scoreHue,
   underlineColor,
 } from "./colors";
@@ -57,6 +59,31 @@ describe("bucketScore", () => {
       expect(b).toBeGreaterThanOrEqual(0);
       expect(b).toBeLessThan(8);
     }
+  });
+});
+
+describe("bandWeight", () => {
+  test("stays at the base weight below the AI band", () => {
+    expect(bandWeight(0)).toBe(600);
+    expect(bandWeight(FLAGGED_THRESHOLD - 0.01)).toBe(600);
+  });
+  test("climbs from 600 to 800 across the AI band", () => {
+    expect(bandWeight(FLAGGED_THRESHOLD)).toBe(600);
+    expect(bandWeight(1)).toBe(800);
+    expect(bandWeight(0.6)).toBeGreaterThan(bandWeight(FLAGGED_THRESHOLD));
+    expect(bandWeight(0.9)).toBeGreaterThan(bandWeight(0.6));
+  });
+});
+
+describe("scoreColor", () => {
+  test("varies continuously, not just per band", () => {
+    const a = scoreColor(0.55);
+    const b = scoreColor(0.7);
+    const c = scoreColor(0.95);
+    expect(new Set([a, b, c]).size).toBe(3);
+  });
+  test("light and dark themes differ", () => {
+    expect(scoreColor(0.8, "light")).not.toBe(scoreColor(0.8, "dark"));
   });
 });
 

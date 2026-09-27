@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { derivePopupState, isUnsupportedUrl, progressLabel, progressPercent } from "./state";
+import { derivePopupState, isCacheLoad, isUnsupportedUrl, progressLabel, progressPercent } from "./state";
 
 describe("isUnsupportedUrl", () => {
   test("browser-internal pages", () => {
@@ -63,9 +63,15 @@ describe("derivePopupState", () => {
 
 describe("progressLabel / progressPercent", () => {
   test("labels each phase", () => {
-    expect(progressLabel({ phase: "download", loaded: 0, total: 0, message: "" })).toBe("Downloading model");
+    expect(progressLabel({ phase: "download", loaded: 5, total: 100, message: "" })).toBe("Downloading model");
     expect(progressLabel({ phase: "load", loaded: 0, total: 0, message: "" })).toBe("Loading model");
     expect(progressLabel({ phase: "analyze", loaded: 0, total: 0, message: "" })).toBe("Analyzing");
+  });
+  test("a 'download' phase with no known total is a cache read, not a real download", () => {
+    expect(isCacheLoad({ phase: "download", loaded: 0, total: 0, message: "" })).toBe(true);
+    expect(progressLabel({ phase: "download", loaded: 0, total: 0, message: "" })).toBe("Loading model");
+    expect(isCacheLoad({ phase: "download", loaded: 5, total: 100, message: "" })).toBe(false);
+    expect(isCacheLoad({ phase: "load", loaded: 0, total: 0, message: "" })).toBe(false);
   });
   test("percent is null when total is unknown, else clamped 0-100", () => {
     expect(progressPercent({ phase: "download", loaded: 5, total: 0, message: "" })).toBeNull();

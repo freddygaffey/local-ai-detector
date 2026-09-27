@@ -472,6 +472,20 @@ export interface ScrollToSentenceMessage {
   response: ActionResult;
 }
 
+// ---- Added by T12: popup selection check (additive only) ----
+
+/**
+ * Popup -> content script, on popup open: is there a non-empty text
+ * selection on the page right now? Drives dimming "Analyze selection" with
+ * a tooltip instead of letting the user hit a full error state
+ * (docs/integration-notes.md "For T12", user feedback preview).
+ */
+export interface GetSelectionInfoMessage {
+  type: "getSelectionInfo";
+  request: undefined;
+  response: { hasSelection: boolean };
+}
+
 /** Every request/response message kind, as a discriminated union. */
 export type RuntimeMessage =
   | UnloadIdleModelsMessage
@@ -479,6 +493,7 @@ export type RuntimeMessage =
   | ShowOnPageMessage
   | ToggleVisibilityMessage
   | ScrollToSentenceMessage
+  | GetSelectionInfoMessage
   | AnalyzeTabMessage
   | ReportImageSummaryMessage
   | ScanImagesMessage

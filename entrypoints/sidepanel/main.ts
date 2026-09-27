@@ -17,6 +17,8 @@ import { displayScore } from "@/src/ui/probability";
 import { formatPercent } from "@/src/ui/format";
 import { FLAGGED_THRESHOLD } from "@/src/shared/thresholds";
 import { brandMark } from "@/src/ui/icons";
+import { mountToastHost, showToast } from "@/src/ui/toast";
+import { CONSENT_REQUIRED_ERROR } from "@/src/shared/messages";
 
 interface Ctx {
   settings: Settings;
@@ -30,6 +32,7 @@ const root = document.getElementById("app") as HTMLDivElement;
 let unsubscribeStatus: (() => void) | null = null;
 
 async function main() {
+  mountToastHost();
   await followActiveTab();
   browser.tabs.onActivated.addListener(() => void followActiveTab());
   browser.tabs.onUpdated.addListener((_id, info, tab) => {
@@ -145,8 +148,12 @@ async function runAnalyze(): Promise<void> {
     const result = await sendMessage("analyzeTab", { tabId: ctx.tabId, target: "page" });
     ctx.result = result;
     ctx.status = "done";
-  } catch {
+  } catch (err) {
     ctx.status = "idle";
+    const message = err instanceof Error ? err.message : String(err);
+    showToast(
+      message.startsWith(CONSENT_REQUIRED_ERROR) ? "Download models from the popup first" : "Couldn't analyze this page",
+    );
   }
   render();
 }

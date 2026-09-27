@@ -107,6 +107,7 @@ async function boot(): Promise<void> {
     },
     scanImages: () => scanImagesAndReport(),
     checkImageAtUrl: (req) => checkImageAtUrl(req.srcUrl),
+    getSelectionInfo: () => ({ hasSelection: extractSelectionBlock(window) !== null }),
     showOnPage: () => {
       enablePageDisplayForSession();
       return { ok: true };
@@ -429,10 +430,10 @@ function updateChip(result: AnalyzeResult): void {
   const band = bandFromResult(result, settings);
   if (band === "mixed") {
     const flagged = countFlaggedSentences(result.sentences);
-    chip.setContent({ label: `AI ${pct}% · ${flagged}/${result.sentences.length}` });
+    chip.setContent({ label: `AI ${pct}% · ${flagged}/${result.sentences.length}`, score });
     return;
   }
-  chip.setContent({ label: pct / 100 >= settings.chipAutoHideThreshold ? `AI ${pct}%` : null });
+  chip.setContent({ label: pct / 100 >= settings.chipAutoHideThreshold ? `AI ${pct}%` : null, score });
 }
 
 interface BlockScoreItem {
