@@ -1,0 +1,61 @@
+name: E2E (Chrome, real models)
+
+# Heavy: downloads ~216 MB of models on a cold cache, so it runs weekly and on
+# demand rather than on every push.
+on:
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      full:
+        description: "Include Binoculars and warm re-runs (slower)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  chrome:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      LAD_SCRATCH: ${{ github.workspace }}/.e2e-scratch
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - name: Install Chromium for Testing
+        run: npx playwright install --with-deps chromium
+
+      # The browser profile holds the Cache API copy of the models; keying on
+      # the pinned revisions re-downloads only when a model pin changes.
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.LAD_SCRATCH }}/chrome-profile
+          key: e2e-models-${{ hashFiles('src/engine/models.ts') }}
+
+      - run: npm run build:e2e
+
+      - name: Run Chrome E2E
+        run: >
+          xvfb-run --auto-servernum
+          node scripts/e2e/chrome.mjs
+          ${{ inputs.full && '' || '--quick' }}
+          --out ${{ env.LAD_SCRATCH }}/chrome-report.json
+          --shots ${{ env.LAD_SCRATCH }}/shots
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-chrome-report
+          path: |
+            ${{ env.LAD_SCRATCH }}/chrome-report.json
+            ${{ env.LAD_SCRATCH }}/shots
+          if-no-files-found: warn
