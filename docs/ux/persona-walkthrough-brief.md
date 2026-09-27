@@ -60,3 +60,11 @@ repo). Close your browser and fixture server when done.
 
 Final reply (under 250 words): the top 5 findings (severity + fix), the 5 worst pieces of UI
 copy with rewrites, and this persona's preferred Presence default.
+
+## Mode: single agent, rough pass (user decision)
+One agent plays all six personas in turn (see docs/plan.md, "Design personas"). Keep each persona
+sketch to ~80 words and each walkthrough brief. Take ~10 screenshots in total, not per persona.
+Share one browser profile across personas so the models download once. Write ONE file,
+docs/ux/findings.md: per-persona highlights (a few bullets each), then a single deduplicated
+findings table (severity + fix), one consolidated copy audit (only CUT/REWORD/MOVE items, with
+rewrites), and the preferred Presence default per persona. Aim for roughly 30–45 minutes of work.

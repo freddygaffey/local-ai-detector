@@ -179,9 +179,11 @@ UI copy rules: plain words at a Year-8 reading level, no jargon on the main surf
 repeated hedging, and every number paired with words.
 
 ## UX walkthroughs (after T7 + T9, before final package)
-Run six Sonnet persona agents **one at a time** (user request), using
-docs/ux/persona-walkthrough-brief.md against the finished build. Then the lead synthesises
-docs/ux/findings.md, and a fix pass follows before the final package.
+**One Sonnet agent plays all six personas in a single rough, cheap pass** (user request). It
+does a quick walkthrough per persona, a few screenshots in total, one combined findings list
+(severity + fix), and one consolidated copy audit with rewrites, using
+docs/ux/persona-walkthrough-brief.md as a guide, not a checklist. A fix pass follows before
+the final package.
 
 ## Out of scope for v1
 Remote APIs (incl. Anthropic's planned watermark-detection API and SynthID), VideoSeal/AudioSeal/TrustMark (35–228 MB models, v2), non-English calibration, and store publishing
