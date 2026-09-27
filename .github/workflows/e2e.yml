@@ -28,9 +28,9 @@ jobs:
     env:
       LAD_SCRATCH: ${{ github.workspace }}/.e2e-scratch
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -42,7 +42,7 @@ jobs:
 
       # The browser profile holds the Cache API copy of the models; keying on
       # the pinned revisions re-downloads only when a model pin changes.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ${{ env.LAD_SCRATCH }}/chrome-profile
           key: e2e-models-${{ hashFiles('src/engine/models.ts') }}
@@ -57,7 +57,7 @@ jobs:
           --out ${{ env.LAD_SCRATCH }}/chrome-report.json
           --shots ${{ env.LAD_SCRATCH }}/shots
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: e2e-chrome-report

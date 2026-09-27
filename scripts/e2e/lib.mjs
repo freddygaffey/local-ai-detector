@@ -107,6 +107,36 @@ export async function piercedTexts(page, match) {
   }
 }
 
+/**
+ * Finds a `<button>` containing `text` and clicks it in one page-side call.
+ * Extension pages here re-render on their own (settings watchers, autoRun
+ * status events) independently of the script's timing; `page.click(selector)`
+ * locates the node and *then* dispatches synthetic mouse events over several
+ * awaits, so a re-render in between can detach the node mid-click ("Node is
+ * detached from document"). Doing the find-and-click inside one
+ * `page.evaluate` call removes that gap.
+ */
+export async function clickButtonByText(page, text) {
+  const ok = await page.evaluate((t) => {
+    const btn = [...document.querySelectorAll("button")].find((b) => b.textContent?.includes(t));
+    if (!btn) return false;
+    btn.click();
+    return true;
+  }, text);
+  if (!ok) throw new Error(`No button with text "${text}"`);
+}
+
+/** Same atomicity fix as `clickButtonByText`, for an ordinary CSS selector. */
+export async function clickSelector(page, selector) {
+  const ok = await page.evaluate((s) => {
+    const el = document.querySelector(s);
+    if (!el) return false;
+    el.click();
+    return true;
+  }, selector);
+  if (!ok) throw new Error(`No element for selector "${selector}"`);
+}
+
 /** Hosts contacted, from a Chrome --log-net-log JSON file. */
 export function hostsFromNetLog(json) {
   const hosts = new Map();
