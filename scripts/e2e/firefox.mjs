@@ -6,10 +6,11 @@
 //   npm run build:e2e:firefox && node scripts/e2e/firefox.mjs [--firefox /path/to/firefox]
 //        [--out report.json] [--shots dir] [--full] [--idle-timeout 20000]
 //
-// Firefox's WebDriver refuses to navigate to or script moz-extension://
-// pages, so the suite talks to the extension through the e2e-only
-// page <-> content-script bridge (src/e2e/bridge.ts): the same content ->
-// background path the in-page pill uses. `--idle-timeout` lowers the event
+// The suite talks to the extension through the e2e-only page <->
+// content-script bridge (src/e2e/bridge.ts): the same content -> background
+// path the in-page pill uses. Selenium's Firefox driver refuses to run
+// scripts in moz-extension:// pages ("privileged browsing contexts"), so the
+// popup and options pages are only screenshotted. `--idle-timeout` lowers the event
 // page's idle timeout (Firefox default 30 s) so downloads outlast it and the
 // keep-alive is really exercised.
 // --full adds Binoculars (another ~270 MB download).
@@ -60,9 +61,9 @@ report.facts.eventPageIdleTimeoutMs = IDLE;
 await driver.installAddon(EXT, true);
 await sleep(1000);
 
-// Firefox's WebDriver can't script moz-extension:// pages, so everything goes
-// through the e2e-only page <-> content-script bridge (src/e2e/bridge.ts),
-// i.e. the same content -> background path the in-page pill uses.
+// Everything goes through the e2e-only page <-> content-script bridge
+// (src/e2e/bridge.ts), i.e. the same content -> background path the in-page
+// pill uses.
 const tabs = {};
 async function openTab(name, url) {
   await driver.switchTo().newWindow("tab");
@@ -115,6 +116,17 @@ await step("install temporary add-on; open fixture tabs; bridge reaches the back
 
 await step("consent", async () => {
   await setSettings({ consentedDownload: true });
+});
+
+// Same as scripts/e2e/chrome.mjs: the highlight assertions below predate
+// Presence modes, and the default Status chip paints nothing until expanded.
+await step("presence: force Inspector (highlights on), auto-run off, for the fixture runs", async (note) => {
+  await setSettings({
+    presence: "inspector",
+    autoRunPolicy: "never",
+    surfaces: { popup: true, badge: true, chip: false, highlights: true, sidePanel: false },
+  });
+  note("presence -> inspector (surfaces.highlights: true), autoRun off");
 });
 
 async function analyze(name, mode, label, target = "page") {
@@ -211,7 +223,7 @@ await step("selection + context-menu handler", async (note) => {
   if (s.state !== "done") throw new Error(s.error ?? s.state);
 });
 
-await step("popup and options pages render (screenshots only: not scriptable in Firefox)", async (note) => {
+await step("popup and options pages render (screenshots only: not scriptable through Selenium)", async (note) => {
   for (const [path, file] of [
     [`/popup.html?tabId=${tabs.news.id}`, "firefox-popup.png"],
     ["/options.html", "firefox-options.png"],
