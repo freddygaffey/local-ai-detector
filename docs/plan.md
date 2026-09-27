@@ -75,6 +75,16 @@ API, with an IndexedDB fallback.
 T1–T4 run in parallel after T0. Each task commits only its own paths locally and never pushes.
 Only T0 edits package.json. Later tasks ask the lead if they need a dependency.
 
+## T7: Fusion mode (added at the user's request, ships in v0.1.0)
+A detector mode `fusion` where the user chooses any subset of detectors (classifier/TMR,
+classifierLite/e5, ModernBERT RAID+MAGE detector (Apache-2.0, new slot), perplexity, binoculars)
+and a fusion method: calibrated weighted average (default, weights fitted on calibration data),
+log-odds average, majority vote, or max. Per-sentence and overall agreement ("n/m detectors agree",
+"detectors disagree, low confidence") appears in the popup, tooltips and pill. Settings show the
+total download size and a speed estimate for the chosen set. Calibrate on the browser runtime
+like T5 did, and add unit tests and E2E coverage. Update README, THIRD_PARTY, store listing,
+calibration.md and qa.md. Owner model: Opus. Runs after T5 (same files).
+
 ## Out of scope for v1
 Remote APIs (incl. Anthropic's planned watermark-detection API and SynthID), VideoSeal/AudioSeal/TrustMark (35–228 MB models, v2), non-English calibration, and store publishing
 (done by the user).
