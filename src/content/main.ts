@@ -576,7 +576,7 @@ function updateChip(result: AnalyzeResult): void {
   if (structuredMatch) {
     const items = perBlockScores(result);
     const flagged = items.filter((i) => !i.tooShort && i.score >= filterThreshold()).length;
-    chip.setContent({ label: flagged > 0 ? `${flagged} AI` : null });
+    chip.setContent({ label: flagged > 0 ? `${flagged} AI` : null, peekLabel: `${flagged} AI` });
     return;
   }
   const score = displayScore(result);
@@ -586,12 +586,14 @@ function updateChip(result: AnalyzeResult): void {
   }
   const pct = Math.round(score * 100);
   const band = bandFromResult(result, settings);
+  const show = pct / 100 >= settings.chipAutoHideThreshold;
   if (band === "mixed") {
     const flagged = countFlaggedSentences(result.sentences);
-    chip.setContent({ label: `AI ${pct}% · ${flagged}/${result.sentences.length}`, score });
+    const text = `AI ${pct}% · ${flagged}/${result.sentences.length}`;
+    chip.setContent({ label: show ? text : null, peekLabel: text, score });
     return;
   }
-  chip.setContent({ label: pct / 100 >= settings.chipAutoHideThreshold ? `AI ${pct}%` : null, score });
+  chip.setContent({ label: show ? `AI ${pct}%` : null, peekLabel: `AI ${pct}%`, score });
 }
 
 interface BlockScoreItem {

@@ -15,6 +15,8 @@ const MARGIN = 10;
 export interface ChipContent {
   /** "AI 91%" (page) or "3 AI" (flagged-item count on a thread/comment page). Null hides the chip (still peekable on hover). */
   label: string | null;
+  /** What a hover shows while `label` is null (the below-threshold result, e.g. "AI 34%"); "…" when absent. */
+  peekLabel?: string;
   /**
    * The score behind `label` (0..1), when there is a single meaningful one
    * (a page score, not a flagged-item count) -- colours and weights the
@@ -126,9 +128,10 @@ export function createChip(corner: Corner, callbacks: ChipCallbacks): ChipApi {
     }
     const show = current.label !== null || peeking;
     chip.classList.toggle("visible", show);
-    chip.textContent = current.label ?? "…";
-    chip.setAttribute("aria-label", current.label ? `AI detection: ${current.label}. Click for details.` : "AI detection: no result yet");
-    if (current.score !== undefined && current.label !== null) {
+    const text = current.label ?? current.peekLabel ?? null;
+    chip.textContent = text ?? "…";
+    chip.setAttribute("aria-label", text ? `AI detection: ${text}. Click for details.` : "AI detection: no result yet");
+    if (current.score !== undefined && text !== null) {
       chip.style.color = scoreColor(current.score, chipTheme());
       chip.style.fontWeight = String(bandWeight(current.score));
     } else {
