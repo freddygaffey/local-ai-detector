@@ -17,7 +17,7 @@ import { FLAGGED_THRESHOLD } from "../../shared/thresholds";
 import { toTranscriptProbability, type TranscriptReport, type TranscriptSegment } from "../../shared/transcript";
 import { decidePowerAction, readBatteryState, readPressureState } from "../../power/battery";
 import { acquireTranscript, isYouTubeHost, readDisclosure, videoFromUrl, type VideoRef } from "./acquire";
-import { buildTranscriptBlocks, sampleBlocks, toTextBlocks, type TranscriptBlock } from "./chunk";
+import { buildTranscriptBlocks, resolveSentenceMode, sampleBlocks, toTextBlocks, type TranscriptBlock } from "./chunk";
 import { looksEnglish } from "./transcript";
 import { createTranscriptChip, type TranscriptChipApi } from "./ui";
 
@@ -93,6 +93,9 @@ async function run(pass: "fast" | "full", allowOpen: boolean): Promise<void> {
     if ((t.language && !/^en\b/i.test(t.language)) || !looksEnglish(fullText)) {
       return publish({ ...base, state: "not-english", language: t.language, source: t.source, segments: [] });
     }
+    // The fast model is near chance on unpunctuated auto-captions (AUROC
+    // 0.69, docs/calibration.md "Transcripts"): leave those to the full run.
+    if (pass === "fast" && resolveSentenceMode(t.cues) === "raw") return publish({ ...base, state: "idle" });
     const all = buildTranscriptBlocks(t.cues, { idPrefix: `yt-${v.videoId}` });
     const budget = Math.max(300, Math.floor(settings.maxTokens * 0.7));
     const blocks = sampleBlocks(all, budget);

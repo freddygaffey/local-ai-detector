@@ -241,6 +241,126 @@ The WebGPU runs were done locally (Chrome 153, Apple Silicon). The WASM runs wer
 Ubuntu runners (4 vCPU, Chromium from Playwright). The eval set built in CI was identical to
 the local one (all 1,867 ids match).
 
+## Transcripts (T10, YouTube, 2026-09-27)
+
+The transcript chip ("Transcript: AI 84%") uses its own display mapping
+([`src/shared/transcriptCalibration.ts`](../src/shared/transcriptCalibration.ts),
+`toTranscriptProbability()` in [`src/shared/transcript.ts`](../src/shared/transcript.ts)),
+because captions don't read like web text. It measures **AI-written scripts**, not synthetic
+voices. The eval set is small (419 texts, 208 in the test half), so read the numbers as
+±0.03–0.05 AUROC.
+
+**What ships.**
+- Punctuated captions (uploaded tracks, and most 2026 YouTube auto-captions) are cut into
+  sentences.
+- Classic unpunctuated auto-captions are scored as plain caption lines ("raw").
+- Transcripts are scored in blocks of about 160 words, with sentence start times kept for
+  seeking. Long videos are sampled evenly up to the token budget.
+- The full run is the default Fusion. The automatic pass (lite) only scores punctuated
+  transcripts, because on unpunctuated captions it is near chance (AUROC 0.69).
+
+### Eval set
+
+Built by [`scripts/eval/transcripts/build-transcript-set.mjs`](../scripts/eval/transcripts/build-transcript-set.mjs).
+Rows are fetched from the HF datasets-server and cached, not committed.
+
+| Side | Source | Licence | n |
+|---|---|---|---|
+| Human speech | [People's Speech](https://huggingface.co/datasets/MLCommons/peoples_speech) "clean" test (archive.org talks, lectures, hearings) | CC-BY-4.0 | 139 with Earnings-22 |
+| Human speech | [Earnings-22](https://huggingface.co/datasets/distil-whisper/earnings22) chunked test (earnings calls) | CC-BY-SA-4.0 | (above) |
+| Human prose read aloud | T7 web set, human news / blog / story / answer | MIT / Apache-2.0 | 120 |
+| AI | [`scripts/calibration/transcript-ai.json`](../scripts/calibration/transcript-ai.json): 40 voiceover scripts (facts, documentary, listicle, true-crime, review…) | MIT (this repo; Claude) | 40 |
+| AI | T7 web set, AI news / blog / story / answer | as T7 | 120 |
+
+Every text gets word timings: real segment timing for speech, and a TTS-like reading pace
+with pauses at punctuation for written text. It is then cut into YouTube-style caption lines
+of 4–10 words ([`cues.mjs`](../scripts/eval/transcripts/cues.mjs)). Conditions:
+`punct` keeps punctuation and case. `raw` is lowercase with no punctuation, one caption line per unit.
+`pause` is the same text cut into pseudo-sentences at pauses of ≥ 0.5 s (capital + full stop).
+`pause-panel` is the same using only the panel's whole-second start times. `restored` is the
+raw text run through [1-800-BAD-CODE/punctuation_fullstop_truecase_english](https://huggingface.co/1-800-BAD-CODE/punctuation_fullstop_truecase_english)
+(Apache-2.0, ONNX, 210 MB) offline. Scored in Node (CPU, WASM constants) through the engine
+and the shipped chunker ([`score-transcripts.mjs`](../scripts/eval/transcripts/score-transcripts.mjs)).
+Fitted with [`fit-transcripts.mjs`](../scripts/eval/transcripts/fit-transcripts.mjs).
+
+### Results (test half)
+
+#### Default Fusion (Fakespot + TMR)
+
+| Condition | AUROC all | vs speech | vs human prose | AI: own scripts / web AI flagged | flag FPR / TPR (≥ 0.5) | filter precision / recall (≥ 0.75) |
+|---|---|---|---|---|---|---|
+| punct | **0.94** | 0.95 | 0.93 | 91% / 63% | 1% / 70% | 100% / 44% |
+| raw | **0.82** | 0.85 | 0.79 | 36% / 32% | 1% / 33% | 100% / 22% |
+| pause | **0.78** | 0.75 | 0.82 | 0% / 10% | 0% / 7% | 100% / 6% |
+| pause-panel | **0.73** | 0.69 | 0.77 | 0% / 0% | 0% / 0% | – / 0% |
+| restored | **0.91** | 0.91 | 0.92 | 68% / 39% | 1% / 47% | 100% / 22% |
+
+(test half: 208 texts)
+
+Display (long, path punct + raw), test ECE **0.06** (406 points): 25% → 21% (195), 34% → 37% (39), 45% → 63% (27), 54% → 73% (9), 65% → 29% (9), 76% → 76% (14), 86% → 97% (26), 96% → 99% (88)
+
+Display (short, path punct + raw), test ECE **0.04** (576 points): 24% → 22% (261), 36% → 53% (23), 45% → 40% (66), 54% → 57% (50), 66% → 76% (19), 76% → 81% (23), 86% → 97% (44), 96% → 98% (90)
+
+#### Lite (auto-run)
+
+| Condition | AUROC all | vs speech | vs human prose | AI: own scripts / web AI flagged | flag FPR / TPR (≥ 0.5) | filter precision / recall (≥ 0.75) |
+|---|---|---|---|---|---|---|
+| punct | **0.86** | 0.92 | 0.79 | 5% / 17% | 0% / 14% | 100% / 5% |
+| raw | **0.69** | 0.68 | 0.69 | 0% / 3% | 0% / 2% | – / 0% |
+| pause | **0.71** | 0.71 | 0.70 | 0% / 3% | 0% / 2% | 100% / 1% |
+| pause-panel | **0.68** | 0.70 | 0.66 | 0% / 0% | 0% / 0% | – / 0% |
+| restored | **0.80** | 0.84 | 0.75 | 5% / 10% | 0% / 9% | 100% / 2% |
+
+(test half: 208 texts)
+
+Display (long, path punct + raw), test ECE **0.04** (406 points): 36% → 34% (237), 44% → 55% (36), 56% → 64% (18), 65% → 62% (36), 75% → 72% (32), 83% → 97% (29), 95% → 100% (17)
+
+Display (short, path punct + raw), test ECE **0.15** (576 points): 16% → 35% (337), 23% → 51% (32), 35% → 48% (10), 48% → 59% (20), 54% → 54% (22), 66% → 70% (17), 76% → 71% (33), 85% → 78% (67), 92% → 97% (37)
+
+### Findings
+
+- **Punctuated captions work about as well as web text**: Fusion AUROC 0.94, 1% of human
+  transcripts flagged. Our own AI voiceover scripts are flagged 91% of the time.
+- **Unpunctuated auto-captions cost a lot**: AUROC 0.82, and only a third of AI scripts are
+  flagged at the 5%-FPR point. The false-positive rate stays at 1%, so a high score is still
+  meaningful. It just fires much less often.
+- **Cheap pause segmentation did not help. It hurt** (0.78; 0.73 with the panel's whole-second
+  timestamps). Inserting our own capitals and full stops at pauses makes human speech look
+  more "written" to the classifiers. It is kept in the chunker for experiments, not shipped.
+- **A punctuation-restoration model recovers most of the loss** (0.82 → 0.91). It is not
+  shipped: it is a 210 MB download with a SentencePiece tokenizer that transformers.js can't
+  load as is. It's a reasonable follow-up if a small tokenizer.json export appears.
+- **Display mapping** (default Fusion, pooled `punct` + `raw`): test ECE 0.06 on whole
+  transcripts and 0.04 on single segments. The fastest pass is weaker (ECE 0.15 on segments).
+  Shown % never goes below about 23%, because on this set about a fifth of the lowest-scoring
+  transcripts are AI (mostly unpunctuated ones).
+
+### Caveats
+
+- Scripted human narration is represented only by human *written* prose. Real human
+  voiceover scripts, and AI scripts that a person has edited or ad-libbed, are not measured.
+- The timings for written texts are synthetic. The "speech" side is mostly public-meeting and
+  earnings-call talk, not vlogs.
+- English only. Non-English transcripts show "Transcript: English only".
+- The live YouTube pipeline (panel reading, SPA navigation, seeking) was checked by a single
+  sanity run on one public video (panel read hidden in 0.8 s, 414 cues, panel closed
+  afterwards). Browser E2E runs in CI.
+
+### Reproduce
+
+```sh
+node scripts/eval/transcripts/build-transcript-set.mjs --cache <dir> --eval eval-set.json --out transcript-set.json
+node scripts/eval/transcripts/score-transcripts.mjs --set transcript-set.json --dump-normalised norm.json
+python scripts/eval/transcripts/restore-punctuation.py norm.json restored.json   # pip install punctuators
+for m in fusion lite; do
+  node scripts/eval/transcripts/score-transcripts.mjs --set transcript-set.json --mode $m \
+    --restored restored.json --out scores-$m.json --cache <model cache>
+done
+node scripts/eval/transcripts/fit-transcripts.mjs --set transcript-set.json \
+  --scores fusion=scores-fusion.json,lite=scores-lite.json --ship-unpunct raw --md report.md --emit
+```
+
+
 ---
 
 # Previous calibrations (kept for reference)

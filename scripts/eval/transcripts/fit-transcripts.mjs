@@ -85,6 +85,8 @@ function fitCurve(points, maxKnots = 10) {
   }
   const k = 4;
   iso = iso.map((p) => ({ ...p, y: (p.y * p.w + 0.5 * k) / (p.w + k) }));
+  // Shrinkage can break monotonicity between a thin and a thick block; restore it.
+  for (let i = 1; i < iso.length; i++) iso[i].y = Math.max(iso[i].y, iso[i - 1].y);
   const xs = [0, ...iso.map((p) => Number(p.x.toFixed(4))), 1];
   const ys = [iso[0].y, ...iso.map((p) => p.y), iso[iso.length - 1].y].map((y) => Number(Math.min(0.97, Math.max(0.03, y)).toFixed(4)));
   // Deduplicate x.

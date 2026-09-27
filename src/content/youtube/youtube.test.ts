@@ -145,10 +145,10 @@ describe("chunking", () => {
     expect(Object.keys(toTextBlocks(blocks)[0]!).sort()).toEqual(["id", "sentences", "text"]);
   });
 
-  test("unpunctuated: pseudo-sentences at pauses, capitalised, with a full stop", () => {
+  test("pause mode: pseudo-sentences at pauses, capitalised, with a full stop", () => {
     const cues = unpunct(30, 4);
-    expect(resolveSentenceMode(cues)).toBe("pause");
-    const blocks = buildTranscriptBlocks(cues);
+    expect(resolveSentenceMode(cues)).toBe("raw");
+    const blocks = buildTranscriptBlocks(cues, { sentenceMode: "pause" });
     const first = blocks[0]!;
     const s0 = first.text.slice(first.sentences[0]!.start, first.sentences[0]!.end);
     expect(s0).toMatch(/^And then .*\.$/);

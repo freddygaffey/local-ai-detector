@@ -23,9 +23,10 @@ export interface TranscriptBlock extends TextBlock {
  * - "punctuated": the text's own punctuation (Intl.Segmenter).
  * - "pause": for unpunctuated auto-captions, a pseudo-sentence ends at a
  *   pause of `pauseGap` seconds or after `maxSentenceWords` words, and gets a
- *   capital and a full stop (docs/calibration.md "Transcripts").
+ *   capital and a full stop.
  * - "raw": one caption line = one unit, text untouched.
- * - "auto" (default): "pause" when the cues look unpunctuated, else "punctuated".
+ * - "auto" (default): "raw" when the cues look unpunctuated, else "punctuated"
+ *   ("pause" measured worse; kept for the calibration scripts).
  */
 export type SentenceMode = "auto" | "punctuated" | "pause" | "raw";
 
@@ -143,7 +144,9 @@ function rawSentences(cues: readonly Cue[]): TimedSentence[] {
 /** Resolves "auto" to the concrete mode used for these cues. */
 export function resolveSentenceMode(cues: readonly Cue[], mode: SentenceMode = "auto"): Exclude<SentenceMode, "auto"> {
   if (mode !== "auto") return mode;
-  return looksUnpunctuated(cues) ? "pause" : "punctuated";
+  // Measured (docs/calibration.md "Transcripts"): on unpunctuated captions,
+  // plain caption lines rank better than pause-based pseudo-sentences.
+  return looksUnpunctuated(cues) ? "raw" : "punctuated";
 }
 
 /** Groups transcript cues into timed blocks for the engine's normal `analyze` path. */
