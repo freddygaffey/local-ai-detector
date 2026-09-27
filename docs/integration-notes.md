@@ -24,3 +24,11 @@
 - There are three analysis entry points (popup, pill, context menu), so unify them in one background orchestration if possible.
 - `happy-dom` is recommended as a devDependency for DOM tests of extraction and highlighting (not installed).
 - Only the first range of a selection is used, so multi-range selections are ignored.
+
+## From T1 (engine)
+- Context menu "Check selected text" is added, and the router uses the sender's tab id, so T2's `tabId:0` works.
+- Calibration is in docs/calibration.md (49 texts written or chosen by the agent, so the sample is small and weak). The TMR classifier is saturated on modern human prose (~0.98), so T1 added logit re-centring. The lite classifier beat TMR on this sample. **Compare them on real pages and decide which one the ensemble uses.** Burstiness weight is 0.
+- wxt.config.ts aliases `onnxruntime-web/webgpu` to the non-bundle build to avoid a second 27 MB wasm file.
+- A jsdelivr fallback string remains in the bundle, though it's overridden at runtime. Confirm no requests go to it, and strip it if the store review might object.
+- `AnalyzeResult.unicode` indices are into the blocks joined with "\n\n". Check that T2's markers don't double-scan or misalign.
+- Test first: returned-promise onMessage in Chrome, the offscreen thread count via getEngineInfo, no CDN requests, the Firefox module worker, caching in private windows, keepalive during long downloads, and whether WebGPU scores differ from the q8 calibration.
