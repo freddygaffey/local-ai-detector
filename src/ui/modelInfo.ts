@@ -6,7 +6,7 @@
 // of truth for repos/revisions/sizes/licences.
 
 import { estimatedDownloadBytes } from "../engine/models";
-import type { Mode } from "../shared/settings";
+import type { EnsembleClassifier, Mode } from "../shared/settings";
 
 export { DEFAULT_MODELS as MODEL_REGISTRY } from "../engine/models";
 
@@ -22,8 +22,8 @@ export const MODE_LABEL: Record<Mode, string> = {
 export const EXPERIMENTAL_MODES = new Set<Mode>(["binoculars"]);
 
 /** Total estimated download size in MB for a mode's default model slots (WASM/q8 sizes). */
-export function modeSizeMB(mode: Mode): number {
-  const bytes = estimatedDownloadBytes(mode, "wasm");
+export function modeSizeMB(mode: Mode, ensembleClassifier?: EnsembleClassifier): number {
+  const bytes = estimatedDownloadBytes(mode, "wasm", undefined, ensembleClassifier);
   return bytes === null ? 0 : Math.round(bytes / (1024 * 1024));
 }
 

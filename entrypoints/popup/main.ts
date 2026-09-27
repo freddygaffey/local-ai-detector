@@ -189,7 +189,7 @@ function openOptions(): void {
 // ---- Consent ----
 
 function renderConsent(): HTMLElement {
-  const size = modeSizeMB(ctx.settings.mode);
+  const size = modeSizeMB(ctx.settings.mode, ctx.settings.ensembleClassifier);
   return h(
     "div",
     { class: "popup-body consent" },

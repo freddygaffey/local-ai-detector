@@ -73,10 +73,10 @@ function pct(p: ProgressEvent): number | undefined {
 async function checkConsent(mode: AnalyzeRequest["mode"], models: ReturnType<typeof activeModelsForMode>): Promise<void> {
   const settings = await getSettings();
   if (settings.consentedDownload) return;
-  const items = slotsForMode(mode).map((slot) => ({ slot, ref: models[slot]! }));
+  const items = slotsForMode(mode, settings.ensembleClassifier).map((slot) => ({ slot, ref: models[slot]! }));
   const cached = await getHostClient().call("isCached", { items });
   if (cached.every(Boolean)) return;
-  const bytes = estimatedDownloadBytes(mode, "wasm", settings.modelOverrides);
+  const bytes = estimatedDownloadBytes(mode, "wasm", settings.modelOverrides, settings.ensembleClassifier);
   const size = bytes ? ` (about ${Math.round(bytes / 1e6)} MB, once)` : "";
   throw new Error(
     `${CONSENT_REQUIRED_ERROR}: this mode needs to download its model files from Hugging Face${size}. Allow the download in the popup first.`,
@@ -92,7 +92,7 @@ async function runAnalyze(
   // A content script doesn't know its own tab id (T2 sends tabId 0), so the
   // sender's tab wins; the popup passes the real id of the active tab.
   const tabId = meta.tabId ?? meta.senderTabId ?? (typeof req.tabId === "number" && req.tabId >= 0 ? req.tabId : -1);
-  const models = activeModelsForMode(mode, settings.modelOverrides);
+  const models = activeModelsForMode(mode, settings.modelOverrides, settings.ensembleClassifier);
   if (!Array.isArray(req.blocks)) throw new Error("analyze: `blocks` must be an array");
 
   await checkConsent(mode, models);
@@ -124,7 +124,13 @@ async function runAnalyze(
       "analyze",
       {
         blocks: req.blocks,
-        config: { mode, minWords: settings.minWords, maxTokens: settings.maxTokens, models },
+        config: {
+          mode,
+          minWords: settings.minWords,
+          maxTokens: settings.maxTokens,
+          models,
+          ensembleClassifier: settings.ensembleClassifier,
+        },
       },
       relay,
     );

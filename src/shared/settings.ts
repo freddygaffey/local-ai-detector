@@ -60,7 +60,16 @@ export interface Settings {
    * the plan's `Record<ModelSlot, ...>` literally.
    */
   modelOverrides: Partial<Record<ModelSlot, ModelOverride>>;
+  /**
+   * Which classifier the Ensemble mode blends with perplexity. TMR by
+   * default: it ranked better and flagged far fewer human texts on a
+   * held-out sample (docs/calibration.md, "Which classifier the ensemble
+   * uses"); the lite model is ~4x smaller and faster.
+   */
+  ensembleClassifier: EnsembleClassifier;
 }
+
+export type EnsembleClassifier = "classifier" | "classifierLite";
 
 export const DEFAULT_SETTINGS: Settings = {
   mode: "ensemble",
@@ -73,6 +82,7 @@ export const DEFAULT_SETTINGS: Settings = {
   consentedDownload: false,
   autoCheckModelUpdates: false,
   modelOverrides: {},
+  ensembleClassifier: "classifier",
 };
 
 const STORAGE_KEY = "settings";

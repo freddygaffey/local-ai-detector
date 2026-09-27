@@ -68,7 +68,10 @@ function ruleFor(name: string, color: ThemeColor, style: HighlightStyle, muted: 
     decoration = `text-decoration-line: underline; text-decoration-style: dotted; text-decoration-color: ${color.decoration}; text-underline-offset: 2px;`;
   }
   const bg = style === "underline" ? "" : `background-color: ${color.background};`;
-  return `::highlight(${name}) { ${bg} ${decoration} }\n.${name} { ${bg} ${decoration} }`;
+  // The .class rule is for the <mark> fallback: it also has to undo the UA
+  // <mark> yellow background and black text.
+  const markBg = style === "underline" ? "background-color: transparent;" : bg;
+  return `::highlight(${name}) { ${bg} ${decoration} }\nmark.${name} { ${markBg} color: inherit; ${decoration} }`;
 }
 
 function buildStylesheet(): string {
@@ -162,7 +165,10 @@ function renderViaCustomHighlight(sentences: ActiveSentence[], style: HighlightS
 }
 
 function renderViaMarks(sentences: ActiveSentence[], style: HighlightStyle, _theme: Theme): void {
-  for (const s of sentences) {
+  // Last sentence first: wrapping one range splits Text nodes, and going
+  // backwards means no earlier (not yet wrapped) range depends on live-range
+  // fix-ups, which some DOM implementations get wrong.
+  for (const s of [...sentences].reverse()) {
     if (!sentenceQualifies(style, s.score)) continue;
     const bucket = bucketScore(s.score);
     const name = highlightName(style, s.muted, bucket);
@@ -171,7 +177,8 @@ function renderViaMarks(sentences: ActiveSentence[], style: HighlightStyle, _the
       mark.className = `ai-detector-mark ${name}`;
       mark.dataset.aiBlockId = s.blockId;
       mark.dataset.aiIndex = String(s.index);
-      mark.style.all = "revert";
+      // No inline styles here (the old inline `all: revert` also wiped the
+      // class rule's colours): the `.${name}` rule resets the UA <mark> look.
       try {
         s.range.surroundContents(mark);
       } catch {

@@ -14,7 +14,7 @@
 // Pure module (no browser APIs), so the popup/options UI may import it too,
 // e.g. to show download sizes before the user consents.
 
-import type { Mode, ModelRef, ModelSlot, Settings } from "../shared/settings";
+import type { EnsembleClassifier, Mode, ModelRef, ModelSlot, Settings } from "../shared/settings";
 
 /** transformers.js dtype identifiers we use. */
 export type DType = "q8" | "q4f16" | "fp16" | "q4" | "fp32";
@@ -142,7 +142,7 @@ export const DEFAULT_MODELS: Record<ModelSlot, ModelSpec> = {
 export const MODEL_SLOTS = Object.keys(DEFAULT_MODELS) as ModelSlot[];
 
 /** Which slots each detector mode needs loaded. */
-export function slotsForMode(mode: Mode): ModelSlot[] {
+export function slotsForMode(mode: Mode, ensembleClassifier: EnsembleClassifier = "classifier"): ModelSlot[] {
   switch (mode) {
     case "classifier":
       return ["classifier"];
@@ -154,7 +154,7 @@ export function slotsForMode(mode: Mode): ModelSlot[] {
       return ["binocularsObserver", "binocularsPerformer"];
     case "ensemble":
     default:
-      return ["classifier", "perplexityLM"];
+      return [ensembleClassifier === "classifierLite" ? "classifierLite" : "classifier", "perplexityLM"];
   }
 }
 
@@ -192,9 +192,10 @@ export function activeModel(
 export function activeModelsForMode(
   mode: Mode,
   overrides: Settings["modelOverrides"] | undefined,
+  ensembleClassifier?: EnsembleClassifier,
 ): Partial<Record<ModelSlot, ModelRef>> {
   const out: Partial<Record<ModelSlot, ModelRef>> = {};
-  for (const slot of slotsForMode(mode)) {
+  for (const slot of slotsForMode(mode, ensembleClassifier)) {
     const a = activeModel(slot, overrides);
     out[slot] = { repo: a.repo, revision: a.revision };
   }
@@ -210,9 +211,10 @@ export function estimatedDownloadBytes(
   mode: Mode,
   device: "wasm" | "webgpu-f16" = "wasm",
   overrides?: Settings["modelOverrides"],
+  ensembleClassifier?: EnsembleClassifier,
 ): number | null {
   let total = 0;
-  for (const slot of slotsForMode(mode)) {
+  for (const slot of slotsForMode(mode, ensembleClassifier)) {
     const a = activeModel(slot, overrides);
     if (!a.isDefaultRepo) return null;
     const dtype = device === "webgpu-f16" ? a.spec.dtypes.webgpuF16 : a.spec.dtypes.wasm;

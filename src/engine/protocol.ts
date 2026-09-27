@@ -4,7 +4,7 @@
 // with the shared request/response envelopes in src/shared/messages.ts.
 
 import type { AnalyzeResult, EngineInfo, ProgressEvent, TextBlock } from "../shared/messages";
-import type { Mode, ModelRef, ModelSlot } from "../shared/settings";
+import type { EnsembleClassifier, Mode, ModelRef, ModelSlot } from "../shared/settings";
 
 export interface EngineConfig {
   mode: Mode;
@@ -12,6 +12,8 @@ export interface EngineConfig {
   maxTokens: number;
   /** Active {repo, revision} for each slot the mode needs. */
   models: Partial<Record<ModelSlot, ModelRef>>;
+  /** Classifier slot the ensemble uses (default "classifier", TMR). */
+  ensembleClassifier?: EnsembleClassifier;
   /** Page URL, if known (part of the result-cache key). */
   url?: string;
 }

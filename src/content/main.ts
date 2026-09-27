@@ -6,7 +6,7 @@
 
 import { onAnalysisStatus, registerHandlers, sendMessage } from "../shared/messages";
 import type { AnalyzeResult, TextBlock } from "../shared/messages";
-import { DEFAULT_SETTINGS, getSettings, watchSettings } from "../shared/settings";
+import { DEFAULT_SETTINGS, getSettings, setSettings, watchSettings } from "../shared/settings";
 import type { HighlightStyle, Settings } from "../shared/settings";
 import { FLAGGED_THRESHOLD } from "./colors";
 import { extractVisibleBlocks, getRangeForOffsets, toWireBlocks } from "./extract";
@@ -62,12 +62,19 @@ async function boot(): Promise<void> {
     onRun: () => void runFullAnalysis(),
     onClear: () => doClear(),
     onNavigate: (dir) => navigate(dir),
-    onStyleChange: (style) => changeStyle(style),
+    onStyleChange: (style) => {
+      changeStyle(style);
+      // Persist, so the popup and the next analysis agree with the pill.
+      void setSettings({ highlightStyle: style }).catch(() => {});
+    },
   });
   pill.setIdle();
 
   watchSettings((next) => {
     settings = next;
+    // Style picked in the popup/options (or the pill, via setSettings):
+    // restyle live, no re-analysis.
+    if (next.highlightStyle !== currentStyle && lastResult) changeStyle(next.highlightStyle);
   });
 
   registerHandlers({

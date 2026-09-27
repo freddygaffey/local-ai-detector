@@ -142,6 +142,18 @@ function renderDetectionSection(): HTMLElement {
       ),
     ),
     fieldRow(
+      "Ensemble classifier",
+      "Which classifier Ensemble mode blends with perplexity. The standard one (TMR, ~126 MB) ranked texts better and flagged fewer human texts in our tests; the lite one (~34 MB) is smaller and faster.",
+      selectControl(
+        [
+          { value: "classifier", label: "Standard (TMR RoBERTa)" },
+          { value: "classifierLite", label: "Lite (e5-small)" },
+        ],
+        s.ensembleClassifier,
+        (value) => void updateSettings({ ensembleClassifier: value as Settings["ensembleClassifier"] }),
+      ),
+    ),
+    fieldRow(
       "Highlight style",
       "How flagged sentences are marked on the page.",
       selectControl(

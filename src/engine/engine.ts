@@ -115,7 +115,7 @@ function resultKey(blocks: TextBlock[], config: EngineConfig): string {
       config.mode,
       config.minWords,
       config.maxTokens,
-      slotsForMode(config.mode).map((s) => (config.models[s] ? refKey(config.models[s]!) : "")),
+      slotsForMode(config.mode, config.ensembleClassifier).map((s) => (config.models[s] ? refKey(config.models[s]!) : "")),
       rt?.device ?? "",
       blocks.map((b) => [b.id, b.text, b.sentences]),
     ]),
@@ -142,11 +142,16 @@ export async function analyze(
     return structuredClone(hit);
   }
 
-  const slots = slotsForMode(config.mode);
+  const slots = slotsForMode(config.mode, config.ensembleClassifier);
   const models = await ensureModels(config.models, slots, onProgress);
   const { result } = await analyzeBlocks(
     blocks,
-    { mode: config.mode, minWords: config.minWords, maxTokens: config.maxTokens },
+    {
+      mode: config.mode,
+      minWords: config.minWords,
+      maxTokens: config.maxTokens,
+      ensembleClassifier: config.ensembleClassifier,
+    },
     models,
     onProgress,
   );

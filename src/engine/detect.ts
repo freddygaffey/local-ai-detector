@@ -6,7 +6,7 @@
 
 import type { Tensor } from "@huggingface/transformers";
 import type { AnalyzeResult, ProgressEvent, ScoreSource, SentenceScore, TextBlock } from "../shared/messages";
-import type { Mode, ModelSlot } from "../shared/settings";
+import type { EnsembleClassifier, Mode, ModelSlot } from "../shared/settings";
 import type { LoadedClassifier, LoadedLM, LoadedModel } from "./loader";
 import { CALIBRATION } from "./calibration";
 import { DEFAULT_MODELS, slotsForMode } from "./models";
@@ -45,6 +45,8 @@ export interface AnalysisOptions {
   mode: Mode;
   minWords: number;
   maxTokens: number;
+  /** Classifier the ensemble uses (default "classifier", TMR). */
+  ensembleClassifier?: EnsembleClassifier;
 }
 
 /** Raw statistics, for calibration and debugging. */
@@ -227,7 +229,7 @@ export async function analyzeBlocks(
     return { result: { overall: 0, sentences: [], notes }, stats };
   }
 
-  const slots = slotsForMode(opts.mode);
+  const slots = slotsForMode(opts.mode, opts.ensembleClassifier);
   const primary = models[slots[0]!];
   if (!primary) throw new Error(`Model for slot "${slots[0]}" is not loaded`);
 
@@ -273,7 +275,10 @@ export async function analyzeBlocks(
   const counterRef: { c?: Counter } = {};
 
   if (opts.mode === "classifier" || opts.mode === "classifierLite" || opts.mode === "ensemble") {
-    const slot = opts.mode === "classifierLite" ? "classifierLite" : "classifier";
+    const slot =
+      opts.mode === "classifierLite" || (opts.mode === "ensemble" && opts.ensembleClassifier === "classifierLite")
+        ? "classifierLite"
+        : "classifier";
     const m = need(models, slot, "classifier");
     const counts = idsFor(m).map((ids) => ids.length);
     const chunks = packChunks(units, counts, m.maxLength - 2, CLASSIFIER_TARGET_TOKENS, starts);
