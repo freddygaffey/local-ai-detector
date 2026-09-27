@@ -46,7 +46,7 @@ function ensure(): void {
   if (host) return;
   host = document.createElement("ai-detector-tooltip-host");
   host.id = HOST_ID;
-  host.style.cssText = "position:fixed; left:0; top:0; z-index:2147483647; pointer-events:none;";
+  host.style.cssText = "position:fixed; left:0; top:0; z-index:2147483647; pointer-events:none; visibility:visible !important;";
   const shadow = host.attachShadow({ mode: "closed" });
   const style = document.createElement("style");
   style.textContent = css();

@@ -116,10 +116,10 @@ export function createVoiceChip(cb: VoiceChipCallbacks, opts: { fixedOnly?: bool
     host.classList.toggle("dark", theme() === "dark");
     const a = opts.fixedOnly ? null : anchor();
     if (a) {
-      host.style.cssText = "";
+      host.style.cssText = "visibility:visible !important;";
       if (a.nextElementSibling !== host) a.after(host);
     } else {
-      host.style.cssText = "position:fixed; left:12px; bottom:48px; z-index:2147482000;";
+      host.style.cssText = "position:fixed; left:12px; bottom:48px; z-index:2147482000; visibility:visible !important;";
       if (host.parentElement !== document.body) document.body.appendChild(host);
     }
   };

@@ -154,11 +154,11 @@ export function createTranscriptChip(cb: TranscriptChipCallbacks): TranscriptChi
     host.classList.toggle("dark", theme() === "dark");
     const a = anchor();
     if (a) {
-      host.style.cssText = "";
+      host.style.cssText = "visibility:visible !important;";
       wrap.className = "";
       if (a.nextElementSibling !== host) a.after(host);
     } else {
-      host.style.cssText = "position:fixed; left:12px; bottom:12px; z-index:2147482000;";
+      host.style.cssText = "position:fixed; left:12px; bottom:12px; z-index:2147482000; visibility:visible !important;";
       wrap.className = "fixed";
       if (host.parentElement !== document.body) document.body.appendChild(host);
     }

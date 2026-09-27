@@ -143,7 +143,7 @@ function applyCorner(el: HTMLElement, corner: Corner): void {
 
 export function createPill(callbacks: PillCallbacks): PillApi {
   const host = document.createElement("ai-detector-pill-host");
-  host.style.cssText = "position:fixed; inset:0; width:0; height:0; pointer-events:none;";
+  host.style.cssText = "position:fixed; inset:0; width:0; height:0; pointer-events:none; visibility:visible !important;";
   const shadow = host.attachShadow({ mode: "closed" });
   const styleEl = document.createElement("style");
   styleEl.textContent = css();

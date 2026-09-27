@@ -97,7 +97,10 @@ function applyCorner(el: HTMLElement, corner: Corner): void {
 /** Creates the chip, attached but invisible until `setContent` gives it a label or the hotzone is hovered. */
 export function createChip(corner: Corner, callbacks: ChipCallbacks): ChipApi {
   const host = document.createElement("ai-detector-chip-host");
-  host.style.cssText = "position:fixed; inset:0; width:0; height:0; pointer-events:none;";
+  // Our hosts are never-defined custom elements, and some sites (Reddit) hide
+  // every `:not(:defined)` element; the inline !important visibility (here and
+  // on the pill, tooltip, transcript and voice hosts) keeps them showing.
+  host.style.cssText = "position:fixed; inset:0; width:0; height:0; pointer-events:none; visibility:visible !important;";
   const shadow = host.attachShadow({ mode: "closed" });
   const styleEl = document.createElement("style");
   styleEl.textContent = css();
