@@ -235,9 +235,7 @@ If it goes ahead:
 ## Phases and release (user decision)
 There is no v0.1 store release. **The first public release is v0.2.0.**
 - **Phase 1 (foundations):** T7 and T9. The cheap persona pass feeds T9. Then T12: freeze and
-  version the message contract (`contractVersion` in AnalyzeResult), add a mock-engine dev mode
-  (`npm run dev:ui`: hot reload, canned results for every state and surface, no models), and
-  write the docs/ui-dev.md handover.
+  version the message contract (`contractVersion` in AnalyzeResult), and write the docs/ui-dev.md handover.
 - **Phase 2:** the user iterates on UI and workflow. T10 YouTube transcripts; the T11 voice spike
   and maybe the feature; an optional thorough persona pass; final QA, then package v0.2.0, and
   the user publishes.

@@ -37,4 +37,4 @@
 - Engine hooks that T9 couldn't wire because they're T7's files: idle-unload handler for the battery-saver alarm; a per-request `useCpuOnBattery` device channel; gate the toolbar badge on `surfaces.badge` (router.ts always sets it).
 - Persona items not yet done: cache loads are still labelled "Downloading model" (src/ui/state.ts, src/content/pill.ts), so say "Loading…" unless it's a network fetch; colour/weight graduation within the AI band; mixed-article chip (`AI 54% · 15/41`); a quiet "not checked" cue for images without permission; verify defaults on a fresh install (the persona saw autoRun on).
 - E2E not extended or re-run for presence modes, adapters, filter or entry points, and screenshots were not re-taken. Chat/Reddit/search adapters are fixture-tested only, so verify them on live public pages (Reddit, HN, Google results; no logins).
-- Then: freeze the contract (contractVersion), add `npm run dev:ui` mock-engine mode, and write docs/ui-dev.md.
+- Then: freeze the contract (contractVersion) and write docs/ui-dev.md. (No mock mode: the user declined it.)
