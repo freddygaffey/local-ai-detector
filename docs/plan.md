@@ -226,9 +226,12 @@ checking to catch the low-hanging fruit", i.e. clean TTS narration):
 - Sample: a **sampling RATE over watched playback, not a fixed total** (user decision). Clips of
   ~3–4 s (the model's input length). Rates: Light 1 per 2 min / **Normal 1 per min (default,
   ~7% duty)** / Thorough 1 per 20 s / Continuous. There is a minimum of 3 clips spread across
-  short videos (Shorts). Battery saver drops to Light when unplugged. captureStream only hears
-  what's playing (never seek, never fetch the audio separately). Skip the first ~15 s intro and
-  clips with little speech (VAD / energy gate). The running score reads "Voice: AI 72% · 14 clips",
+  short videos (Shorts). **Front-loaded:** for the first ~2 min of playback, take a clip every
+  ~10–15 s for a fast, confident early verdict, then taper to the steady rate. The preset scales
+  both the burst and the steady rate. Battery saver drops to Light when unplugged. captureStream
+  only hears what's playing (never seek, never fetch the audio separately). **No fixed intro
+  skip**: instead, discard clips with little speech (VAD / energy gate) and retry a few seconds
+  later. The running score reads "Voice: AI 72% · 14 clips",
   with a small per-clip timeline in Details to show where the voice changes (e.g. human intro,
   then AI narration). The model is ticked in the download checklist.
 Mechanics: capture with video.captureStream / mozCaptureStream (no tabCapture), resample in a
