@@ -219,7 +219,8 @@ function pickRoot(doc: Document): Element {
 }
 
 let blockCounter = 0;
-function nextBlockId(): string {
+/** Exported so other block sources (e.g. the "Check text in this box" editable-target extraction) share the id scheme. */
+export function nextBlockId(): string {
   blockCounter += 1;
   return `blk-${Date.now()}-${blockCounter}`;
 }

@@ -347,8 +347,8 @@ export function createPill(callbacks: PillCallbacks): PillApi {
       const text = document.createElement("span");
       text.className = "muted";
       text.textContent = "Page changed -- highlights cleared.";
-      const again = iconButton("Scan again", "Scan again", () => callbacks.onRun());
-      again.textContent = "Scan again";
+      const again = iconButton("Retry", "Retry", () => callbacks.onRun());
+      again.textContent = "Retry";
       notice.append(text, again);
       pill.appendChild(notice);
       announce(text.textContent);
