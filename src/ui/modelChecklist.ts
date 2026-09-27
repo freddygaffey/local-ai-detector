@@ -21,8 +21,9 @@ import { h } from "./dom";
 
 /** Short, plain-language role blurb per detector -- "a few words," not a sentence. */
 export const DETECTOR_ROLE: Record<FusionDetector, string> = {
-  tmr: "Primary classifier (RAID-trained).",
-  modernbert: "Second classifier (RAID + MAGE).",
+  fakespot: "Main classifier (Mozilla/Fakespot).",
+  tmr: "Second classifier (RAID-trained).",
+  modernbert: "Extra classifier (RAID + MAGE).",
   lite: "Small & fast; used for the automatic pass.",
   perplexity: "Predictability to a small language model.",
   binoculars: "Compares two small models. Slow.",
@@ -37,7 +38,7 @@ const MODE_DETECTOR: Partial<Record<Mode, FusionDetector>> = {
 };
 
 /** Every Fusion detector, in a fixed display order (matches src/ui/fusionSettings.ts). */
-export const ALL_FUSION_DETECTORS: FusionDetector[] = ["tmr", "modernbert", "lite", "perplexity", "binoculars"];
+export const ALL_FUSION_DETECTORS: FusionDetector[] = ["fakespot", "tmr", "modernbert", "lite", "perplexity", "binoculars"];
 
 export interface ChecklistRow {
   id: FusionDetector;
