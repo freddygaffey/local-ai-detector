@@ -215,7 +215,19 @@ track (same-origin youtube.com, nothing new leaves the device). The chip reads
 auto-captions (or punctuation restoration). It detects AI-written scripts, not synthetic
 voices. Supports Shorts. Owner: Opus.
 
-## Phase 2: T11 AI voice detection (experimental, gated on a research spike)
+## T11 decision (spike done, see docs/voice-spike.md): build it as an experimental, configurable, opt-in feature for v0.2
+Settings under "Voice check (experimental)", off by default:
+- Model: **W2V2-AASIST** (default; MIT weights, ODC-BY data, stricter threshold) or
+  **Spectra-AASIST3** (Apache-2.0, best measured accuracy, note: "training data undisclosed").
+- Run: on click (default) / auto on YouTube.
+- Sensitivity: Strict (default) / Balanced / Sensitive.
+- Sample: 10 s / 30 s / whole video.
+Mechanics: capture with video.captureStream / mozCaptureStream (no tabCapture), resample in a
+16 kHz AudioContext, onnxruntime-web directly (not transformers.js), in the offscreen doc /
+worker. The model is part of the download checklist. Display: "Voice: AI 72%". Owner: Opus,
+after T12a (2-agent limit). Testing: local typecheck, unit tests and build; E2E runs in CI.
+
+## Phase 2: T11 AI voice detection (spike notes)
 Spike (Opus) first:
 - Find licence-clean open audio-deepfake detectors (wav2vec2/AASIST-style trained on ASVspoof,
   In-the-Wild, MLAAD or similar) with ONNX export.
