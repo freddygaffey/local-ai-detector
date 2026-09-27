@@ -9,7 +9,7 @@
 // context menu; this file adds to that rather than duplicating it, reusing
 // its exported `runTabAnalysis` for the page/selection cases.
 
-import { registerHandlers, sendMessage, sendTabMessage } from "@/src/shared/messages";
+import { registerHandlers, sendTabMessage } from "@/src/shared/messages";
 import { runTabAnalysis, startEngineRouter, unloadIdleModels } from "@/src/engine/router";
 import { getSettings, watchSettings } from "@/src/shared/settings";
 import { clearBadge } from "@/src/ui/badge";
@@ -30,11 +30,9 @@ function newRequestId(): string {
  * runTabAnalysis but for a target router.ts doesn't accept (it only takes "page" | "selection"). */
 async function analyzeEditableInTab(tabId: number): Promise<void> {
   try {
-    const { blocks } = await sendTabMessage(tabId, "extractText", { target: "editable" });
-    if (!blocks.length) return;
-    const settings = await getSettings();
-    const result = await sendMessage("analyze", { tabId, mode: settings.mode, blocks });
-    await sendTabMessage(tabId, "renderHighlights", { result, style: settings.highlightStyle }).catch(() => {});
+    // Straight through the router: a service worker's own runtime.sendMessage
+    // never reaches its own listeners ("No response for message analyze").
+    await runTabAnalysis(tabId, "editable", newRequestId(), undefined, undefined, undefined, undefined, undefined, true);
   } catch (err) {
     console.warn("[Local AI Detector] 'Check text in this box' failed", err);
   }
@@ -79,7 +77,7 @@ function startExtraContextMenus(): void {
   });
   menus.onClicked.addListener((info, tab) => {
     if (tab?.id === undefined || tab.id < 0) return;
-    if (info.menuItemId === MENU_ANALYZE_PAGE) void runTabAnalysis(tab.id, "page", newRequestId());
+    if (info.menuItemId === MENU_ANALYZE_PAGE) void runTabAnalysis(tab.id, "page", newRequestId(), undefined, undefined, undefined, undefined, undefined, true);
     else if (info.menuItemId === MENU_CHECK_IMAGE) void checkImageInTab(tab.id, info.srcUrl);
     else if (info.menuItemId === MENU_CHECK_EDITABLE) void analyzeEditableInTab(tab.id);
   });
@@ -95,8 +93,8 @@ function startCommands(): void {
     void (async () => {
       const tabId = await activeTabId();
       if (tabId === undefined) return;
-      if (command === "analyze-page") await runTabAnalysis(tabId, "page", newRequestId());
-      else if (command === "analyze-selection") await runTabAnalysis(tabId, "selection", newRequestId());
+      if (command === "analyze-page") await runTabAnalysis(tabId, "page", newRequestId(), undefined, undefined, undefined, undefined, undefined, true);
+      else if (command === "analyze-selection") await runTabAnalysis(tabId, "selection", newRequestId(), undefined, undefined, undefined, undefined, undefined, true);
       else if (command === "toggle-visibility") await sendTabMessage(tabId, "toggleVisibility", undefined).catch(() => {});
     })();
   });

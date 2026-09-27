@@ -185,7 +185,8 @@ export interface ExtractTextMessage {
  */
 export interface RenderHighlightsMessage {
   type: "renderHighlights";
-  request: { result: AnalyzeResult; style: HighlightStyle };
+  /** `reveal`: a run the user asked for (context menu, shortcut): show the result on the page even under a quiet Presence. */
+  request: { result: AnalyzeResult; style: HighlightStyle; reveal?: boolean };
   response: ActionResult;
 }
 

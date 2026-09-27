@@ -167,7 +167,13 @@ async function boot(): Promise<void> {
       pill?.setAnalyzing({ phase: "analyze", loaded: 0, total: 0, message: "Analyzing…" });
       return { blocks, items: target === "page" && structuredMatch !== null };
     },
-    renderHighlights: async ({ result, style }) => {
+    renderHighlights: async ({ result, style, reveal }) => {
+      if (reveal) {
+        // Context menu / keyboard shortcut: the user asked, so show the answer
+        // even where Presence keeps the page quiet (an app page, a hidden chip).
+        sessionShowOnPage = true;
+        ensurePill();
+      }
       applyResult(result, style);
       return { ok: true };
     },

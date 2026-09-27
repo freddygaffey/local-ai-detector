@@ -258,7 +258,7 @@ async function toTab<T extends "extractText" | "renderHighlights">(
 
 export function runTabAnalysis(
   tabId: number,
-  target: "page" | "selection",
+  target: "page" | "selection" | "editable",
   requestId: string,
   /** Detector mode for this run (e.g. the auto-run fast mode); default settings.mode. */
   mode?: AnalyzeRequest["mode"],
@@ -270,6 +270,8 @@ export function runTabAnalysis(
   fusionOverride?: AnalyzeRequest["fusionOverride"],
   /** Quick tier: re-check an AI-leaning result with this set before rendering it. */
   confirmWith?: AnalyzeRequest["fusionOverride"],
+  /** A run the user asked for from outside the popup (context menu, shortcut): show it on the page. */
+  reveal?: boolean,
 ): Promise<AnalyzeResult> {
   // Same run already going: share it. A different mode/tier (e.g. a Deep
   // click while the auto-run Quick pass is going) queues behind it instead.
@@ -289,6 +291,8 @@ export function runTabAnalysis(
         throw new Error(
           target === "selection"
             ? "Select some text on the page first, then try again."
+            : target === "editable"
+              ? "This box is empty."
             : "Couldn't find any readable text on this page.",
         );
       }
@@ -320,7 +324,7 @@ export function runTabAnalysis(
       }
     }
     const fresh = await getSettings();
-    await toTab(tabId, "renderHighlights", { result, style: fresh.highlightStyle }).catch((e) =>
+    await toTab(tabId, "renderHighlights", { result, style: fresh.highlightStyle, reveal }).catch((e) =>
       console.warn("[engine] renderHighlights failed", e),
     );
     return result;
@@ -335,7 +339,7 @@ const MENU_ID = "lad-analyze-selection";
 
 async function onContextMenuSelection(tabId: number): Promise<void> {
   try {
-    await runTabAnalysis(tabId, "selection", `menu-${Date.now().toString(36)}`);
+    await runTabAnalysis(tabId, "selection", `menu-${Date.now().toString(36)}`, undefined, undefined, undefined, undefined, undefined, true);
   } catch (e) {
     console.warn("[engine] context-menu analysis failed", e);
   }

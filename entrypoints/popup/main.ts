@@ -442,7 +442,12 @@ function renderProgress(): HTMLElement {
         h(
           "span",
           { class: "num" },
-          pct !== null && progress.total > 0 && !cache ? `${formatBytes(progress.loaded)} / ${formatBytes(progress.total)}` : "",
+          // Bytes only while downloading; the analyze phase counts steps (chunks), shown as a percentage.
+          pct === null || progress.total <= 0 || cache
+            ? ""
+            : progress.phase === "analyze"
+              ? formatPercent(pct / 100)
+              : `${formatBytes(progress.loaded)} / ${formatBytes(progress.total)}`,
         ),
       ),
     ),
