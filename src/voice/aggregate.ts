@@ -3,7 +3,7 @@
 // Each clip gives the model's spoof-minus-bona-fide logit margin. The
 // sensitivity picks an operating point `tau` (the margin at which a clip reads
 // 50%), fitted on the T11 spike's human clips over clean + codec conditions
-// (docs/voice-spike.md; fp32 scores, scratchpad t11/strict.py):
+// (docs/voice-spike.md; int8 scores, i.e. the shipped files; scratchpad t11/strict.py):
 //   Strict    = 99th percentile of human windows (0% human clips flagged)
 //   Balanced  = 95th percentile
 //   Sensitive = 90th percentile
@@ -19,8 +19,8 @@ export interface VoiceCalibration {
 }
 
 export const VOICE_CALIBRATION: Record<VoiceModelId, VoiceCalibration> = {
-  voiceW2V2Aasist: { tau: { strict: 11.86, balanced: 7.47, sensitive: 5.88 }, scale: 1.5 },
-  voiceSpectraAasist3: { tau: { strict: 0, balanced: -6.49, sensitive: -13.66 }, scale: 3 },
+  voiceW2V2Aasist: { tau: { strict: 12.26, balanced: 8.21, sensitive: 6.67 }, scale: 1.5 },
+  voiceSpectraAasist3: { tau: { strict: 0, balanced: -6.99, sensitive: -12.68 }, scale: 3 },
 };
 
 /** Fewer accepted clips than this shows "—" instead of a number. */

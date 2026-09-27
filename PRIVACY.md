@@ -51,6 +51,22 @@ Downloaded models are cached locally (the browser's Cache API, with an
 IndexedDB fallback) so they aren't re-downloaded. Options → model management
 shows the cache size and lets you delete it.
 
+### 1b. Downloading the voice-check model — `github.com` and `release-assets.githubusercontent.com`
+
+The experimental voice check (on by default; listed, ticked, in the same
+download checklist as the text models) needs one extra model file, which is
+not on Hugging Face. It is downloaded **once**, only after you've consented
+to model downloads, from this project's own GitHub Release:
+`https://github.com/freddygaffey/local-ai-detector/releases/download/models-v1/<file>.onnx`,
+which GitHub redirects to `release-assets.githubusercontent.com` for the
+bytes. The request carries no cookies (`credentials: "omit"`). The file's
+size and sha256 are checked before it is used. Nothing else is ever fetched
+from these hosts, and turning the voice check off stops it.
+
+The audio itself never leaves your device: the check listens to the video
+you're playing (`captureStream`, no extra fetch of the media), scores short
+clips locally, and discards them.
+
 ### 2. Checking an image's provenance — only for sites you've allowed, and only the image bytes
 
 When "Check images" is on (default: on) and the extension has permission for

@@ -4,10 +4,11 @@
 // used directly (these are not transformers.js models), from the same
 // bundled ort/ files as the text engine (never a CDN).
 //
-// Download: streamed from the pinned Hugging Face revision with progress,
-// sha256-verified as it arrives (refuses to load on a mismatch), then stored
-// in the same Cache API cache (IndexedDB fallback) and under the same URL
-// shape as the text models, so Options -> Models can see and delete it.
+// Download: streamed from this project's GitHub Release (./voiceModels.ts)
+// with progress, size- and sha256-verified as it arrives (refuses to load on
+// a mismatch), then stored in the same Cache API cache as the text models
+// (IndexedDB fallback), keyed by its URL. GitHub sends no CORS headers, so
+// the fetch relies on the github.com / release-assets host permissions.
 // Device: fp32 on WebGPU where available, WASM otherwise (or if the WebGPU
 // session fails). Sessions are dropped after VOICE_IDLE_MS unused: the
 // weights are ~1.3 GB.
@@ -64,7 +65,7 @@ export async function downloadVerified(
   fetchImpl: typeof fetch,
   onProgress: (loaded: number, total: number) => void,
 ): Promise<Uint8Array> {
-  const res = await fetchImpl(voiceModelUrl(spec));
+  const res = await fetchImpl(voiceModelUrl(spec), { credentials: "omit" });
   if (!res.ok || !res.body) throw new Error(`Download failed (${res.status})`);
   const buf = new Uint8Array(spec.bytes);
   const hash = new Sha256();

@@ -58,7 +58,14 @@ export default defineConfig({
       description:
         "Free, open-source, fully local AI-content detector. No servers, no API keys.",
       permissions: ["storage", "activeTab", "scripting", "contextMenus"],
-      host_permissions: ["https://huggingface.co/*", "https://*.hf.co/*", ...e2eHosts],
+      host_permissions: [
+        "https://huggingface.co/*",
+        "https://*.hf.co/*",
+        // T11: voice-check model download (GitHub Release asset + its redirect host).
+        "https://github.com/*",
+        "https://release-assets.githubusercontent.com/*",
+        ...e2eHosts,
+      ],
       optional_host_permissions: ["<all_urls>"],
       icons: {
         16: "icon/16.png",

@@ -92,7 +92,7 @@ describe("speech gate", () => {
 describe("aggregation", () => {
   test("tau maps to 50%", () => {
     expect(clipProbability(0, "voiceSpectraAasist3", "strict")).toBeCloseTo(0.5);
-    expect(clipProbability(11.86, "voiceW2V2Aasist", "strict")).toBeCloseTo(0.5);
+    expect(clipProbability(12.26, "voiceW2V2Aasist", "strict")).toBeCloseTo(0.5);
     expect(clipProbability(10, "voiceSpectraAasist3", "strict")).toBeGreaterThan(0.9);
     expect(clipProbability(5, "voiceSpectraAasist3", "sensitive")).toBeGreaterThan(clipProbability(5, "voiceSpectraAasist3", "strict"));
   });
