@@ -3,8 +3,10 @@
 For the Developer Dashboard's listing fields. Permission justifications and
 the data-collection declaration are in [`permissions.md`](permissions.md)
 (copy those into the dashboard's separate "Permissions justification" and
-"Data usage" forms). Promo images: [`promo/`](promo/). Screenshots:
-[`../docs/screenshots/`](../docs/screenshots/).
+"Data usage" forms). Promo images: [`promo/`](promo/). Screenshots: the
+release-QA set in [`../docs/qa/shots/`](../docs/qa/shots/) is the current
+one (see [`../docs/qa-results.md`](../docs/qa-results.md)); older feature
+shots are in [`../docs/screenshots/`](../docs/screenshots/).
 
 ## Category
 
@@ -49,6 +51,16 @@ WHAT IT DOES
   watermarks (Stable Diffusion/SDXL/FLUX). Clearly labels what CAN'T be
   checked locally too (e.g. Google SynthID, Anthropic's and Gemini's text
   watermarks) rather than staying silent about it.
+• Knows the page it's on: a single score for an article, a score per comment
+  or reply on Reddit/Hacker News/forums/reviews/chat sites, and small markers
+  on flagged search-result snippets. An optional slop filter dims flagged
+  comments and reviews; an optional local-only site memory tracks a
+  per-domain tally.
+• On YouTube, reads the video's transcript and, experimentally, samples the
+  audio itself to flag likely AI narration — nothing about the video or
+  audio ever leaves the device.
+• A fast automatic check runs by default; a one-click "Deep check" runs
+  every detector for a fuller read.
 
 WHY IT'S DIFFERENT
 

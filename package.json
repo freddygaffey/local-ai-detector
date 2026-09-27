@@ -2,7 +2,7 @@
   "name": "local-ai-detector",
   "description": "Free, open-source, fully local AI-content detector browser extension.",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "license": "MIT",
   "engines": {

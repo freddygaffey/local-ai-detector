@@ -85,6 +85,27 @@ Notes:
   (`src/engine/models.ts:OPEN_LICENSES`). That model is not covered by this
   document — check its own model card.
 
+## Voice-check models (not bundled; fetched from this project's GitHub Release, once, with consent)
+
+The experimental voice check (T11) uses raw ONNX files that aren't on Hugging
+Face, so they're hosted as assets of this project's own `models-v1` GitHub
+Release (`src/engine/voiceModels.ts`). Each is an int8 dynamic-quantised
+export of the upstream fp32 ONNX (scores within ±1.5 pt EER of the original,
+per `docs/voice-spike.md`); the exact byte count and sha256 are checked
+before a downloaded file is ever used, and only that project release is ever
+fetched from GitHub (see [`PRIVACY.md`](PRIVACY.md#1b-downloading-the-voice-check-model--githubcom-and-release-assetsgithubusercontentcom)).
+
+| Model | Upstream (pinned commit) | Weights licence | Notes | Download |
+|---|---|---|---|---|
+| `voiceSpectraAasist3` (default) | [`lab260/Spectra-AASIST3`](https://huggingface.co/lab260/Spectra-AASIST3) @ `bc0ded888080ddad493177bb53aa6f5b95219d7c` | **Apache-2.0** | Best measured accuracy in the T11 spike; training data undisclosed | ~364 MB (int8) |
+| `voiceW2V2Aasist` | [`SpeechAntiSpoofingBenchmarks/W2V2-AASIST`](https://huggingface.co/SpeechAntiSpoofingBenchmarks/W2V2-AASIST) @ `196128e5a5101d5cb6ac7701597891bc7de7e7b5` | **MIT** (code/weights); trained on [ASVspoof 2019](https://www.asvspoof.org/) (**ODC-BY**) | Alternative model; misses most modern TTS at the Strict sensitivity | ~357 MB (int8) |
+
+The int8 exports themselves are not redistributed by any upstream project;
+they were produced for this project (`docs/voice-spike.md`) from the
+upstream fp32 weights under the licences above, and are hosted only as this
+repository's own GitHub Release assets — never on Hugging Face, never
+bundled in the extension package.
+
 ## Training / evaluation datasets (not bundled or redistributed; referenced for transparency)
 
 | Dataset | Licence | Role | Notes |

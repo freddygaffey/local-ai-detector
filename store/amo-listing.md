@@ -4,9 +4,11 @@ For the AMO submission form (listed or unlisted — see
 [`../docs/release.md`](../docs/release.md) for the difference and the exact
 submission steps). Permission justifications and the
 `data_collection_permissions` declaration are in
-[`permissions.md`](permissions.md). Screenshots:
-[`../docs/screenshots/`](../docs/screenshots/) (the Firefox-specific ones:
-`firefox-popup.png`, `firefox-options.jpg`, `firefox-page-heatmap.jpg`).
+[`permissions.md`](permissions.md). Screenshots: the release-QA set in
+[`../docs/qa/shots/`](../docs/qa/shots/) is the current one (Chrome; see
+[`../docs/qa-results.md`](../docs/qa-results.md)); the Firefox-specific ones
+(`firefox-popup.png`, `firefox-options.jpg`, `firefox-page-heatmap.jpg`) are
+in [`../docs/screenshots/`](../docs/screenshots/).
 
 ## Category
 
@@ -48,6 +50,16 @@ FEATURES
   honest list of schemes that CAN'T be checked locally (Google SynthID,
   Anthropic's and Gemini's text watermarks, Meta Content Seal, and others)
   rather than pretending they don't exist.
+• Page-aware scoring: one score for an article, a score per comment or reply
+  on Reddit/Hacker News/forums/reviews/chat sites, and small markers on
+  flagged search-result snippets. An optional slop filter dims flagged
+  items; an optional local-only site memory tracks a per-domain tally.
+• On YouTube, reads the transcript and, experimentally, samples the audio
+  itself to flag likely AI narration — nothing about the video leaves the
+  device.
+• A fast Quick check runs automatically (confirmed against the full
+  detector set before showing a high score); a one-click Deep check runs
+  everything.
 • Model updates you control: check for newer model revisions, see their
   licence before updating, and roll back if needed. Bring your own custom
   Hugging Face model per detector slot.

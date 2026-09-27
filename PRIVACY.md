@@ -67,6 +67,21 @@ The audio itself never leaves your device: the check listens to the video
 you're playing (`captureStream`, no extra fetch of the media), scores short
 clips locally, and discards them.
 
+### 1c. Reading a YouTube transcript — stays on youtube.com, goes nowhere else
+
+To score a video's transcript, a small script running in the YouTube page
+itself (`entrypoints/youtube-main.content.ts`, only on `youtube.com`/
+`m.youtube.com`) asks the video player for its own caption track, the same
+request the player would make if you turned captions on yourself — YouTube
+no longer answers a plain caption request without it. This **stays entirely
+within youtube.com** (no new host, no extension API used from that script)
+and only *reads* caption text that YouTube already serves for the video
+you're watching; it fetches nothing else and sends nothing back. The
+transcript text and the voice-check's audio are then scored **entirely
+locally**, in the same on-device engine as everything else, and never
+uploaded or sent anywhere — not to Hugging Face, not to youtube.com, not
+anywhere.
+
 ### 2. Checking an image's provenance — only for sites you've allowed, and only the image bytes
 
 When "Check images" is on (default: on) and the extension has permission for
@@ -133,6 +148,8 @@ fetches them automatically.
 ## What never leaves your device
 
 - The text of any page you analyze, and every sentence-level score.
+- YouTube transcripts and the voice check's audio clips — read/captured and
+  scored locally, then discarded.
 - All settings (mode, highlight style, thresholds, model choices).
 - Cached model weights, once downloaded.
 - Image provenance results.

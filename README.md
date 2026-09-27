@@ -15,11 +15,17 @@ download once from Hugging Face.
 
 ## What it is
 
-Local AI Detector adds a small pill to the page you're reading and a button
-in the toolbar. Click it (or let it run automatically) and it:
+Local AI Detector adds a small status chip to the page you're reading and a
+button in the toolbar. It:
 
-- scores the visible text for AI-generated writing patterns, sentence by
-  sentence, using an on-device classifier and/or a perplexity model;
+- tells what kind of page you're on (article, thread, video, search, app)
+  and scores it accordingly — a page score, a per-comment/per-reply score on
+  threads and chat sites, or a snippet marker on search results;
+- runs a cheap **Quick** check automatically, confirmed against the full
+  **Fusion** detector set before showing anything past 70%, and offers a
+  one-click **Deep** check that runs everything;
+- on YouTube, also reads the transcript and, experimentally, samples the
+  audio for likely synthetic narration;
 - highlights the flagged sentences directly on the page;
 - flags hidden/invisible Unicode characters in the text;
 - checks images on the page for C2PA Content Credentials, generator
@@ -31,16 +37,74 @@ See [Privacy](#privacy) for the exact, complete list of network requests.
 
 |  |  |
 |---|---|
-| ![Popup result](docs/screenshots/popup-result.png) | ![Heatmap highlight style](docs/screenshots/page-heatmap.jpg) |
-| Popup: gauge, verdict, per-detector breakdown | Heatmap highlight style on the page |
-| ![Pill navigation](docs/screenshots/page-pill-nav.jpg) | ![Image provenance badges](docs/screenshots/page-image-badges.jpg) |
-| The in-page pill: ▲/▼ steps through flagged sentences | C2PA badge on an image with Content Credentials |
-| ![Options](docs/screenshots/options.jpg) | ![Consent screen](docs/screenshots/popup-consent.png) |
-| Options: models, engine info, cache management | First-run consent before any download |
+| ![Popup result](docs/qa/shots/A6-reddit-popup.jpeg) | ![Heatmap highlight style](docs/qa/shots/B14-inspector.jpeg) |
+| Popup: gauge and verdict (a Reddit comment, confirmed by Fusion) | The in-page pill and heatmap highlighting |
+| ![YouTube transcript and voice](docs/qa/shots/A1-youtube-ted.jpeg) | ![Slop filter](docs/qa/shots/B10-slop-filter.jpeg) |
+| YouTube: transcript + voice chips | Slop filter dimming a flagged review |
+| ![Options: detectors](docs/qa/shots/B13-options.jpeg) | ![Model checklist](docs/qa/shots/B16-models.jpeg) |
+| Options: Fusion detectors | Model management: update, roll back, custom repo |
+| ![Side panel](docs/qa/shots/B9-side-panel.jpeg) | ![First-run checklist](docs/qa/shots/B1-first-run-checklist.jpeg) |
+| Side panel: per-sentence report | First-run download checklist before any download |
 
-(More screenshots, including Firefox, are in [`docs/screenshots/`](docs/screenshots/).)
+These are from the release QA pass ([`docs/qa-results.md`](docs/qa-results.md),
+[`docs/qa/shots/`](docs/qa/shots/)), the most recent and most accurate set.
+Older feature screenshots, including Firefox, are in
+[`docs/screenshots/`](docs/screenshots/).
 
 ## Features
+
+### Page-type routing
+
+Every page is classified as an article, a thread, a video, a subtitle file, a
+search page, or an app (`src/content/pageType.ts`: URL rules for major sites,
+then a fingerprint from structured data, OpenGraph, and the page's shape),
+and only the check that suits it runs: page text on articles and threads,
+transcript + voice on videos, timed scoring on subtitle files, snippet
+markers on search, nothing automatic on apps. The popup shows the page type
+quietly ("Page: video (YouTube)"), with a per-site override in Options →
+Presence.
+
+### Two tiers: Quick (automatic) and Deep (on demand)
+
+- **Quick**: runs automatically, TMR alone (~0.4 s per 1,000 words on
+  WebGPU). Any result at or above 50% is silently re-checked against the
+  full Fusion set before anything is shown, which is what keeps ordinary
+  human writing from flashing a high number. The chip only appears from
+  70%.
+- **Deep**: the ↻ button in the popup, pill, or side panel. Runs the full
+  Fusion set plus ModernBERT, Binoculars and perplexity (on YouTube, also
+  voice at the Thorough rate and the whole transcript). Replaces the Quick
+  result and is labelled "Deep".
+- Both the Quick and Deep detector sets, and whether Quick runs
+  automatically at all, are configurable (Options → Tiers).
+
+### YouTube: transcript and voice check (experimental)
+
+On YouTube, the transcript is read through the player's own caption request
+(bare caption URLs return nothing without it) and scored like page text,
+shown as its own chip ("Transcript: AI 84%"); clicking a flagged segment
+seeks the video. An experimental, **on-by-default** voice check samples
+short clips of the actual audio (`captureStream`, never a separate fetch) to
+flag likely synthetic narration — "Voice: AI 72% · 14 clips" — at a
+configurable rate (Light/Normal/Thorough/Continuous) that's front-loaded for
+a fast early read and drops to Light on battery. It catches clean,
+AI-written scripts and clean/compressed TTS; it is not a substitute for a
+provenance/watermark check, and can be turned off in Options → Voice.
+
+### Threads, comments, and search results
+
+On Reddit, Hacker News, forums, review sites and YouTube comments, each
+comment/post/reply gets its own score (the chip shows a count, e.g. "3 AI");
+articles show a single score. On ChatGPT, Claude, Gemini, Copilot and
+Perplexity-style chat pages, only assistant replies are scored, never your
+own prompt. Google/Bing/DuckDuckGo/Kagi results get a small marker on
+flagged snippets, scored from the visible snippet text only — it never
+fetches the linked page. An optional **slop filter** (off by default) dims
+or collapses items at or above the filter threshold, each with a "Show"
+button. An optional, local-only **site memory** keeps a per-domain tally
+("7 of the last 10 pages scored high"); it stores only the hostname, a
+high/low flag and a date — never text or URLs — and is fully clearable from
+Options.
 
 ### Presence (Options → Presence)
 
@@ -62,26 +126,13 @@ watermarks, or check the text in an input/textarea/contenteditable box; a
 popup paste box and file drop (.txt/.md/.html/.docx, extracted locally); and
 rebindable keyboard shortcuts (analyze page/selection, toggle visibility).
 
-### Chat and thread adapters (`src/content/adapters/`)
-
-On ChatGPT, Claude, Gemini, Copilot, Perplexity and similar chat UIs, only
-assistant replies are scored (never your own prompt). On Reddit, Hacker
-News, forums, reviews and YouTube comments, each comment/post/reply gets its
-own score instead of being skipped by the normal page scan. An optional
-**slop filter** (off by default) dims or collapses items above a threshold,
-with a "Show" button on each, plus a small marker on flagged search-result
-snippets on Google/Bing/DuckDuckGo/Kagi (the snippet text only — it never
-fetches the linked page). An optional, local-only **site memory** keeps a
-per-domain tally ("7 of the last 10 pages scored high"); no page text or URLs
-are ever stored, and it's fully clearable from Options.
-
 ### Detector modes (Options → Mode)
 
 | Mode | What it runs | Notes |
 |---|---|---|
 | **Fusion** (default; was "Ensemble") | Any mix of the detectors below, combined by weighted average (default), log-odds average, majority vote or max. Default set: **Fakespot + TMR** | Every result says how many detectors agree, and flags it when they split. Options → Fusion shows the download size and speed of your mix |
 | **Classifier** | [`tmr-ai-text-detector`](https://huggingface.co/onnx-community/tmr-ai-text-detector-ONNX) (RoBERTa-base, RAID-trained, MIT) | ~250 MB (fp16, GPU) / ~130 MB (q8, CPU) |
-| **Classifier-lite** | [`e5-small-lora-ai-generated-detector`](https://huggingface.co/onnx-community/e5-small-lora-ai-generated-detector-ONNX) (MIT) | The quick automatic pass; ~35–70 MB, noticeably weaker |
+| **Classifier-lite** | [`e5-small-lora-ai-generated-detector`](https://huggingface.co/onnx-community/e5-small-lora-ai-generated-detector-ONNX) (MIT) | ~35–70 MB, the weakest detector; selectable for the Quick tier but not the default |
 | **Perplexity** | [`distilgpt2`](https://huggingface.co/Xenova/distilgpt2), lower perplexity ⇒ more AI-like | Classic GPTZero-style signal; weak on its own |
 | **Binoculars** *(experimental)* | Two [`SmolLM2-135M`](https://huggingface.co/onnx-community/SmolLM2-135M-ONNX) models (base + instruct) | Cross-perplexity ratio; slow, CPU-only |
 
@@ -179,8 +230,8 @@ DeepSeek, Qwen, Llama, Mistral, …); the human side comes from the same sites. 
 
 | | Tells AI from human (AUROC) | Human texts flagged | AI texts flagged | Slop filter: hidden items that were AI / AI caught |
 |---|---|---|---|---|
-| **Fusion (default: Fakespot + TMR)** | **0.91** | **5%** | **68%** | **99%** / 54% |
-| Lite (automatic quick pass) | 0.77 | 6% | 39% | 97% / 22% |
+| **Fusion (Deep, default: Fakespot + TMR)** | **0.91** | **5%** | **68%** | **99%** / 54% |
+| TMR alone (Quick tier, before Fusion confirms) | 0.87 | 4% | 58% | 100% / 5% |
 
 | Genre (default Fusion, AUROC) | Reviews | News | Stories | Essays | Social | Blog / how-to | Answers | Forum posts |
 |---|---|---|---|---|---|---|---|---|
@@ -190,17 +241,26 @@ An unedited assistant-voice story ("write me a short story about…") now shows 
 **AI 95%**, against the "51%" someone reported on the old scale. Stories from OpenAI's own models were the
 hardest group in the test set (a small sample: about 60% shown on average).
 
+The live release QA pass ([`docs/qa-results.md`](docs/qa-results.md)) confirmed these numbers
+hold up outside the eval set: a Reddit thread that used to show 95% now shows 41%, Wikipedia
+82% → 34%, a TED talk transcript 53% → 23%, while fresh unedited AI text (story, review, forum
+post, how-to answer) still shows 98%.
+
 Known, deliberate weaknesses:
 
 - **Paraphrasing and "humanizer" tools beat it**, as they beat every public
   detector ([RAID](https://arxiv.org/abs/2405.07940)). So does a person editing the text.
 - **Forum posts are the hardest genre.** Casual Reddit-style AI posts slip through more
   often than reviews or news.
+- **Casual, agentic ChatGPT replies read low.** Shared ChatGPT conversations tested live
+  scored only 3–12% Quick / 21% Fusion / 28% Deep on genuinely AI-written replies — a
+  real detector limitation on today's more casual ChatGPT voice, not a bug in how the
+  extension reads the page (see [`docs/qa-results.md`](docs/qa-results.md), row A21).
 - **Non-native English writing** scores higher on detectors like these (a well-known bias).
   English only.
 - **Short text is noisy.** Comments under about 50 words get wider error bars, and single
   sentences are always scored together with their neighbours.
-- Binoculars is experimental.
+- Binoculars, ModernBERT-as-a-mode, and the voice check are experimental.
 
 ## Privacy
 

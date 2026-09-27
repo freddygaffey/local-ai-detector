@@ -16,7 +16,7 @@ listing claim changes** (the built `.output/chrome-mv3/manifest.json` is the sou
 | Publishing steps | [docs/release.md](docs/release.md) |
 | Firefox (AMO) listing | [store/amo-listing.md](store/amo-listing.md) |
 
-## Current manifest (Chrome build)
+## Current manifest (Chrome build, v0.2.0)
 
 - **permissions:** `storage`, `activeTab`, `scripting`, `contextMenus`, `alarms`, `offscreen`, `sidePanel`
 - **host_permissions (fetch only):** `https://huggingface.co/*`, `https://*.hf.co/*` (text models);
