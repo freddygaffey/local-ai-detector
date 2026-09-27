@@ -197,6 +197,21 @@ does a quick walkthrough per persona, a few screenshots in total, one combined f
 docs/ux/persona-walkthrough-brief.md as a guide, not a checklist. A fix pass follows before
 the final package.
 
+## Display rules (approved)
+- Every displayed % comes from `toDisplayProbability()`, a calibrated probability on web text.
+- Threads and comment pages show a count in the chip ("3 AI") plus per-item %. Articles show a
+  single %.
+- Below `MIN_WORDS_FOR_SCORE` the UI shows "—".
+- The chip is fully hidden below the display threshold.
+
+## v0.2: T10 YouTube transcripts (planned after release)
+Read the transcript from YouTube's own transcript panel, falling back to the player's caption
+track (same-origin youtube.com, nothing new leaves the device). The chip reads
+"Transcript: AI 84%", and clicking a flagged segment seeks the video. Also surface YouTube's
+"Altered or synthetic content" disclosure label. Needs its own calibration for unpunctuated
+auto-captions (or punctuation restoration). It detects AI-written scripts, not synthetic
+voices. Supports Shorts. Owner: Opus.
+
 ## Out of scope for v1
 Remote APIs (incl. Anthropic's planned watermark-detection API and SynthID), VideoSeal/AudioSeal/TrustMark (35–228 MB models, v2), non-English calibration, and store publishing
 (done by the user).
