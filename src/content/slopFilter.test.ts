@@ -87,3 +87,27 @@ describe("applySearchMarkers", () => {
     expect(el.previousElementSibling).toBeNull();
   });
 });
+
+describe("renderItemLabels", () => {
+  test("shows the item's own probability, 'Too short', or '—' when it wasn't analysed", async () => {
+    const { renderItemLabels, clearItemLabels } = await import("./slopFilter");
+    document.body.innerHTML = '<div id="a">x</div><div id="b">y</div><div id="c">z</div>';
+    const [a, b, c] = ["a", "b", "c"].map((id) => document.getElementById(id)!);
+    renderItemLabels([
+      { ownerEl: a, score: 0.9, tooShort: false, probability: 0.42 },
+      { ownerEl: b, score: 0, tooShort: true },
+      { ownerEl: c, score: 0, tooShort: false, unscored: true },
+    ]);
+    expect(a.previousElementSibling?.textContent).toBe("AI 42%");
+    expect(b.previousElementSibling?.textContent).toBe("Too short");
+    expect(c.previousElementSibling?.textContent).toBe("—");
+    clearItemLabels();
+  });
+
+  test("an unscored item is never filtered", () => {
+    document.body.innerHTML = '<div id="c1">some comment text</div>';
+    const el = document.getElementById("c1")!;
+    applySlopFilter([{ ownerEl: el, score: 0.99, tooShort: false, unscored: true }], settings);
+    expect(el.style.opacity).toBe("");
+  });
+});

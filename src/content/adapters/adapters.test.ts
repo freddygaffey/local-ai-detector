@@ -147,6 +147,25 @@ describe("extractGenericCommentsAdapter", () => {
     expect(result!.blocks).toHaveLength(2);
   });
 
+  test("Stack Exchange answers, not just the comments under them", () => {
+    setBody(`
+      <div class="question"><div class="s-prose js-post-body">${LONG_SENTENCE} The question.</div>
+        <div class="comments"><span class="comment-copy">Short comment.</span></div></div>
+      <div class="answer"><div class="s-prose js-post-body">${LONG_SENTENCE} First answer.</div></div>
+      <div class="answer"><div class="s-prose js-post-body">${LONG_SENTENCE} Second answer.</div></div>
+    `);
+    const result = extractGenericCommentsAdapter(document);
+    expect(result!.blocks.filter((b) => /answer|question/.test(b.text))).toHaveLength(3);
+  });
+
+  test("Discourse posts", () => {
+    setBody(`
+      <article class="topic-post"><div class="cooked"><p>${LONG_SENTENCE} First post.</p></div></article>
+      <article class="topic-post"><div class="cooked"><p>${LONG_SENTENCE} A reply.</p></div></article>
+    `);
+    expect(extractGenericCommentsAdapter(document)!.blocks).toHaveLength(2);
+  });
+
   test("generic forum/review markup", () => {
     setBody(`
       <div class="review"><div class="review-body">${LONG_SENTENCE} This product is great.</div></div>

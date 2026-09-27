@@ -22,6 +22,8 @@ export interface SlopItem {
   score: number;
   /** Under settings.minWords -- never filtered, regardless of score. */
   tooShort: boolean;
+  /** Not analysed at all (e.g. past the page's token budget): shown as "—", never filtered. */
+  unscored?: boolean;
   /**
    * The P(AI) to show for this item, from the detector set that scored it
    * (`toDisplayProbability(score, { ..., level: "unit" })`). Falls back to
@@ -110,7 +112,7 @@ export function applySlopFilter(items: SlopItem[], settings: SlopFilterSettings)
   }
   ensureStyle();
   for (const item of items) {
-    const shouldFilter = !item.tooShort && item.score >= settings.threshold;
+    const shouldFilter = !item.tooShort && !item.unscored && item.score >= settings.threshold;
     if (shouldFilter) {
       applyOne(item, settings.style);
       applied.add(item.ownerEl);
@@ -180,7 +182,7 @@ export function renderItemLabels(items: SlopItem[]): void {
     const badge = document.createElement("span");
     badge.className = `${BADGE_CLASS} ${LABEL_CLASS}`;
     badge.style.cursor = "default";
-    badge.textContent = item.tooShort ? "Too short" : `AI ${pctOf(item)}%`;
+    badge.textContent = item.tooShort ? "Too short" : item.unscored ? "—" : `AI ${pctOf(item)}%`;
     item.ownerEl.before(badge);
     labeledItems.add(item.ownerEl);
   }

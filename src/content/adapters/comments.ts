@@ -16,10 +16,15 @@ import type { AdapterMatch } from "./types";
  * `[class*="x" i]` (case-insensitive attribute selector) matches most
  * comment/review markup without needing a maintained per-site list. Hacker
  * News' static `.commtext` and YouTube's `ytd-comment-renderer #content-text`
- * are added explicitly since neither contains the word "comment" in a class.
+ * are added explicitly since neither contains the word "comment" in a class,
+ * as are Stack Exchange posts (`.js-post-body`) and Discourse posts (`.cooked`).
  */
 const GENERIC_SELECTOR = [
   ".commtext",
+  // Stack Exchange question/answer bodies (the generic class patterns only
+  // caught the one-line comments under them) and Discourse post bodies.
+  ".js-post-body",
+  ".topic-post .cooked",
   "ytd-comment-renderer #content-text",
   '[class*="comment-body" i]',
   '[class*="comment-text" i]',

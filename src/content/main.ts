@@ -586,7 +586,8 @@ interface BlockScoreItem {
   ownerEl: Element;
   score: number;
   tooShort: boolean;
-  probability: number;
+  unscored: boolean;
+  probability: number | undefined;
   block: AdapterBlock;
 }
 
@@ -612,7 +613,9 @@ function perBlockScores(result: AnalyzeResult): BlockScoreItem[] {
     const tooShort = isBlockTooShort(block.text, settings.minWords);
     const scores = byBlock.get(block.id) ?? [];
     const score = scores.length ? scores.reduce((n, s) => n + s.score, 0) / scores.length : 0;
-    return { ownerEl: block.owner, score, tooShort, probability: itemProbability(result, score), block };
+    // Not analysed (past the page's token budget): no number, not "3%".
+    const unscored = scores.length === 0;
+    return { ownerEl: block.owner, score, tooShort, unscored, probability: unscored ? undefined : itemProbability(result, score), block };
   });
 }
 
