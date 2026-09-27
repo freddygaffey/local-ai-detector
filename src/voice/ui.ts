@@ -59,7 +59,7 @@ export function formatClock(t: number): string {
 }
 
 const CSS = `
-  :host { all: initial; display: inline-block; }
+  :host { all: initial; display: inline-block; vertical-align: top; }
   * { box-sizing: border-box; }
   .wrap { font: 12px/1.3 Roboto, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 6px 0 2px; }
   .chip { font: inherit; font-weight: 600; cursor: pointer; border-radius: 999px; padding: 3px 10px;

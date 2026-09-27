@@ -33,7 +33,7 @@ function theme(): "light" | "dark" {
 }
 
 const CSS = `
-  :host { all: initial; display: block; }
+  :host { all: initial; display: inline-block; vertical-align: top; margin-right: 6px; }
   * { box-sizing: border-box; }
   .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 6px 0 2px;
     font: 12px/1.3 Roboto, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
