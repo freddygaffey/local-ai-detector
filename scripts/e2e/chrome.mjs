@@ -32,6 +32,9 @@ const OUT = resolve(opt("--out", join(SCRATCH, "chrome-report.json")));
 const SHOTS = opt("--shots") ? resolve(opt("--shots")) : null;
 const HEADED = args.includes("--headed");
 const QUICK = args.includes("--quick");
+// --prod: run against the production build (.output/chrome-mv3). No host
+// access to the fixture server, so images must come back "permission needed".
+const PROD = args.includes("--prod");
 const FRESH = args.includes("--fresh");
 const NETLOG = join(SCRATCH, `chrome-netlog-${Date.now()}.json`);
 
@@ -313,6 +316,13 @@ await step("image provenance on the news page (badges + popup summary)", async (
   report.facts.imageBadges = badges;
   const s = status.result.images;
   const problems = [];
+  if (PROD) {
+    if (s.checked !== 0 || !s.permissionNeeded.some((p) => p.includes("localhost"))) problems.push("production build fetched images without permission");
+    await shot(popup, "popup-images-permission.png", { fullPage: true });
+    if (problems.length) throw new Error(problems.join("; "));
+    note("production build: nothing fetched, per-site permission requested");
+    return;
+  }
   if (s.withCredentials < 1) problems.push("no C2PA image");
   if (s.withWatermark < 1) problems.push("no SD watermark");
   if (s.withUnsignedClaim < 1) problems.push("no unsigned metadata claim");
@@ -328,7 +338,7 @@ await step("image provenance on the news page (badges + popup summary)", async (
   if (problems.length) throw new Error(problems.join("; "));
 });
 
-await step("C2PA details (c2pa-web worker ran in the offscreen document)", async (note) => {
+if (!PROD) await step("C2PA details (c2pa-web worker ran in the offscreen document)", async (note) => {
   const res = await sw.evaluate(async (src) => {
     const r = await chrome.runtime.sendMessage({ kind: "request", id: "x", type: "provenanceHostAnalyze", payload: { images: [{ src }] } });
     return r;
