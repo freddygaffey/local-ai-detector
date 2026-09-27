@@ -21,7 +21,14 @@ describe("decidePowerAction", () => {
   test("on battery above the pause threshold, default action: normal (not lite/pause)", () => {
     const d = decidePowerAction(ON_BATTERY_OK, CALM, settings);
     expect(d.pauseAutoRun).toBe(false);
-    expect(d.reason).toBeNull();
+    // Not paused, but flagged so the voice check drops to its Light rate.
+    expect(d.reason).toBe("on-battery");
+  });
+
+  test("the manual Battery saver switch pauses auto-run even with the Normal action", () => {
+    const d = decidePowerAction(UNSUPPORTED_BATTERY, NO_PRESSURE_API, { ...settings, manualOverride: true });
+    expect(d.pauseAutoRun).toBe(true);
+    expect(d.reason).toBe("battery-saver");
   });
 
   test("on battery below the pause threshold: pauses and uses the lite model", () => {

@@ -35,7 +35,7 @@ export interface PowerDecision {
   /** Prefer CPU (WASM) over GPU (WebGPU) for this run. */
   preferCpu: boolean;
   /** Short machine-readable reason, for the one-line "paused" affordance. Null when not paused/limited. */
-  reason: "battery-low" | "battery-saver" | "cpu-pressure" | null;
+  reason: "battery-low" | "battery-saver" | "cpu-pressure" | "on-battery" | null;
 }
 
 const UNSUPPORTED_BATTERY: BatteryState = { supported: false, charging: true, level: 1 };
@@ -137,14 +137,19 @@ export function decidePowerAction(
     return { pauseAutoRun: true, useLiteModel: true, preferCpu: settings.useCpuOnBattery, reason: "battery-low" };
   }
 
-  if (settings.onBatteryAction === "pause") {
+  // The manual "Battery saver" switch is an explicit request to save power:
+  // it pauses automatic runs whatever the on-battery action (with the
+  // default "Normal" action it used to change nothing at all).
+  if (settings.onBatteryAction === "pause" || settings.manualOverride) {
     return { pauseAutoRun: true, useLiteModel: true, preferCpu: settings.useCpuOnBattery, reason: "battery-saver" };
   }
 
+  // Unplugged with "Normal"/"Quick check only": runs continue; the voice
+  // check drops to its Light rate (docs/plan.md T11), keyed on a non-null reason.
   return {
     pauseAutoRun: false,
     useLiteModel: settings.onBatteryAction === "lite",
     preferCpu: settings.useCpuOnBattery,
-    reason: null,
+    reason: "on-battery",
   };
 }

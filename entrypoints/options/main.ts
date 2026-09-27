@@ -597,7 +597,7 @@ function renderBatterySection(): HTMLElement {
     fieldRow("Use CPU on battery", "Skips the GPU to save power.", toggleControl(b.useCpuOnBattery, (checked) => set({ useCpuOnBattery: checked }))),
     fieldRow(
       "Battery saver (manual)",
-      "For browsers without a Battery Status API (e.g. Firefox desktop).",
+      "Pauses automatic checks until turned off. Useful where the browser can't read the battery (e.g. Firefox desktop).",
       toggleControl(b.manualOverride, (checked) => set({ manualOverride: checked })),
     ),
   );
