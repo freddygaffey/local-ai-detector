@@ -12,6 +12,7 @@ import {
   perSentenceMean,
   perplexityProbability,
   planWindows,
+  recalibrateClassifier,
   sequenceBinoculars,
   sequenceNLL,
   softmax,
@@ -144,17 +145,30 @@ describe("aggregation", () => {
 });
 
 describe("probability mappings", () => {
-  const cal = CALIBRATION.perplexity;
+  const cal = { tau: 3.5, a: 2, tauBurst: 0.6, b: 1 };
   it("perplexity: lower log-PPL and lower burstiness mean more AI-like", () => {
-    const pLow = perplexityProbability(cal.tau - 1, Number.NaN);
-    const pHigh = perplexityProbability(cal.tau + 1, Number.NaN);
+    const pLow = perplexityProbability(cal.tau - 1, Number.NaN, cal);
+    const pHigh = perplexityProbability(cal.tau + 1, Number.NaN, cal);
     expect(pLow).toBeGreaterThan(0.5);
     expect(pHigh).toBeLessThan(0.5);
-    expect(perplexityProbability(cal.tau, Number.NaN)).toBeCloseTo(0.5, 10);
-    expect(perplexityProbability(cal.tau, cal.tauBurst - 0.5)).toBeGreaterThan(
-      perplexityProbability(cal.tau, cal.tauBurst + 0.5),
+    expect(perplexityProbability(cal.tau, Number.NaN, cal)).toBeCloseTo(0.5, 10);
+    expect(perplexityProbability(cal.tau, cal.tauBurst - 0.5, cal)).toBeGreaterThan(
+      perplexityProbability(cal.tau, cal.tauBurst + 0.5, cal),
     );
-    expect(Number.isNaN(perplexityProbability(Number.NaN, 1))).toBe(true);
+    expect(Number.isNaN(perplexityProbability(Number.NaN, 1, cal))).toBe(true);
+  });
+
+  it("shipped perplexity calibration maps tau to 0.5", () => {
+    const shipped = CALIBRATION.perplexity;
+    expect(perplexityProbability(shipped.tau, shipped.tauBurst)).toBeCloseTo(0.5, 10);
+  });
+
+  it("classifier recalibration is monotone and identity without parameters", () => {
+    const c = { center: 4, slope: 1.3 };
+    expect(recalibrateClassifier(0.3, undefined)).toBe(0.3);
+    const xs = [0.1, 0.5, 0.9, 0.98, 0.99].map((p) => recalibrateClassifier(p, c));
+    for (let i = 1; i < xs.length; i++) expect(xs[i]).toBeGreaterThan(xs[i - 1]!);
+    expect(recalibrateClassifier(1 / (1 + Math.exp(-4)), c)).toBeCloseTo(0.5, 6);
   });
 
   it("binoculars: score = nll / xent, lower score means more AI-like", () => {

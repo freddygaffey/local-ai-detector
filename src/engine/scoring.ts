@@ -278,6 +278,16 @@ export function blendEnsemble(
   return Number.NaN;
 }
 
+/**
+ * Logit-space recalibration of a classifier probability (see
+ * Calibration.classifier). Identity when `cal` is undefined.
+ */
+export function recalibrateClassifier(p: number, cal: { center: number; slope: number } | undefined): number {
+  if (!cal || !Number.isFinite(p)) return p;
+  const q = Math.min(1 - 1e-7, Math.max(1e-7, p));
+  return sigmoid(cal.slope * (Math.log(q / (1 - q)) - cal.center));
+}
+
 /** Weighted mean of finite values; NaN if no weight. */
 export function weightedMean(values: ArrayLike<number>, weights: ArrayLike<number>): number {
   let sum = 0;

@@ -8,7 +8,8 @@ import type { Tensor } from "@huggingface/transformers";
 import type { AnalyzeResult, ProgressEvent, ScoreSource, SentenceScore, TextBlock } from "../shared/messages";
 import type { Mode, ModelSlot } from "../shared/settings";
 import type { LoadedClassifier, LoadedLM, LoadedModel } from "./loader";
-import { slotsForMode } from "./models";
+import { CALIBRATION } from "./calibration";
+import { DEFAULT_MODELS, slotsForMode } from "./models";
 import {
   binocularsProbability,
   binocularsScore,
@@ -19,6 +20,7 @@ import {
   perSentenceMean,
   perplexityProbability,
   planWindows,
+  recalibrateClassifier,
   sequenceBinoculars,
   sequenceNLL,
   softmax,
@@ -51,6 +53,8 @@ export interface AnalysisStats {
   analysedSentences: number;
   tokens: number;
   classifier?: number;
+  /** Classifier probability before recalibration. */
+  classifierRaw?: number;
   logPPL?: number;
   burstiness?: number;
   binoculars?: number;
@@ -91,9 +95,11 @@ function makeCounter(total: number, onProgress?: AnalyzeProgress): Counter {
 interface ClassifierOut {
   perSentence: Float64Array;
   overall: number;
+  rawOverall: number;
 }
 
 async function runClassifier(
+  slot: "classifier" | "classifierLite",
   m: LoadedClassifier,
   doc: Doc,
   n: number,
@@ -102,20 +108,25 @@ async function runClassifier(
 ): Promise<ClassifierOut> {
   const perSentence = new Float64Array(n).fill(Number.NaN);
   const chunkP: number[] = [];
+  const chunkRaw: number[] = [];
   const chunkW: number[] = [];
+  // Recalibrate only the pinned default repo; a custom model has its own scale.
+  const cal = m.ref.repo === DEFAULT_MODELS[slot].repo ? CALIBRATION.classifier[slot] : undefined;
   for (const ch of chunks) {
     const text = doc.text.slice(doc.sentences[ch.first]!.start, doc.sentences[ch.last]!.end);
     const enc = m.tokenizer(text, { truncation: true, max_length: m.maxLength }) as unknown as Record<string, Tensor>;
     const out = (await (m.model as unknown as (x: unknown) => Promise<{ logits: Tensor }>)(enc)).logits;
     const logits = out.type === "float32" ? out : out.to("float32");
     const probs = softmax(logits.data as Float32Array);
-    const p = probs[m.aiIndex] ?? Number.NaN;
+    const raw = probs[m.aiIndex] ?? Number.NaN;
+    const p = recalibrateClassifier(raw, cal);
     for (let i = ch.first; i <= ch.last; i++) perSentence[i] = p;
     chunkP.push(p);
+    chunkRaw.push(raw);
     chunkW.push(Number(enc.input_ids?.dims?.[1] ?? 1));
     counter.tick("Running classifier");
   }
-  return { perSentence, overall: weightedMean(chunkP, chunkW) };
+  return { perSentence, overall: weightedMean(chunkP, chunkW), rawOverall: weightedMean(chunkRaw, chunkW) };
 }
 
 function lmSequence(m: LoadedLM, pieceIds: number[][]): { seq: number[]; tokenSentence: Int32Array } {
@@ -260,13 +271,13 @@ export async function analyzeBlocks(
   const counterRef: { c?: Counter } = {};
 
   if (opts.mode === "classifier" || opts.mode === "classifierLite" || opts.mode === "ensemble") {
-    const slot: ModelSlot = opts.mode === "classifierLite" ? "classifierLite" : "classifier";
+    const slot = opts.mode === "classifierLite" ? "classifierLite" : "classifier";
     const m = need(models, slot, "classifier");
     const counts = idsFor(m).map((ids) => ids.length);
     const chunks = packChunks(units, counts, m.maxLength - 2, CLASSIFIER_TARGET_TOKENS);
     total += chunks.length;
     plan.push(async () => {
-      cls = await runClassifier(m, doc, n, counterRef.c!, chunks);
+      cls = await runClassifier(slot, m, doc, n, counterRef.c!, chunks);
     });
   }
   if (opts.mode === "perplexity" || opts.mode === "ensemble") {
@@ -346,7 +357,10 @@ export async function analyzeBlocks(
       overall = blendEnsemble(cls?.overall ?? Number.NaN, ppl?.overall ?? Number.NaN);
   }
 
-  if (cls) stats.classifier = cls.overall;
+  if (cls) {
+    stats.classifier = cls.overall;
+    stats.classifierRaw = cls.rawOverall;
+  }
   if (ppl) {
     stats.logPPL = ppl.stat;
     stats.burstiness = ppl.burst;

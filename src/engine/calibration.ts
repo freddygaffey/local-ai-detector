@@ -7,6 +7,12 @@
 // All logs are natural logs; log-perplexity = mean per-token NLL.
 
 export interface Calibration {
+  /**
+   * Optional logit-space recalibration of a pinned classifier's raw AI
+   * probability: p' = sigmoid(slope * (logit(p) - center)). Only applied to
+   * the default repos (custom models keep their own scale).
+   */
+  classifier: Partial<Record<"classifier" | "classifierLite", { center: number; slope: number }>>;
   perplexity: {
     /** log-PPL at which the perplexity term is 0.5 (distilgpt2, q8). */
     tau: number;
@@ -30,7 +36,17 @@ export interface Calibration {
 }
 
 export const CALIBRATION: Calibration = {
-  perplexity: { tau: 3.6, a: 2.0, tauBurst: 0.9, b: 1.0 },
-  binoculars: { tau: 0.9, k: 12 },
-  ensemble: { wClassifier: 0.6, wPerplexity: 0.4 },
+  // docs/calibration.md, 2026-09-27 run (49 texts: 28 human, 21 AI).
+  // TMR's raw output is saturated (modern human prose scores ~0.98 too), so
+  // it is re-centred at logit 3.96 (raw p ~0.981). The lite model is barely
+  // changed.
+  classifier: {
+    classifier: { center: 3.96, slope: 1.27 },
+    classifierLite: { center: 0.76, slope: 1.72 },
+  },
+  // Burstiness carried no signal on this sample (AUROC 0.51), so b = 0: only
+  // log-perplexity is used. Kept in the formula for future calibration.
+  perplexity: { tau: 3.5, a: 2.0, tauBurst: 0.58, b: 0 },
+  binoculars: { tau: 0.82, k: 10 },
+  ensemble: { wClassifier: 0.7, wPerplexity: 0.3 },
 };
