@@ -1,0 +1,134 @@
+name: T7 eval (WASM fallback + Binoculars calibration)
+
+# Scores the T7 web eval set (scripts/eval/build-eval-set.mjs) with every
+# WASM (CPU) detector and Binoculars, in the real extension in headless
+# Chromium, sharded across a matrix. Hosted runners have no GPU, so this is
+# the CPU/WASM fallback path; the WebGPU (primary) runs are done locally.
+# The merged scores (no eval texts: licences and size) are committed to the
+# `t7-eval-results` branch. See docs/calibration.md.
+on:
+  push:
+    branches: [t7-eval]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: t7-eval
+  cancel-in-progress: true
+
+env:
+  SHARDS: 12
+  SCRATCH: ${{ github.workspace }}/.t7
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      # datasets-server pages, cached so reruns don't refetch (same seed => same pages).
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.SCRATCH }}/evalcache/pages
+          key: t7-evalpages-${{ hashFiles('scripts/eval/build-eval-set.mjs', 'scripts/calibration/web-ai.json') }}
+      - name: Build eval set (seed 11, 60 per source and class)
+        run: node scripts/eval/build-eval-set.mjs --cache "$SCRATCH/evalcache" --n 60 --seed 11 --out "$SCRATCH/eval-set.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: t7-eval-set
+          path: ${{ env.SCRATCH }}/eval-set.json
+          retention-days: 3
+
+  score:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Install Chromium for Testing
+        run: npx playwright install --with-deps chromium
+      # The browser profile holds the Cache API copy of the models; keyed on the pinned revisions.
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.SCRATCH }}/chrome-profile
+          key: t7-models-${{ hashFiles('src/engine/models.ts') }}
+      - run: npm run build:e2e
+      - uses: actions/download-artifact@v4
+        with:
+          name: t7-eval-set
+          path: ${{ env.SCRATCH }}
+      # ORT threads = min(4, cores) in the offscreen document: 4 on these runners.
+      # Two passes: the second retries any text that errored (the script resumes).
+      - name: Score shard ${{ matrix.shard }}
+        run: |
+          for pass in 1 2; do
+            xvfb-run --auto-servernum node scripts/e2e/browser-t7-calibration.mjs \
+              --ext .output/chrome-mv3-e2e --eval "$SCRATCH/eval-set.json" \
+              --out "$SCRATCH/runs-shard-${{ matrix.shard }}.json" --profile "$SCRATCH/chrome-profile" \
+              --shard ${{ matrix.shard }}/$SHARDS \
+              --runs wasm:lite,wasm:perplexity,wasm:tmr,wasm:fakespot,wasm:modernbert,wasm:binoculars || true
+          done
+          test -s "$SCRATCH/runs-shard-${{ matrix.shard }}.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: t7-runs-shard-${{ matrix.shard }}
+          path: ${{ env.SCRATCH }}/runs-shard-${{ matrix.shard }}.json
+          retention-days: 7
+          if-no-files-found: warn
+
+  collect:
+    needs: score
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: t7-*
+          path: ${{ env.SCRATCH }}/art
+      - name: Merge shards
+        run: |
+          mkdir -p "$SCRATCH/out"
+          node scripts/eval/merge-shards.mjs --out "$SCRATCH/out/t7-wasm-runs.json" \
+            --eval "$SCRATCH/art/t7-eval-set/eval-set.json" --meta "$SCRATCH/out/t7-eval-meta.json" \
+            $(ls "$SCRATCH"/art/t7-runs-shard-*/runs-shard-*.json) | tee "$SCRATCH/out/t7-wasm-summary.txt"
+      - name: Commit merged results to t7-eval-results (scores and metadata only, no texts)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code origin t7-eval-results >/dev/null; then
+            git fetch origin t7-eval-results
+            git switch -c t7-eval-results --track origin/t7-eval-results
+          else
+            git switch --orphan t7-eval-results
+          fi
+          git rm -rq --cached . 2>/dev/null || true
+          mkdir -p results
+          cp "$SCRATCH"/out/* results/
+          git add results
+          git commit -m "T7 eval results from run ${{ github.run_id }} (${{ github.sha }})"
+          git push origin t7-eval-results

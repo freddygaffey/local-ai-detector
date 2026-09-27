@@ -118,11 +118,13 @@ dactyl("student_essays", "essay");
 // of these genres comes from MAGA Reddit / Yahoo Answers and MAGE).
 SOURCES.push({
   set: "mild-rgb", licence: "CC-BY-4.0", genre: "answer", label: 1, dataset: "mild-rgb/eli5-human-vs-ai", config: "default",
-  split: "test", pred: (r) => Number(r.label) === 1, source: "mild-rgb/eli5-human-vs-ai test (AI side)", text: (r) => r.text, generator: (r) => r.model,
+  split: "test", jsonl: "https://huggingface.co/datasets/mild-rgb/eli5-human-vs-ai/resolve/main/test.jsonl",
+  pred: (r) => r.label === "ai", source: "mild-rgb/eli5-human-vs-ai test (AI side)", text: (r) => r.text, generator: (r) => r.model,
 });
 SOURCES.push({
   set: "mild-rgb", licence: "Apache-2.0", genre: "forum", label: 1, dataset: "mild-rgb/aita-human-vs-ai", config: "default",
-  split: "test", pred: (r) => Number(r.label) === 1, source: "mild-rgb/aita-human-vs-ai test (AI side)", text: (r) => r.text, generator: (r) => r.generator,
+  split: "test", jsonl: "https://huggingface.co/datasets/mild-rgb/aita-human-vs-ai/resolve/main/test.jsonl",
+  pred: (r) => r.label === "ai", source: "mild-rgb/aita-human-vs-ai test (AI side)", text: (r) => r.text, generator: (r) => r.generator,
 });
 
 /**
@@ -132,6 +134,7 @@ SOURCES.push({
  */
 async function sampleSplit(srcs, rand) {
   const { dataset, config, split } = srcs[0];
+  if (srcs[0].jsonl) return sampleJsonl(srcs, rand);
   const q = (offset, length) =>
     `${HF}/rows?dataset=${encodeURIComponent(dataset)}&config=${config}&split=${split}&offset=${offset}&length=${length}`;
   const total = (await getJSON(q(0, 1))).num_rows_total ?? 0;
@@ -157,6 +160,31 @@ async function sampleSplit(srcs, rand) {
   }
   srcs.forEach((s, i) => console.error(`${s.source} [${s.label ? "AI" : "human"}]: ${got[i].length}`));
   return got.flat();
+}
+
+/** Small datasets published as one JSONL file: read it whole (cached). */
+async function sampleJsonl(srcs, rand) {
+  const out = [];
+  for (const src of srcs) {
+    const file = join(CACHE, "pages", sha(src.jsonl) + ".jsonl");
+    if (!existsSync(file)) {
+      const res = await fetch(src.jsonl);
+      if (!res.ok) throw new Error(`${res.status} for ${src.jsonl}`);
+      writeFileSync(file, await res.text());
+    }
+    const rows = readFileSync(file, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+    const got = [];
+    for (const row of rows) {
+      if (got.length >= N) break;
+      if (!src.pred(row) || typeof src.text(row) !== "string") continue;
+      const text = trim(src.text(row));
+      if (words(text) < MIN_WORDS || rand() < 0.5) continue;
+      got.push({ set: src.set, source: src.source, licence: src.licence, genre: src.genre, label: src.label, generator: String(src.generator(row) ?? ""), words: words(text), text });
+    }
+    console.error(`${src.source} [${src.label ? "AI" : "human"}]: ${got.length}`);
+    out.push(...got);
+  }
+  return out;
 }
 
 const rand = rng(SEED);

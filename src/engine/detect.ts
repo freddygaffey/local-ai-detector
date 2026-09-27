@@ -191,7 +191,7 @@ async function runPerplexity(m: LoadedLM, pieceIds: number[][], units: Span[], c
   const pcal = cal.perplexity;
   // Per-unit (paragraph-sized) log-PPL is noisier than a whole document's,
   // so units get their own threshold (docs/calibration.md).
-  const ucal = { ...pcal, tau: cal.unit.perplexityTau };
+  const ucal = { ...pcal, tau: cal.unit.perplexityTau, a: cal.unit.perplexityA ?? pcal.a };
   const perSentence = new Float64Array(n).fill(Number.NaN);
   for (const u of units) {
     const p = perplexityProbability(spanMean(mean, count, u.first, u.last), burst, ucal);
@@ -218,7 +218,7 @@ async function runBinoculars(
   const a = perSentenceMean(nll, tokenSentence, n);
   const b = perSentenceMean(xent, tokenSentence, n);
   const cal = calibrationFor(perf.device);
-  const ucal = { ...cal.binoculars, tau: cal.unit.binocularsTau };
+  const ucal = { tau: cal.unit.binocularsTau, k: cal.unit.binocularsK ?? cal.binoculars.k };
   const perSentence = new Float64Array(n).fill(Number.NaN);
   for (const u of units) {
     const s = binocularsScore(spanMean(a.mean, a.count, u.first, u.last), spanMean(b.mean, b.count, u.first, u.last));
@@ -307,6 +307,7 @@ export async function analyzeBlocks(
   const outs = new Map<FusionDetector, { perSentence: Float64Array; overall: number; device: string; dtype: string }>();
   const counterRef: { c?: Counter } = {};
   const CLS_SLOT: Partial<Record<FusionDetector, ClassifierSlot>> = {
+    fakespot: "classifierFakespot",
     tmr: "classifier",
     lite: "classifierLite",
     modernbert: "classifierModernBert",
@@ -376,6 +377,7 @@ export async function analyzeBlocks(
   const weightOf = (d: FusionDetector) => (method === "weighted" ? cal.fusionWeights[d] : 1);
   const multi = detectors.length > 1;
   const SOURCE_OF: Record<FusionDetector, ScoreSource> = {
+    fakespot: "classifier",
     tmr: "classifier",
     lite: "classifier",
     modernbert: "classifier",

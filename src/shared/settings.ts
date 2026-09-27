@@ -27,8 +27,9 @@ export type ModelSlot =
   | "perplexityLM"
   | "binocularsObserver"
   | "binocularsPerformer"
-  // Added by T7 (fusion mode): ModernBERT RAID+MAGE classifier.
-  | "classifierModernBert";
+  // Added by T7 (fusion mode): ModernBERT RAID+MAGE and Fakespot RoBERTa classifiers.
+  | "classifierModernBert"
+  | "classifierFakespot";
 
 export interface ModelRef {
   repo: string;
@@ -242,7 +243,7 @@ export function autoRunPolicyForSite(settings: Pick<Settings, "autoRunPolicy" | 
 // weighted) is just one possible selection.
 
 /** A detector Fusion can run. Each maps onto one or two model slots (src/engine/models.ts). */
-export type FusionDetector = "tmr" | "lite" | "modernbert" | "perplexity" | "binoculars";
+export type FusionDetector = "fakespot" | "tmr" | "lite" | "modernbert" | "perplexity" | "binoculars";
 
 /**
  * How Fusion combines the detectors' calibrated scores:
@@ -268,7 +269,12 @@ export interface Settings {
 /** Current `settingsVersion`. 2 = T7: Fusion replaces Ensemble, WebGPU on by default. */
 export const SETTINGS_VERSION = 2;
 
-export const DEFAULT_FUSION: FusionSettings = { detectors: ["tmr", "modernbert", "perplexity"], method: "weighted" };
+/**
+ * Default Fusion set, chosen on the T7 web eval set (docs/calibration.md):
+ * Fakespot + TMR, weighted. Adding perplexity, lite or ModernBERT did not
+ * improve it by 0.01 in AUROC + TPR@1% FPR.
+ */
+export const DEFAULT_FUSION: FusionSettings = { detectors: ["fakespot", "tmr"], method: "weighted" };
 
 export const DEFAULT_SETTINGS: Settings = {
   fusion: DEFAULT_FUSION,
@@ -362,7 +368,7 @@ export function migrateSettings(merged: Settings, stored: Partial<Settings> | un
   return out;
 }
 
-const FUSION_DETECTORS: readonly FusionDetector[] = ["tmr", "lite", "modernbert", "perplexity", "binoculars"];
+const FUSION_DETECTORS: readonly FusionDetector[] = ["fakespot", "tmr", "lite", "modernbert", "perplexity", "binoculars"];
 const FUSION_METHODS: readonly FusionMethod[] = ["weighted", "logodds", "vote", "max"];
 
 /** Drops unknown detectors/methods (e.g. from a newer version synced in), never returns an empty set. */

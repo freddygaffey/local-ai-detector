@@ -73,10 +73,15 @@ export const DEFAULT_MODELS: Record<ModelSlot, ModelSpec> = {
     license: "mit",
     upstream: "Oxidane/tmr-ai-text-detector",
     modelFileName: "model",
-    dtypes: { wasm: "q8", webgpuF16: "q4f16" },
-    // onnx/model_quantized.onnx 125,855,418 B; model_q4f16.onnx 127,536,080 B;
-    // tokenizer.json 3,558,741 B (+ small configs).
-    sizes: { q8: 125_855_418 + 3_558_741 + 4 * KB, q4f16: 127_536_080 + 3_558_741 + 4 * KB },
+    // T7: fp16 on WebGPU; q4f16 ranked worse on the web eval set (AUROC 0.844 vs 0.861).
+    dtypes: { wasm: "q8", webgpuF16: "fp16" },
+    // onnx/model_quantized.onnx 125,855,418 B; model_fp16.onnx 249,618,877 B;
+    // model_q4f16.onnx 127,536,080 B; tokenizer.json 3,558,741 B (+ small configs).
+    sizes: {
+      q8: 125_855_418 + 3_558_741 + 4 * KB,
+      fp16: 249_618_877 + 3_558_741 + 4 * KB,
+      q4f16: 127_536_080 + 3_558_741 + 4 * KB,
+    },
     maxLength: 512,
   },
   classifierLite: {
@@ -88,9 +93,15 @@ export const DEFAULT_MODELS: Record<ModelSlot, ModelSpec> = {
     license: "mit",
     upstream: "MayZhou/e5-small-lora-ai-generated-detector",
     modelFileName: "model",
-    dtypes: { wasm: "q8", webgpuF16: "q4f16" },
-    // onnx/model_quantized.onnx 34,157,539 B; model_q4f16.onnx 36,517,437 B; tokenizer.json 711,396 B.
-    sizes: { q8: 34_157_539 + 711_396 + 4 * KB, q4f16: 36_517_437 + 711_396 + 4 * KB },
+    // T7: fp16 on WebGPU; q4f16 ranked worse (AUROC 0.735 vs 0.756).
+    dtypes: { wasm: "q8", webgpuF16: "fp16" },
+    // onnx/model_quantized.onnx 34,157,539 B; model_fp16.onnx 67,030,154 B;
+    // model_q4f16.onnx 36,517,437 B; tokenizer.json 711,396 B.
+    sizes: {
+      q8: 34_157_539 + 711_396 + 4 * KB,
+      fp16: 67_030_154 + 711_396 + 4 * KB,
+      q4f16: 36_517_437 + 711_396 + 4 * KB,
+    },
     maxLength: 512,
   },
   classifierModernBert: {
@@ -114,6 +125,27 @@ export const DEFAULT_MODELS: Record<ModelSlot, ModelSpec> = {
       fp16: 299_594_984 + 3_583_228 + 24 * KB,
       q4f16: 140_208_329 + 3_583_228 + 24 * KB,
     },
+    maxLength: 512,
+  },
+  classifierFakespot: {
+    slot: "classifierFakespot",
+    label: "Fakespot AI-text detector (RoBERTa-base)",
+    // A faithful INT8 ONNX export of fakespot-ai/roberta-base-ai-text-detection-v1
+    // (Apache-2.0; checked against our own optimum export, docs/calibration.md).
+    // Upstream publishes safetensors only.
+    repo: "amankrai28/fakespot-roberta-ai-detector-onnx",
+    revision: "403ab9033c9502455cfb7f58e50e65620b422cec",
+    task: "text-classification",
+    license: "apache-2.0",
+    upstream: "fakespot-ai/roberta-base-ai-text-detection-v1",
+    modelFileName: "model",
+    // Only q8 weights exist in this repo. int8 MatMul has no WebGPU kernel, so
+    // on WebGPU it ran no faster and ranked worse (AUROC 0.907 vs 0.932 on
+    // WASM): it always runs on WASM.
+    dtypes: { wasm: "q8", webgpuF16: "q8" },
+    wasmOnly: true,
+    // onnx/model_quantized.onnx 125,465,750 B; tokenizer.json 3,558,896 B (+ vocab/merges/configs).
+    sizes: { q8: 125_465_750 + 3_558_896 + 1_260 * KB },
     maxLength: 512,
   },
   perplexityLM: {
@@ -183,6 +215,7 @@ export const MODEL_SLOTS = Object.keys(DEFAULT_MODELS) as ModelSlot[];
 
 /** Model slots each Fusion detector needs. */
 export const DETECTOR_SLOTS: Record<FusionDetector, ModelSlot[]> = {
+  fakespot: ["classifierFakespot"],
   tmr: ["classifier"],
   lite: ["classifierLite"],
   modernbert: ["classifierModernBert"],
@@ -192,6 +225,7 @@ export const DETECTOR_SLOTS: Record<FusionDetector, ModelSlot[]> = {
 
 /** Short UI labels per detector. */
 export const DETECTOR_LABELS: Record<FusionDetector, string> = {
+  fakespot: "Fakespot",
   tmr: "TMR",
   lite: "Lite (e5)",
   modernbert: "ModernBERT",
@@ -228,7 +262,7 @@ export function detectorsForMode(mode: Mode, fusion?: FusionSpec): FusionSetting
     case "ensemble":
     default: {
       const f = fusionFrom(fusion);
-      const order: FusionDetector[] = ["tmr", "modernbert", "lite", "perplexity", "binoculars"];
+      const order: FusionDetector[] = ["fakespot", "tmr", "modernbert", "lite", "perplexity", "binoculars"];
       return { detectors: order.filter((d) => f.detectors.includes(d)), method: f.method };
     }
   }
@@ -367,6 +401,7 @@ export function refKey(ref: ModelRef): string {
  * about 2.5x the WASM figure.
  */
 export const DETECTOR_SPEED_MS_PER_1K_WORDS: Record<FusionDetector, { webgpu: number; wasm: number }> = {
+  fakespot: { webgpu: 1600, wasm: 1600 },
   tmr: { webgpu: 250, wasm: 1600 },
   lite: { webgpu: 80, wasm: 450 },
   modernbert: { webgpu: 350, wasm: 2600 },

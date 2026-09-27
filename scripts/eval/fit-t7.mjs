@@ -26,8 +26,8 @@ const md = [];
 const out = { constants: {}, weights: {}, curves: {}, metrics: {} };
 const P = (...s) => md.push(s.join(""));
 
-const DETS = ["tmr", "lite", "modernbert", "perplexity", "binoculars"];
-const SLOT = { tmr: "classifier", lite: "classifierLite", modernbert: "classifierModernBert" };
+const DETS = ["fakespot", "tmr", "lite", "modernbert", "perplexity", "binoculars"];
+const SLOT = { fakespot: "classifierFakespot", tmr: "classifier", lite: "classifierLite", modernbert: "classifierModernBert" };
 const GENRES = ["forum", "answer", "review", "news", "blog", "social", "story", "essay", "email"];
 const SHORT = 150;
 const FLAG_FPR = 0.05;
@@ -43,6 +43,7 @@ if (nodeDir && existsSync(nodeDir)) {
   out.metrics.node = {};
   for (const f of files) {
     const j = JSON.parse(readFileSync(join(nodeDir, f), "utf8"));
+    j.detector = f.replace(/^scores-|\.json$/g, "");
     const sign = j.detector === "perplexity" || j.detector === "binoculars" ? -1 : 1;
     const rows = items.filter((r) => r.split === "test" && Number.isFinite(j.scores[r.id]) && r.set !== "mage");
     const sc = (rs) => rs.map((r) => sign * j.scores[r.id]);
@@ -68,8 +69,12 @@ function invert(det, p, cal, level) {
     const c = level === "unit" ? cal.unit.classifier[SLOT[det]] : cal.classifier[SLOT[det]];
     return L / c.slope + c.center;
   }
-  if (det === "perplexity") return (level === "unit" ? cal.unit.perplexityTau : cal.perplexity.tau) - L / cal.perplexity.a;
-  return (level === "unit" ? cal.unit.binocularsTau : cal.binoculars.tau) - L / cal.binoculars.k;
+  if (det === "perplexity") {
+    const a = level === "unit" ? (cal.unit.perplexityA ?? cal.perplexity.a) : cal.perplexity.a;
+    return (level === "unit" ? cal.unit.perplexityTau : cal.perplexity.tau) - L / a;
+  }
+  const k = level === "unit" ? (cal.unit.binocularsK ?? cal.binoculars.k) : cal.binoculars.k;
+  return (level === "unit" ? cal.unit.binocularsTau : cal.binoculars.tau) - L / k;
 }
 /** raw -> "AI-ness" orientation (higher = more AI) */
 const orient = (det, raw) => (SLOT[det] ? raw : -raw);
@@ -77,7 +82,7 @@ const orient = (det, raw) => (SLOT[det] ? raw : -raw);
 const data = {}; // data[device][det] = { doc: Map(id -> raw), para: [{id, words, raw}] , dtype }
 for (const [key, r] of Object.entries(runs.runs)) {
   if (key.includes("@") && !opt("--include-dtype-runs")) continue;
-  const cal = runs.constants[r.device];
+  const cal = (r.constants ?? runs.constants)[r.device];
   const d = ((data[r.device] ??= {})[r.detector] = { doc: new Map(), para: [], dtype: r.ranDtype, ranOn: r.ranOn, ms: r.msPer1kWords });
   for (const [id, t] of Object.entries(r.texts)) {
     if (t.error || t.doc === null) continue;
@@ -87,33 +92,38 @@ for (const [key, r] of Object.entries(runs.runs)) {
 }
 
 // ---------------- fit operating points ----------------
-const KEEP_SLOPE = { tmr: 1.27, lite: 1.72, perplexity: 2.0, binoculars: 10 };
+// Two anchors per detector and level, both on the fit half's human texts:
+// score 0.5 where 5% of them score higher (the flag point), score 0.75 where
+// 1% do (near the slop-filter point). So slope = logit(0.75) / (t1% - t5%).
+const FILTER_ANCHOR = 0.75;
+function anchors(x, y) {
+  const t5 = thresholdAtFpr(x, y, FLAG_FPR);
+  const t1 = thresholdAtFpr(x, y, FILTER_FPR);
+  return { t5, slope: logit(FILTER_ANCHOR) / Math.max(1e-3, t1 - t5) };
+}
 function fitDetector(device, det) {
   const d = data[device]?.[det];
   if (!d) return null;
   const fitRows = items.filter((r) => r.split === "fit" && d.doc.has(r.id) && r.set !== "mage");
-  const x = fitRows.map((r) => orient(det, d.doc.get(r.id)));
-  const y = fitRows.map((r) => r.label);
-  const thr = thresholdAtFpr(x, y, FLAG_FPR);
+  const doc = anchors(fitRows.map((r) => orient(det, d.doc.get(r.id))), fitRows.map((r) => r.label));
   const paras = d.para.filter((p) => byId.get(p.id)?.split === "fit" && byId.get(p.id)?.set !== "mage" && p.words >= 12);
-  const ux = paras.map((p) => orient(det, p.raw));
-  const uy = paras.map((p) => byId.get(p.id).label);
-  const uthr = thresholdAtFpr(ux, uy, FLAG_FPR);
-  let slope = KEEP_SLOPE[det];
-  if (slope === undefined) {
-    // New detector: logistic slope on the raw statistic, clipped to [1, 2] (see calibration.md "Slopes").
-    const { w } = logreg(x.map((v) => [v]), y);
-    slope = Math.min(2, Math.max(1, w[0]));
-  }
-  if (SLOT[det]) return { kind: "classifier", center: +thr.toFixed(3), unitCenter: +uthr.toFixed(3), slope: +slope.toFixed(3) };
-  return { kind: det, tau: +(-thr).toFixed(3), unitTau: +(-uthr).toFixed(3), slope };
+  const unit = anchors(paras.map((p) => orient(det, p.raw)), paras.map((p) => byId.get(p.id).label));
+  const r3 = (v) => +v.toFixed(3);
+  if (SLOT[det]) return { kind: "classifier", center: r3(doc.t5), slope: r3(doc.slope), unitCenter: r3(unit.t5), unitSlope: r3(unit.slope) };
+  return { kind: det, tau: r3(-doc.t5), slope: r3(doc.slope), unitTau: r3(-unit.t5), unitSlope: r3(unit.slope) };
 }
 function mapRaw(det, raw, c, level) {
   if (!Number.isFinite(raw) || !c) return NaN;
-  if (c.kind === "classifier") return sigmoid(c.slope * (raw - (level === "unit" ? c.unitCenter : c.center)));
-  return sigmoid(c.slope * ((level === "unit" ? c.unitTau : c.tau) - raw));
+  const k = level === "unit" ? c.unitSlope : c.slope;
+  if (c.kind === "classifier") return sigmoid(k * (raw - (level === "unit" ? c.unitCenter : c.center)));
+  return sigmoid(k * ((level === "unit" ? c.unitTau : c.tau) - raw));
 }
 
+// WASM-only detectors (ModernBERT, Binoculars) run on WASM on the WebGPU path
+// too: use their WASM data there.
+if (data.webgpu && data.wasm) {
+  for (const det of DETS) if (!data.webgpu[det] && data.wasm[det]) data.webgpu[det] = { ...data.wasm[det], aliasOf: "wasm" };
+}
 const devices = Object.keys(data);
 for (const dev of devices) {
   out.constants[dev] = {};
@@ -200,9 +210,16 @@ if (forced) {
   const [ds, m] = forced.split("|");
   best = { dets: ds.split("+"), method: m ?? "weighted" };
 } else {
-  // Prefer sets without Binoculars (slow, CPU-only) unless it wins clearly.
-  const noBino = ranked.find((x) => !x.dets.includes("binoculars") && x.dets.length > 1);
-  best = noBino;
+  // Candidates: no Binoculars (slow, CPU-only) or ModernBERT (weak alone and
+  // slow on WASM). Parsimony: a bigger set must beat every subset of it by
+  // >= 0.01 in (TPR@1% + AUROC) on the fit half, or the subset wins.
+  const val = (x) => x.fit.tpr1 + x.fit.auroc;
+  const cands = ranked.filter((x) => !x.dets.includes("binoculars") && !x.dets.includes("modernbert") && x.method === "weighted");
+  best = cands[0];
+  for (const c of cands) {
+    const isSubset = c.dets.every((d) => best.dets.includes(d)) && c.dets.length < best.dets.length;
+    if (isSubset && val(best) - val(c) < 0.01) best = c;
+  }
 }
 presets.recommended = { detectors: best.dets, method: best.method };
 out.defaultFusion = presets.recommended;
@@ -266,15 +283,39 @@ for (const det of ["lite", ...best.dets.filter((d) => d !== "lite")]) {
     return { bin: `${a}-${b >= 1e9 ? "" : b}`, n: rs.length, auroc: auroc(rs.map((p) => p.doc), rs.map((p) => byId.get(p.id).label)) };
   });
 }
-// Minimum words: the smallest bin edge from which the default set (paragraph proxy) keeps AUROC >= 0.75.
+// Minimum words: paragraphs scored as standalone texts with the default set,
+// shown through the short-text curve. From the smallest length bin upwards
+// in which every bin (n >= 50) keeps AUROC >= 0.75 and ECE <= 0.1.
 {
-  const ref = out.byLength[best.dets.find((d) => out.byLength[d]) ?? "lite"] ?? [];
-  let min = 30;
-  for (let i = ref.length - 1; i >= 0; i--) {
-    if (ref[i].auroc >= 0.75) min = Number(ref[i].bin.split("-")[0]);
+  const dets = best.dets;
+  const perPara = new Map(); // key id#index -> {words, ps: {det: p}}
+  for (const det of dets) {
+    const counters = new Map();
+    for (const p of paraScores[PRIMARY][det] ?? []) {
+      const k = counters.get(p.id) ?? 0;
+      counters.set(p.id, k + 1);
+      const key = `${p.id}#${k}`;
+      const e = perPara.get(key) ?? { id: p.id, words: p.words, ps: {} };
+      e.ps[det] = p.doc;
+      perPara.set(key, e);
+    }
+  }
+  const rows = [...perPara.values()].filter((e) => byId.get(e.id)?.set !== "mage" && dets.every((d) => Number.isFinite(e.ps[d])));
+  out.byLengthDefault = BINS.map(([a, b]) => {
+    const rs = rows.filter((e) => e.words >= a && e.words < b);
+    const sc = rs.map((e) => fuse(dets.map((d) => e.ps[d]), dets.map((d) => out.weights[PRIMARY][d]), best.method));
+    const y = rs.map((e) => byId.get(e.id).label);
+    const probs = sc.map((v, i) => displayP(PRIMARY, defaultKey, v, rs[i].words));
+    return { bin: `${a}-${b >= 1e9 ? "" : b}`, lo: a, n: rs.length, auroc: auroc(sc, y), ece: ece(probs, y).ece };
+  });
+  let min = null;
+  for (let i = out.byLengthDefault.length - 1; i >= 0; i--) {
+    const r = out.byLengthDefault[i];
+    if (r.n < 50) continue;
+    if (r.auroc >= 0.75 && r.ece <= 0.1) min = r.lo;
     else break;
   }
-  out.minWordsForScore = Math.max(20, min);
+  out.minWordsForScore = Math.max(20, min ?? 30);
 }
 
 // ---------------- report (test half) ----------------
@@ -349,6 +390,7 @@ P(`|---|${BINS.map(() => "---").join("|")}|`);
 for (const [det, rows] of Object.entries(out.byLength)) P(`| ${det} | ${rows.map((r) => `${fmt(r.auroc)} (${r.n})`).join(" | ")} |`);
 P("");
 
+P(`Default Fusion, paragraph-as-text through the short-text curve: ${out.byLengthDefault.map((r) => `${r.bin} w: AUROC ${fmt(r.auroc)}, ECE ${fmt(r.ece, 3)} (n ${r.n})`).join("; ")}. → MIN_WORDS_FOR_SCORE = ${out.minWordsForScore}.\n`);
 P("### Reliability, default Fusion (test half)\n");
 for (const dev of devices) {
   const m = out.metrics[`${dev}|${defaultKey}`];

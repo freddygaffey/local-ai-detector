@@ -108,7 +108,9 @@ async function doLoad(slot: ModelSlot, ref: ModelRef, onProgress?: FileProgress,
   const tokenizer = await AutoTokenizer.from_pretrained(ref.repo, common);
   const config = await AutoConfig.from_pretrained(ref.repo, { revision: ref.revision });
 
-  const primary = spec.wasmOnly ? { device: "wasm" as const, dtype: spec.dtypes.wasm } : deviceAndDtype(spec.dtypes);
+  // WASM-only slots run on the CPU backend: "wasm" in browsers, "cpu" in Node scripts.
+  const cpuDevice = getRuntimeInfo()?.isNode ? ("cpu" as const) : ("wasm" as const);
+  const primary = spec.wasmOnly ? { device: cpuDevice, dtype: spec.dtypes.wasm } : deviceAndDtype(spec.dtypes);
   const attempts: { device: string; dtype: DType }[] = [primary];
   if (primary.device === "webgpu") attempts.push({ device: "wasm", dtype: spec.dtypes.wasm });
 
@@ -229,7 +231,7 @@ export async function isRefCached(slot: ModelSlot, ref: ModelRef): Promise<boole
   const prefix = `${cachePrefix(ref)}onnx/`;
   const keys = await cache.keys();
   const spec = DEFAULT_MODELS[slot];
-  const { dtype } = deviceAndDtype(spec.dtypes);
+  const dtype = spec.wasmOnly ? spec.dtypes.wasm : deviceAndDtype(spec.dtypes).dtype;
   const suffix = `${DTYPE_SUFFIX[dtype]}.onnx`;
   return keys.some((k) => k.startsWith(prefix) && k.endsWith(suffix));
 }

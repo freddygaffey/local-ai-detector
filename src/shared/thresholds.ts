@@ -76,7 +76,8 @@ function interp(curve: DisplayCurve, x: number): number {
 export function toDisplayProbability(score: number, ctx: DisplayContext = {}): number {
   if (!Number.isFinite(score)) return Number.NaN;
   const len = (ctx.words ?? SHORT_TEXT_WORDS) < SHORT_TEXT_WORDS ? "short" : "long";
-  const dev = ctx.device === "webgpu" || ctx.device === undefined ? "webgpu" : "wasm";
+  // "mixed" = the WebGPU path with a WASM-only detector (ModernBERT, Binoculars): WebGPU curves.
+  const dev = ctx.device === "wasm" || ctx.device === "cpu" ? "wasm" : "webgpu";
   const key = curveKey(ctx);
   const c =
     DISPLAY_CURVES[`${key}|${dev}|${len}`] ??

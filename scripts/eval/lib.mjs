@@ -63,63 +63,63 @@ export function tprAtFpr(scores, labels, fpr) {
   return rates(scores, labels, thresholdAtFpr(scores, labels, fpr)).tpr;
 }
 
-/** Pool-adjacent-violators isotonic regression; returns step knots {x, y}. */
-export function isotonic(xs, ys, ws = null) {
-  const pts = xs.map((x, i) => ({ x, y: ys[i], w: ws ? ws[i] : 1 })).filter((p) => Number.isFinite(p.x));
+/** Pool-adjacent-violators isotonic regression; returns blocks {x (weighted mean), y, w}. */
+export function isotonic(xs, ys) {
+  const pts = xs.map((x, i) => ({ x, y: ys[i] })).filter((p) => Number.isFinite(p.x));
   pts.sort((a, b) => a.x - b.x);
   const blocks = [];
   for (const p of pts) {
-    blocks.push({ sy: p.y * p.w, w: p.w, xmin: p.x, xmax: p.x });
+    blocks.push({ sy: p.y, sx: p.x, w: 1 });
     while (blocks.length > 1) {
       const b = blocks[blocks.length - 1];
       const a = blocks[blocks.length - 2];
-      if (a.sy / a.w <= b.sy / b.w) break;
-      blocks.splice(blocks.length - 2, 2, { sy: a.sy + b.sy, w: a.w + b.w, xmin: a.xmin, xmax: b.xmax });
+      if (a.sy / a.w < b.sy / b.w) break;
+      blocks.splice(blocks.length - 2, 2, { sy: a.sy + b.sy, sx: a.sx + b.sx, w: a.w + b.w });
     }
   }
-  return blocks.map((b) => ({ x: (b.xmin + b.xmax) / 2, y: b.sy / b.w, w: b.w }));
+  return blocks.map((b) => ({ x: b.sx / b.w, y: b.sy / b.w, w: b.w }));
 }
 
 /**
- * Isotonic fit turned into a smooth-ish piecewise-linear curve with at most
- * `maxKnots` knots, clamped to [lo, hi] and anchored at x = 0 and x = 1.
- * A little shrinkage towards the base rate keeps sparse ends from hitting 0/1.
+ * Isotonic fit as a piecewise-linear curve through the blocks' centroids.
+ * Blocks with under `minFrac` of the data are merged into a neighbour, each
+ * block's rate is shrunk a little towards 50% (`priorWeight` pseudo-texts),
+ * and the ends are held flat and clamped to [lo, hi].
  */
-export function displayCurve(xs, ys, { maxKnots = 10, lo = 0.02, hi = 0.98, prior = 0.5, priorWeight = 4 } = {}) {
-  const iso = isotonic(xs, ys).map((k) => ({ ...k, y: (k.y * k.w + prior * priorWeight) / (k.w + priorWeight) }));
-  // merge into <= maxKnots groups of roughly equal weight
-  const total = iso.reduce((a, k) => a + k.w, 0);
-  const per = total / maxKnots;
-  const knots = [];
-  let acc = null;
-  for (const k of iso) {
-    if (!acc) acc = { sx: 0, sy: 0, w: 0 };
-    acc.sx += k.x * k.w;
-    acc.sy += k.y * k.w;
-    acc.w += k.w;
-    if (acc.w >= per) {
-      knots.push({ x: acc.sx / acc.w, y: acc.sy / acc.w });
-      acc = null;
+export function displayCurve(xs, ys, { minFrac = 0.03, lo = 0.02, hi = 0.98, prior = 0.5, priorWeight = 3 } = {}) {
+  let blocks = isotonic(xs, ys).map((b) => ({ sx: b.x * b.w, sy: b.y * b.w, w: b.w }));
+  const total = blocks.reduce((a, b) => a + b.w, 0);
+  const min = Math.max(5, minFrac * total);
+  let merged = true;
+  while (merged && blocks.length > 2) {
+    merged = false;
+    for (let i = 0; i < blocks.length; i++) {
+      if (blocks[i].w >= min) continue;
+      const j = i === 0 ? 1 : i === blocks.length - 1 ? i - 1 : blocks[i - 1].w < blocks[i + 1].w ? i - 1 : i + 1;
+      const a = blocks[Math.min(i, j)];
+      const b = blocks[Math.max(i, j)];
+      blocks.splice(Math.min(i, j), 2, { sx: a.sx + b.sx, sy: a.sy + b.sy, w: a.w + b.w });
+      merged = true;
+      break;
     }
   }
-  if (acc && acc.w > 0) knots.push({ x: acc.sx / acc.w, y: acc.sy / acc.w });
-  // enforce monotone + clamp
+  const knots = blocks.map((b) => ({ x: b.sx / b.w, y: (b.sy + prior * priorWeight) / (b.w + priorWeight) }));
   for (let i = 1; i < knots.length; i++) knots[i].y = Math.max(knots[i].y, knots[i - 1].y);
-  const x = [0, ...knots.map((k) => +k.x.toFixed(4)), 1];
-  const y = [knots[0]?.y ?? prior, ...knots.map((k) => k.y), knots[knots.length - 1]?.y ?? prior].map((v) =>
-    +Math.min(hi, Math.max(lo, v)).toFixed(4),
-  );
-  // dedupe x
   const X = [];
   const Y = [];
-  x.forEach((v, i) => {
-    if (X.length && v <= X[X.length - 1]) {
-      Y[Y.length - 1] = Math.max(Y[Y.length - 1], y[i]);
+  const push = (x, y) => {
+    x = +x.toFixed(4);
+    y = +Math.min(hi, Math.max(lo, y)).toFixed(4);
+    if (X.length && x <= X[X.length - 1]) {
+      Y[Y.length - 1] = Math.max(Y[Y.length - 1], y);
       return;
     }
-    X.push(v);
-    Y.push(y[i]);
-  });
+    X.push(x);
+    Y.push(y);
+  };
+  push(0, knots[0]?.y ?? prior);
+  for (const k of knots) push(k.x, k.y);
+  push(1, knots[knots.length - 1]?.y ?? prior);
   return { x: X, y: Y };
 }
 

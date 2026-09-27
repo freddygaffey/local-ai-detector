@@ -35,11 +35,21 @@ const RUNS = opt("--runs", "webgpu:tmr,webgpu:lite,webgpu:modernbert,webgpu:perp
     const [detector, dtype] = rest.split("@");
     return { key: r, device, detector, dtype };
   });
-const SLOT = { tmr: "classifier", lite: "classifierLite", modernbert: "classifierModernBert", perplexity: "perplexityLM", binoculars: ["binocularsObserver", "binocularsPerformer"] };
+const SLOT = { fakespot: "classifierFakespot", tmr: "classifier", lite: "classifierLite", modernbert: "classifierModernBert", perplexity: "perplexityLM", binoculars: ["binocularsObserver", "binocularsPerformer"] };
 
 let items = JSON.parse(readFileSync(opt("--eval"), "utf8"));
 if (SPLIT !== "all") items = items.filter((r) => r.split === SPLIT);
+if (!args.includes("--with-mage")) items = items.filter((r) => r.set !== "mage");
 if (LIMIT) items = items.slice(0, LIMIT);
+// --sample N: a smaller, deterministic subset (ids sorted, i.e. a hash order), e.g. for the WASM fallback.
+const SAMPLE = Number(opt("--sample", "0"));
+if (SAMPLE) items = [...items].sort((a, b) => (a.id < b.id ? -1 : 1)).slice(0, SAMPLE);
+// --shard k/n (CI matrix): every n-th text of the id-sorted list, starting at k.
+const SHARD = opt("--shard");
+if (SHARD) {
+  const [k, n] = SHARD.split("/").map(Number);
+  items = [...items].sort((a, b) => (a.id < b.id ? -1 : 1)).filter((_, i) => i % n === k);
+}
 
 // ---- text -> page-like paragraphs (as scripts/e2e/browser-unit-calibration.mjs) ----
 const seg = new Intl.Segmenter("en", { granularity: "sentence" });
@@ -85,7 +95,8 @@ const browser = await puppeteer.launch({
   pipe: true,
   enableExtensions: [EXT],
   userDataDir: PROFILE,
-  args: ["--no-first-run", "--enable-unsafe-webgpu"],
+  // CI (Ubuntu 24.04 runners) blocks Chrome's user-namespace sandbox.
+  args: ["--no-first-run", "--enable-unsafe-webgpu", ...(process.env.CI ? ["--no-sandbox"] : [])],
   protocolTimeout: 900_000,
 });
 const swT = await browser.waitForTarget((t) => t.type() === "service_worker");
@@ -125,6 +136,8 @@ const configure = (run) =>
 
 for (const run of RUNS) {
   const rr = (results.runs[run.key] ??= { device: run.device, detector: run.detector, dtype: run.dtype ?? null, texts: {} });
+  // The constants the scores were mapped with, per run (needed to invert them; runs from different builds can be merged).
+  rr.constants = { wasm: WASM_CALIBRATION, webgpu: WEBGPU_CALIBRATION };
   // Flip the device off and on so the host unloads sessions bound to the old device/dtype.
   await configure({ ...run, device: run.device === "webgpu" ? "wasm" : "webgpu" });
   await configure(run);
@@ -132,7 +145,7 @@ for (const run of RUNS) {
   let n = 0;
   let nWords = 0;
   for (const it of items) {
-    if (rr.texts[it.id]) continue;
+    if (rr.texts[it.id] && !rr.texts[it.id].error) continue;
     const blocks = toBlocks(it.text);
     let res;
     try {

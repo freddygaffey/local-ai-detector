@@ -19,6 +19,7 @@ import {
 } from "../shared/settings";
 
 export const FUSION_DETECTOR_INFO: Record<FusionDetector, { name: string; blurb: string; experimental?: boolean }> = {
+  fakespot: { name: DETECTOR_LABELS.fakespot, blurb: "Mozilla/Fakespot RoBERTa classifier (Apache-2.0). Best single detector on our web test set." },
   tmr: { name: DETECTOR_LABELS.tmr, blurb: "RoBERTa classifier trained on RAID (MIT)." },
   modernbert: { name: DETECTOR_LABELS.modernbert, blurb: "ModernBERT classifier trained on RAID + MAGE (Apache-2.0)." },
   lite: { name: DETECTOR_LABELS.lite, blurb: "Small, fast e5 classifier (MIT). Used for the automatic pass." },
@@ -48,7 +49,7 @@ export const FUSION_PRESETS: { id: string; name: string; fusion: FusionSettings 
   },
 ];
 
-const ORDER: FusionDetector[] = ["tmr", "modernbert", "lite", "perplexity", "binoculars"];
+const ORDER: FusionDetector[] = ["fakespot", "tmr", "modernbert", "lite", "perplexity", "binoculars"];
 
 function mb(bytes: number): string {
   return `${Math.round(bytes / 1e6)} MB`;

@@ -15,7 +15,7 @@
 
 import type { FusionDetector } from "../shared/settings";
 
-export type ClassifierSlot = "classifier" | "classifierLite" | "classifierModernBert";
+export type ClassifierSlot = "classifier" | "classifierLite" | "classifierModernBert" | "classifierFakespot";
 
 export interface LogitMap {
   /** p' = sigmoid(slope * (logit(p) - center)) */
@@ -55,7 +55,11 @@ export interface Calibration {
   unit: {
     classifier: Partial<Record<ClassifierSlot, LogitMap>>;
     perplexityTau: number;
+    /** Paragraph-level perplexity slope (default: perplexity.a). */
+    perplexityA?: number;
     binocularsTau: number;
+    /** Paragraph-level Binoculars slope (default: binoculars.k). */
+    binocularsK?: number;
   };
 }
 
@@ -65,16 +69,18 @@ export const WASM_CALIBRATION: Calibration = {
     classifier: { center: 3.84, slope: 1.27 },
     classifierLite: { center: 2.7, slope: 1.72 },
     classifierModernBert: { center: 3.0, slope: 1.0 },
+    classifierFakespot: { center: 3.0, slope: 1.0 },
   },
   perplexity: { tau: 3.17, a: 2.0, tauBurst: 0.58, b: 0 },
   binoculars: { tau: 0.82, k: 10 },
   ensemble: { wClassifier: 0.7, wPerplexity: 0.3 },
-  fusionWeights: { tmr: 1, lite: 1, modernbert: 1, perplexity: 0.5, binoculars: 0.5 },
+  fusionWeights: { fakespot: 1, tmr: 1, lite: 1, modernbert: 1, perplexity: 0.5, binoculars: 0.5 },
   unit: {
     classifier: {
       classifier: { center: 4.2, slope: 1.27 },
       classifierLite: { center: 2.34, slope: 1.72 },
       classifierModernBert: { center: 3.0, slope: 1.0 },
+    classifierFakespot: { center: 3.0, slope: 1.0 },
     },
     perplexityTau: 3.02,
     binocularsTau: 0.82,
@@ -87,16 +93,18 @@ export const WEBGPU_CALIBRATION: Calibration = {
     classifier: { center: 3.14, slope: 1.27 },
     classifierLite: { center: 1.91, slope: 1.72 },
     classifierModernBert: { center: 3.0, slope: 1.0 },
+    classifierFakespot: { center: 3.0, slope: 1.0 },
   },
   perplexity: { tau: 2.93, a: 2.0, tauBurst: 0.58, b: 0 },
   binoculars: { tau: 0.82, k: 10 },
   ensemble: { wClassifier: 0.7, wPerplexity: 0.3 },
-  fusionWeights: { tmr: 1, lite: 1, modernbert: 1, perplexity: 0.5, binoculars: 0.5 },
+  fusionWeights: { fakespot: 1, tmr: 1, lite: 1, modernbert: 1, perplexity: 0.5, binoculars: 0.5 },
   unit: {
     classifier: {
       classifier: { center: 3.87, slope: 1.27 },
       classifierLite: { center: 2.22, slope: 1.72 },
       classifierModernBert: { center: 3.0, slope: 1.0 },
+    classifierFakespot: { center: 3.0, slope: 1.0 },
     },
     perplexityTau: 2.81,
     binocularsTau: 0.82,
