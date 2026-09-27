@@ -211,7 +211,11 @@ async function runAnalyze(
     const tagged = req.tier ? { ...result, tier: req.tier } : result;
     if (tabId >= 0) {
       broadcastStatus(tabId, { state: "done", mode, result: tagged, finishedAt: Date.now() });
-      if (showBadge) badge.score(tabId, tagged.overall);
+      // The badge shows the same calibrated P(AI) as every other surface; nothing when too short to score.
+      if (showBadge) {
+        if (tagged.probability !== undefined) badge.score(tabId, tagged.probability);
+        else badge.clear(tabId);
+      }
     }
     return tagged;
   } catch (err) {
