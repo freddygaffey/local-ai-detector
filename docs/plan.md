@@ -215,6 +215,23 @@ track (same-origin youtube.com, nothing new leaves the device). The chip reads
 auto-captions (or punctuation restoration). It detects AI-written scripts, not synthetic
 voices. Supports Shorts. Owner: Opus.
 
+## v0.2: T11 AI voice detection (experimental, gated on a research spike)
+Spike (Opus) first:
+- Find licence-clean open audio-deepfake detectors (wav2vec2/AASIST-style trained on ASVspoof,
+  In-the-Wild, MLAAD or similar) with ONNX export.
+- Include AudioSeal (MIT) for its own watermark.
+- Test on real clips: modern TTS such as ElevenLabs, OpenAI and open TTS, against human speech,
+  both after YouTube-like compression and with music or noise.
+- Verdict: ship / ship as experimental / drop.
+
+If it goes ahead:
+- On click only, never auto-run.
+- Capture audio via video.captureStream (Firefox: mozCaptureStream) or tabCapture, which shows
+  the browser's indicator.
+- Chunk and resample to 16 kHz, and run in the offscreen doc or worker.
+- Show "Voice: AI 72%" beside the transcript score.
+- SynthID audio and ElevenLabs' classifier are not checkable locally.
+
 ## Out of scope for v1
 Remote APIs (incl. Anthropic's planned watermark-detection API and SynthID), VideoSeal/AudioSeal/TrustMark (35–228 MB models, v2), non-English calibration, and store publishing
 (done by the user).
