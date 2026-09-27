@@ -199,6 +199,8 @@ the final package.
 
 ## Design principles (the user's words)
 **Honest, well designed, minimal, in the background and unobtrusive.**
+**Everything is configurable, with good defaults**: every behaviour ships with a considered default,
+and users can change it in settings.
 
 ## Display rules (approved)
 - Every displayed % comes from `toDisplayProbability()`, a calibrated probability on web text.
