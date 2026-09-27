@@ -24,7 +24,9 @@ export const RETRY_S = 3;
 
 /** Gap (s of watched playback) between the end of one clip and the start of the next. */
 export const RATE_GAPS: Record<VoiceRate, { burst: number; steady: number }> = {
-  light: { burst: 24, steady: 120 - CLIP_S },
+  // Light (the Quick tier) keeps Normal's front-loaded burst so the first
+  // score shows within ~20 s of speech, then drops to one clip per 2 min.
+  light: { burst: 12, steady: 120 - CLIP_S },
   normal: { burst: 12, steady: 60 - CLIP_S },
   thorough: { burst: 6, steady: 20 - CLIP_S },
   continuous: { burst: 0, steady: 0 },

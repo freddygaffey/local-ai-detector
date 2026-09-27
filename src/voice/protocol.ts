@@ -8,7 +8,8 @@
 
 import type { VoiceModelId } from "./aggregate";
 
-export type VoiceOp = "score" | "status";
+/** "download": fetch + verify + cache the model now (the popup's "Download & enable"), without loading it. */
+export type VoiceOp = "score" | "status" | "download";
 
 /** Background -> tab: the "Check voice" context-menu item was clicked. */
 export const VOICE_START_KIND = "lad-voice-start";

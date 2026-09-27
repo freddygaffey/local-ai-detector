@@ -31,6 +31,37 @@ let voiceTier: "quick" | "deep" = "quick";
 const rate = () => resolveVoiceRate({ ...settings, tier: voiceTier } as never);
 
 const voice = () => sanitizeVoice(settings.voice);
+/** The page router's gate (src/content/main.ts): false = no voice chip on this page type. */
+let pageAllowed: () => boolean = () => true;
+
+export function setVoiceGate(fn: () => boolean): void {
+  pageAllowed = fn;
+  if (!fn()) {
+    stopSession();
+    chip?.destroy();
+    chip = null;
+    ytVideoId = null;
+  }
+}
+
+/**
+ * A non-YouTube video page (src/content/pageMedia.ts): a quiet "Voice" chip
+ * in the corner that starts sampling this video when clicked (never
+ * automatically).
+ */
+export function offerVoiceOnClick(video: HTMLVideoElement): void {
+  if (!voice().enabled || !settings.surfaces.chip || !pageAllowed()) return;
+  lastContextVideo = video;
+  if (session?.video === video) return;
+  ensureChip(true).setState(null, { settings: voice(), rate: rate() });
+}
+
+export function withdrawVoiceOffer(): void {
+  if (!chipFixed) return;
+  stopSession();
+  chip?.destroy();
+  chip = null;
+}
 
 /** YouTube video id + kind from a URL (watch or Shorts), else null. */
 export function youTubeVideoId(href: string): string | null {
@@ -44,12 +75,16 @@ export function youTubeVideoId(href: string): string | null {
   }
 }
 
-function youTubeVideo(): HTMLVideoElement | null {
-  return (
-    document.querySelector<HTMLVideoElement>("ytd-reel-video-renderer[is-active] video") ??
-    document.querySelector<HTMLVideoElement>("#movie_player video.html5-main-video") ??
-    null
-  );
+/** The playing YouTube video: the Short in view (#shorts-player) or the watch player -- whichever is laid out. */
+export function youTubeVideo(doc: Document = document): HTMLVideoElement | null {
+  const shorts = location.pathname.startsWith("/shorts/");
+  const sels = shorts
+    ? ["#shorts-player video", "ytd-reel-video-renderer[is-active] video", "#movie_player video.html5-main-video"]
+    : ["#movie_player video.html5-main-video", "#shorts-player video"];
+  for (const sel of sels) {
+    for (const v of Array.from(doc.querySelectorAll<HTMLVideoElement>(sel))) if (v.getClientRects().length) return v;
+  }
+  return null;
 }
 
 function adShowing(): boolean {
@@ -120,7 +155,7 @@ async function startSession(video: HTMLVideoElement, fixedOnly: boolean): Promis
 
 async function onYouTubeLocation(): Promise<void> {
   const id = youTubeVideoId(location.href);
-  const wantChip = id !== null && voice().enabled && settings.surfaces.chip;
+  const wantChip = id !== null && voice().enabled && settings.surfaces.chip && pageAllowed();
   if (id === ytVideoId) {
     if (wantChip) ensureChip(false).remount();
     return;

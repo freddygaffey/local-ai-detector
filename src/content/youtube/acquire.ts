@@ -2,21 +2,21 @@
 // "Phase 2: T10"). Nothing here talks to anything but youtube.com itself,
 // and nothing new leaves the device:
 //
-// 1. The transcript panel. If it's already open, it's read as is. Otherwise
-//    the description's own "Show transcript" button is clicked with the
-//    panel hidden by a temporary style (so the page doesn't flicker), the
-//    segments are read, and the panel is closed again. This is exactly what
-//    YouTube does when the user opens the panel.
-// 2. The caption track the player already loaded (/api/timedtext, listed in
-//    the page's resource timing): re-read from the same URL. Used on Shorts,
-//    which have no transcript panel, and when the panel is missing.
+// 1. The transcript panel, only if the user already has it open.
+// 2. The player's own caption track, read by the page-world helper
+//    (./pageCaptions.ts): the only source that still works in a real
+//    browser (bare timedtext URLs now come back empty without the player's
+//    token, and a hidden transcript panel never loads). Watch pages and
+//    Shorts alike.
 //
-// Whether a video has captions at all comes from the page's inline player
-// response (valid for the first video loaded) and the player's CC button.
+// Whether a video has captions at all comes from the player's track list
+// (and, as a fallback, its CC button).
 
 import { looksUnpunctuated, parseCaptionPayload, parsePanelSegments, type Cue, type Transcript } from "./transcript";
+import { CAPTIONS_REQUEST, CAPTIONS_RESPONSE, type CaptionsRequest, type CaptionsResponse, type CaptionsResult } from "./pageCaptions";
 
-export type VideoKind = "watch" | "shorts";
+/** "page": not YouTube -- a page video's <track> or a subtitle page (src/content/pageMedia.ts). */
+export type VideoKind = "watch" | "shorts" | "page";
 
 export interface VideoRef {
   videoId: string;
@@ -85,7 +85,6 @@ export function playerHasCaptions(doc: Document): boolean | null {
 
 const EXPANDED = 'ytd-engagement-panel-section-list-renderer[visibility="ENGAGEMENT_PANEL_VISIBILITY_EXPANDED"]';
 const SEGMENT = "transcript-segment-view-model, ytd-transcript-segment-renderer";
-const HIDE_ATTR = "data-ai-detector-hidden";
 
 /** Cues from a transcript panel that is already open (never touches the page). */
 export function readOpenPanel(doc: Document): Cue[] {
@@ -98,78 +97,6 @@ export function readOpenPanel(doc: Document): Cue[] {
 export function transcriptButton(doc: Document): HTMLElement | null {
   const btns = Array.from(doc.querySelectorAll<HTMLElement>("ytd-video-description-transcript-section-renderer button"));
   return btns.find((b) => b.isConnected) ?? null;
-}
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-function signature(root: ParentNode): string {
-  const segs = Array.from(root.querySelectorAll(SEGMENT));
-  return `${segs.length}|${segs.slice(0, 3).map((s) => s.textContent ?? "").join("|")}`;
-}
-
-/**
- * Opens the transcript panel hidden, reads it, and closes it again. Returns
- * [] when there's no "Show transcript" button or nothing loaded in time.
- */
-export async function openPanelAndRead(doc: Document, timeoutMs = 8000): Promise<Cue[]> {
-  const btn = transcriptButton(doc);
-  if (!btn) return [];
-  const before = new Set(Array.from(doc.querySelectorAll(EXPANDED)));
-  const staleSig = signature(doc);
-  const style = doc.createElement("style");
-  style.textContent = `ytd-engagement-panel-section-list-renderer[${HIDE_ATTR}]{display:none!important}`;
-  (doc.head ?? doc.documentElement).appendChild(style);
-  const hideNew = () => {
-    for (const p of Array.from(doc.querySelectorAll(EXPANDED))) if (!before.has(p)) p.setAttribute(HIDE_ATTR, "");
-  };
-  const mo = new MutationObserver(hideNew);
-  mo.observe(doc.documentElement, { subtree: true, attributes: true, attributeFilter: ["visibility"] });
-  const focused = doc.activeElement as HTMLElement | null;
-  const scroll = { x: window.scrollX, y: window.scrollY };
-  let opened: Element[] = [];
-  try {
-    btn.click();
-    hideNew();
-    let last = "";
-    let stable = 0;
-    const t0 = Date.now();
-    while (Date.now() - t0 < timeoutMs) {
-      await sleep(200);
-      opened = Array.from(doc.querySelectorAll(EXPANDED)).filter((p) => !before.has(p));
-      const panel = opened.find((p) => p.querySelector(SEGMENT));
-      if (!panel) continue;
-      const sig = signature(panel);
-      // After in-app navigation the panel can still hold the previous
-      // video's segments for a moment; wait for new ones (or a short grace).
-      if (sig === staleSig && Date.now() - t0 < 2500) continue;
-      if (sig === last) {
-        if (++stable >= 2) break;
-      } else {
-        stable = 0;
-        last = sig;
-      }
-    }
-    const panel = opened.find((p) => p.querySelector(SEGMENT));
-    return panel ? parsePanelSegments(panel) : [];
-  } finally {
-    for (const p of opened) {
-      const close = p.querySelector<HTMLElement>('#visibility-button button, button[aria-label="Close"]');
-      if (close) close.click();
-      else p.setAttribute("visibility", "ENGAGEMENT_PANEL_VISIBILITY_HIDDEN");
-    }
-    mo.disconnect();
-    try {
-      window.scrollTo(scroll.x, scroll.y);
-      focused?.focus?.({ preventScroll: true });
-    } catch {
-      // ignore
-    }
-    // Keep the panel hidden until its close has rendered.
-    setTimeout(() => {
-      for (const p of Array.from(doc.querySelectorAll(`[${HIDE_ATTR}]`))) p.removeAttribute(HIDE_ATTR);
-      style.remove();
-    }, 400);
-  }
 }
 
 /** /api/timedtext URLs the player has already requested for this video, newest first. */
@@ -186,62 +113,61 @@ export function loadedCaptionUrls(videoId: string, perf: Pick<Performance, "getE
   return urls.reverse();
 }
 
-/** The caption track the player already loaded, re-read from the same same-origin URL. */
-export async function readLoadedCaptions(videoId: string): Promise<{ cues: Cue[]; language?: string; auto?: boolean }> {
-  for (const url of loadedCaptionUrls(videoId)) {
-    try {
-      const u = new URL(url);
-      if (u.origin !== location.origin) continue;
-      const res = await fetch(url, { credentials: "same-origin", cache: "force-cache" });
-      if (!res.ok) continue;
-      const cues = parseCaptionPayload(await res.text());
-      if (cues.length > 0) return { cues, language: u.searchParams.get("lang") ?? undefined, auto: u.searchParams.get("kind") === "asr" };
-    } catch {
-      // next
-    }
-  }
-  return { cues: [] };
-}
-
 export type Acquired =
   | { status: "ok"; transcript: Transcript }
   /** The video has no captions / transcript. */
   | { status: "none" }
-  /** Has (or may have) one, but reading it needs the panel opened and `allowOpen` was false, or it failed. */
+  /** Has (or may have) one, but reading it failed. */
   | { status: "unavailable" };
 
-export async function acquireTranscript(doc: Document, video: VideoRef, opts: { allowOpen: boolean }): Promise<Acquired> {
-  const tracks = inlineCaptionTracks(doc, video.videoId);
-  const describe = (cues: Cue[], source: Transcript["source"], language?: string, auto?: boolean): Acquired => {
-    const first = tracks?.[0];
-    return {
-      status: "ok",
-      transcript: {
-        videoId: video.videoId,
-        cues,
-        source,
-        language: language ?? first?.languageCode,
-        autoGenerated: auto ?? (tracks && tracks.length ? tracks.every((t) => t.kind === "asr") : looksUnpunctuated(cues)),
-      },
+let reqCounter = 0;
+
+/**
+ * Asks the page-world helper (./pageCaptions.ts, injected by
+ * entrypoints/youtube-main.content.ts) for this video's captions.
+ */
+export function requestPageCaptions(videoId: string, timeoutMs = 15000): Promise<CaptionsResult> {
+  return new Promise((resolve) => {
+    const id = `c${Date.now().toString(36)}-${++reqCounter}`;
+    const finish = (r: CaptionsResult) => {
+      clearTimeout(timer);
+      window.removeEventListener("message", onMsg);
+      resolve(r);
     };
-  };
+    const onMsg = (e: MessageEvent) => {
+      const d = e.data as Partial<CaptionsResponse> | null;
+      if (!d || d.source !== CAPTIONS_RESPONSE || d.id !== id) return;
+      if (d.status === "ok" && typeof d.body === "string") finish({ status: "ok", body: d.body, language: String(d.language ?? ""), auto: d.auto === true });
+      else if (d.status === "none") finish({ status: "none" });
+      else finish({ status: "error", error: String((d as { error?: unknown }).error ?? "failed") });
+    };
+    const timer = setTimeout(() => finish({ status: "error", error: "timeout" }), timeoutMs);
+    window.addEventListener("message", onMsg);
+    window.postMessage({ source: CAPTIONS_REQUEST, id, videoId } satisfies CaptionsRequest, location.origin);
+  });
+}
+
+export async function acquireTranscript(
+  doc: Document,
+  video: VideoRef,
+  deps: { pageCaptions?: typeof requestPageCaptions } = {},
+): Promise<Acquired> {
+  const describe = (cues: Cue[], source: Transcript["source"], language?: string, auto?: boolean): Acquired => ({
+    status: "ok",
+    transcript: { videoId: video.videoId, cues, source, language, autoGenerated: auto ?? looksUnpunctuated(cues) },
+  });
+  // A transcript panel the user already has open: read it as is.
   if (video.kind === "watch") {
     const open = readOpenPanel(doc);
     if (open.length > 0) return describe(open, "panel");
   }
-  const cap = await readLoadedCaptions(video.videoId);
-  if (cap.cues.length > 0) return describe(cap.cues, "captions", cap.language, cap.auto);
-  if (tracks && tracks.length === 0) return { status: "none" };
-  if (video.kind === "watch") {
-    if (!transcriptButton(doc)) {
-      return playerHasCaptions(doc) === false || tracks?.length === 0 ? { status: "none" } : { status: "unavailable" };
-    }
-    if (!opts.allowOpen) return { status: "unavailable" };
-    const cues = await openPanelAndRead(doc);
-    if (cues.length > 0) return describe(cues, "panel");
-    return { status: "unavailable" };
+  // The player's own caption track, via the page-world helper.
+  const got = await (deps.pageCaptions ?? requestPageCaptions)(video.videoId);
+  if (got.status === "none") return { status: "none" };
+  if (got.status === "ok") {
+    const cues = parseCaptionPayload(got.body);
+    if (cues.length > 0) return describe(cues, "captions", got.language || undefined, got.auto);
   }
-  // Shorts: no transcript panel; only a caption track the player loaded.
   return playerHasCaptions(doc) === false ? { status: "none" } : { status: "unavailable" };
 }
 

@@ -511,6 +511,16 @@ export interface ToggleVisibilityMessage {
   response: ActionResult;
 }
 
+/**
+ * Popup -> content script: what kind of page this is (src/content/pageType.ts),
+ * which decides what runs on it automatically. Shown quietly in the popup.
+ */
+export interface GetPageTypeMessage {
+  type: "getPageType";
+  request: undefined;
+  response: { type: string; reason: string; via: string; off?: boolean; host?: string };
+}
+
 /** Side panel -> content script: scroll to and briefly flash one sentence, without turning highlights on. */
 export interface ScrollToSentenceMessage {
   type: "scrollToSentence";
@@ -556,6 +566,7 @@ export interface SeekVideoMessage {
 /** Every request/response message kind, as a discriminated union. */
 export type RuntimeMessage =
   | GetTranscriptReportMessage
+  | GetPageTypeMessage
   | SeekVideoMessage
   | UnloadIdleModelsMessage
   | CheckImageAtUrlMessage

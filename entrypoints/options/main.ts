@@ -8,6 +8,7 @@ import "../../src/ui/styles.css";
 import "./options.css";
 
 import { getSettings, setSettings } from "@/src/shared/settings";
+import { PAGE_TYPE_OVERRIDES, type PageTypeOverride } from "@/src/content/pageType";
 import type {
   AutoRunPolicy,
   BatterySaverSettings,
@@ -63,6 +64,8 @@ interface State {
   allUrlsGranted: boolean | null;
   newSiteRuleHost: string;
   newSiteRulePolicy: AutoRunPolicy;
+  newPageTypeHost: string;
+  newPageType: PageTypeOverride;
   checklistBusy: boolean;
   /** Terse "<Detector> unavailable" note from the last download attempt (AnalyzeResult.notes), if any. */
   checklistNote: string | null;
@@ -81,6 +84,8 @@ const state: State = {
   allUrlsGranted: null,
   newSiteRuleHost: "",
   newSiteRulePolicy: "never",
+  newPageTypeHost: "",
+  newPageType: "article",
   checklistBusy: false,
   checklistNote: null,
 };
@@ -419,6 +424,7 @@ function renderPresenceSection(): HTMLElement {
     h("h2", null, "Presence"),
     list,
     renderSiteRules(),
+    renderPageTypeRules(),
     h(
       "p",
       { class: "field-hint", style: "margin-top:0.6em" },
@@ -475,6 +481,71 @@ function renderSiteRules(): HTMLElement {
     h("button", { class: "btn btn-small", type: "button", onclick: () => void addSiteRule() }, "Add"),
   );
   return h("div", { class: "settings-list", style: "margin-top:0.8em" }, h("div", { class: "card-subtitle" }, "Per-site rules"), ...rows, addRow);
+}
+
+const PAGE_TYPE_LABEL: Record<PageTypeOverride, string> = {
+  auto: "Auto",
+  article: "Article (page text)",
+  thread: "Thread (per item)",
+  video: "Video (transcript + voice)",
+  subtitles: "Subtitles (timed text)",
+  search: "Search (snippet markers)",
+  off: "Off (nothing automatic)",
+};
+
+/** Per-site page type (src/content/pageType.ts): Auto detects it; an entry here beats detection. */
+function renderPageTypeRules(): HTMLElement {
+  const rules = Object.entries(state.settings.pageTypes ?? {});
+  const rows = rules.map(([host, type]) =>
+    h(
+      "div",
+      { class: "field-row" },
+      h("div", { class: "field-main" }, h("span", { class: "field-label mono" }, host), h("span", { class: "field-hint" }, PAGE_TYPE_LABEL[type])),
+      h("button", { class: "btn btn-ghost btn-small", type: "button", onclick: () => void removePageTypeRule(host) }, "Remove"),
+    ),
+  );
+  const addRow = h(
+    "div",
+    { class: "field-row" },
+    h("input", {
+      class: "text-input",
+      type: "text",
+      placeholder: "example.com",
+      value: state.newPageTypeHost,
+      oninput: (e: Event) => {
+        state.newPageTypeHost = (e.target as HTMLInputElement).value;
+      },
+    }),
+    selectControl(
+      PAGE_TYPE_OVERRIDES.filter((t) => t !== "auto").map((t) => ({ value: t, label: PAGE_TYPE_LABEL[t] })),
+      state.newPageType,
+      (v) => {
+        state.newPageType = v as PageTypeOverride;
+      },
+    ),
+    h("button", { class: "btn btn-small", type: "button", onclick: () => void addPageTypeRule() }, "Add"),
+  );
+  return h(
+    "div",
+    { class: "settings-list", style: "margin-top:0.8em" },
+    h("div", { class: "card-subtitle" }, "Page type per site"),
+    h("p", { class: "field-hint" }, "Detected automatically (article, thread, video, subtitles, search, app). Set one here to override it."),
+    ...rows,
+    addRow,
+  );
+}
+
+async function addPageTypeRule(): Promise<void> {
+  const host = state.newPageTypeHost.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+  if (!host) return;
+  await updateSettings({ pageTypes: { ...state.settings.pageTypes, [host]: state.newPageType } });
+  state.newPageTypeHost = "";
+}
+
+async function removePageTypeRule(host: string): Promise<void> {
+  const pageTypes = { ...state.settings.pageTypes };
+  delete pageTypes[host];
+  await updateSettings({ pageTypes });
 }
 
 async function addSiteRule(): Promise<void> {

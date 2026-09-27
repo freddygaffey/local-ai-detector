@@ -20,16 +20,26 @@ import { FLAGGED_THRESHOLD } from "../../shared/thresholds";
 import { toTranscriptProbability, type TranscriptReport, type TranscriptSegment } from "../../shared/transcript";
 import { fusionForTier } from "../../engine/models";
 import { decidePowerAction, readBatteryState, readPressureState } from "../../power/battery";
-import { acquireTranscript, isYouTubeHost, readDisclosure, videoFromUrl, type VideoRef } from "./acquire";
+import { acquireTranscript, isYouTubeHost, readDisclosure, videoFromUrl, type Acquired, type VideoRef } from "./acquire";
 import { buildTranscriptBlocks, sampleBlocks, skipQuickPass, toTextBlocks, type TranscriptBlock } from "./chunk";
 import { looksEnglish } from "./transcript";
 import { createTranscriptChip, type TranscriptChipApi } from "./ui";
+import { youTubeVideo } from "../../voice/content";
 
 let settings: Settings = DEFAULT_SETTINGS;
 let chip: TranscriptChipApi | null = null;
 let video: VideoRef | null = null;
 let report: TranscriptReport | null = null;
 let runToken = 0;
+/** Transcript source for a non-YouTube page (kind "page"), set by startPageTranscript. */
+let pageAcquire: (() => Promise<Acquired>) | null = null;
+/** The page router's gate (src/content/main.ts): false = this page type gets no transcript chip. */
+let pageAllowed: () => boolean = () => true;
+
+export function setTranscriptGate(fn: () => boolean): void {
+  pageAllowed = fn;
+  reconcileChip();
+}
 
 function emptyReport(v: VideoRef): TranscriptReport {
   return { videoId: v.videoId, state: "idle", segments: [], disclosure: null };
@@ -41,7 +51,7 @@ function publish(r: TranscriptReport | null): void {
 }
 
 function wantChip(): boolean {
-  return settings.surfaces.chip && video !== null;
+  return settings.surfaces.chip && video !== null && pageAllowed();
 }
 
 function reconcileChip(): void {
@@ -69,10 +79,7 @@ function reconcileChip(): void {
 
 /** Seeks the current video (watch page player, or the active Short). */
 export function seek(seconds: number): boolean {
-  const v =
-    document.querySelector<HTMLVideoElement>("ytd-reel-video-renderer[is-active] video") ??
-    document.querySelector<HTMLVideoElement>("#movie_player video.html5-main-video") ??
-    document.querySelector<HTMLVideoElement>("video");
+  const v = youTubeVideo() ?? document.querySelector<HTMLVideoElement>("video");
   if (!v || !Number.isFinite(seconds)) return false;
   v.currentTime = Math.max(0, seconds);
   return true;
@@ -99,10 +106,10 @@ async function run(pass: "fast" | "full", allowOpen: boolean): Promise<void> {
   const base: TranscriptReport = { ...(report?.videoId === v.videoId ? report : emptyReport(v)), disclosure: disclosureNow() };
   publish({ ...base, state: "running" });
   try {
-    const got = await acquireTranscript(document, v, { allowOpen });
+    const got = v.kind === "page" ? await (pageAcquire?.() ?? Promise.resolve<Acquired>({ status: "none" })) : await acquireTranscript(document, v);
     if (stale()) return;
     if (got.status === "none") return publish({ ...base, state: "none", segments: [] });
-    if (got.status === "unavailable") return publish({ ...base, state: allowOpen ? "error" : "idle", error: allowOpen ? "Couldn't read the transcript" : undefined });
+    if (got.status === "unavailable") return publish({ ...base, state: "error", error: "Couldn't read the transcript" });
     const t = got.transcript;
     const fullText = t.cues.map((c) => c.text).join(" ");
     if ((t.language && !/^en\b/i.test(t.language)) || !looksEnglish(fullText)) {
@@ -178,7 +185,7 @@ async function run(pass: "fast" | "full", allowOpen: boolean): Promise<void> {
 }
 
 async function maybeAutoRun(): Promise<void> {
-  if (!video || !settings.surfaces.chip) return;
+  if (!video || !settings.surfaces.chip || !pageAllowed()) return;
   // Tiers task (docs/plan.md "Two tiers"): "Run quick check automatically"
   // off means no automatic pass here either -- the Deep ("full") pass still
   // runs on click, from the chip or `runDeepTranscriptCheck`.
@@ -224,6 +231,24 @@ function onLocationMaybeChanged(): void {
   if (next) navTimer = setTimeout(() => void maybeAutoRun(), 2500);
 }
 
+let registered = false;
+function registerOnce(): void {
+  if (registered) return;
+  registered = true;
+  watchSettings((s) => {
+    settings = s;
+    reconcileChip();
+  });
+  registerHandlers({
+    getTranscriptReport: async (req) => {
+      if (req?.run && video && report?.state !== "running") await run("full", true);
+      if (report && report.state !== "running") report = { ...report, disclosure: disclosureNow() ?? report.disclosure };
+      return report;
+    },
+    seekVideo: ({ seconds }) => (seek(seconds) ? { ok: true } : { ok: false, error: "No video on this page" }),
+  });
+}
+
 /** Entry point (src/content/main.ts). A no-op off youtube.com. */
 export function startYouTubeTranscripts(): void {
   try {
@@ -237,23 +262,39 @@ export function startYouTubeTranscripts(): void {
       settings = s;
       onLocationMaybeChanged();
     });
-  watchSettings((s) => {
-    settings = s;
-    reconcileChip();
-  });
-  registerHandlers({
-    getTranscriptReport: async (req) => {
-      if (req?.run && video && report?.state !== "running") await run("full", true);
-      if (report && report.state !== "running") report = { ...report, disclosure: disclosureNow() ?? report.disclosure };
-      return report;
-    },
-    seekVideo: ({ seconds }) => (seek(seconds) ? { ok: true } : { ok: false, error: "No video on this page" }),
-  });
+  registerOnce();
   // YouTube is a single-page app: it fires this on every in-app navigation.
   document.addEventListener("yt-navigate-finish", () => onLocationMaybeChanged());
   window.addEventListener("popstate", () => onLocationMaybeChanged());
   // Fallback for navigations that don't fire the event (and to re-attach the chip if YouTube re-rendered its title).
   setInterval(() => onLocationMaybeChanged(), 1500);
+}
+
+/**
+ * A transcript on a non-YouTube page (src/content/pageMedia.ts): a page
+ * video's <track> captions, or a subtitle file / transcript page itself.
+ * Same chip, scoring and Quick/Deep passes as YouTube; the chip sits in a
+ * fixed corner.
+ */
+export async function startPageTranscript(id: string, acquire: () => Promise<Acquired>): Promise<void> {
+  settings = await getSettings().catch(() => DEFAULT_SETTINGS);
+  registerOnce();
+  pageAcquire = acquire;
+  if (video?.kind === "page" && video.videoId === id) return reconcileChip();
+  video = { videoId: id, kind: "page" };
+  runToken++;
+  publish(emptyReport(video));
+  reconcileChip();
+  await maybeAutoRun();
+}
+
+export function stopPageTranscript(): void {
+  if (video?.kind !== "page") return;
+  video = null;
+  pageAcquire = null;
+  runToken++;
+  publish(null);
+  reconcileChip();
 }
 
 /** Flagged segments (engine score at or above the flag point), for tests and the side panel. */

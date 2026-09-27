@@ -29,6 +29,10 @@ The extension's own bundled content script runs on every page so the default Qui
 |---|---|
 | Reads visible text, and on YouTube the transcript and short audio clips of the playing video, and hands them to the on-device engine in the extension. Draws the chip, highlights and badges. | Never sends page text, audio, URLs or browsing history anywhere. No fetches to page origins (images need the optional permission below). Auto-run can be turned off (Presence → Auto-run: Never) or limited per site. |
 
+## YouTube page-world script (`world: "MAIN"` on `www.youtube.com` / `m.youtube.com`)
+
+A second, small bundled script runs in YouTube's own page context. YouTube only serves caption text to its own player, so to read a video's transcript this script asks the player for the current video's caption track (switching captions on invisibly for a moment when they are off, then switching them back and restoring the viewer's saved caption settings), and hands the text to the extension's content script. It requests nothing except youtube.com's own caption files, has no access to extension APIs, and sends nothing anywhere else.
+
 ## Optional permission
 
 | Permission | Why | What it does *not* do |

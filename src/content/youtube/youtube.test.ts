@@ -265,3 +265,30 @@ describe("display", () => {
     }
   });
 });
+
+describe("parseSubtitleText", () => {
+  test("SRT", async () => {
+    const { parseSubtitleText } = await import("./transcript");
+    const cues = parseSubtitleText("1\n00:00:01,000 --> 00:00:04,000\n<i>Hello</i> there.\n\n2\n00:01:05,500 --> 00:01:07,000\nGeneral Kenobi.\nYou are a bold one.\n");
+    expect(cues).toEqual([
+      { start: 1, dur: 3, text: "Hello there." },
+      { start: 65.5, dur: 1.5, text: "General Kenobi. You are a bold one." },
+    ]);
+  });
+  test("WebVTT with header, settings and a note", async () => {
+    const { parseSubtitleText } = await import("./transcript");
+    const cues = parseSubtitleText("WEBVTT\n\nNOTE made by hand\n\n00:02.000 --> 00:04.500 align:start\nFirst line\n\nintro\n01:00:00.000 --> 01:00:02.000\nLate line\n");
+    expect(cues.map((c) => [c.start, c.text])).toEqual([
+      [2, "First line"],
+      [3600, "Late line"],
+    ]);
+  });
+  test("timestamped transcript lines", async () => {
+    const { parseSubtitleText } = await import("./transcript");
+    const cues = parseSubtitleText("0:00 Welcome back everyone\n[1:02] Today we talk about bread\nnot a cue\n");
+    expect(cues.map((c) => [c.start, c.text])).toEqual([
+      [0, "Welcome back everyone"],
+      [62, "Today we talk about bread"],
+    ]);
+  });
+});

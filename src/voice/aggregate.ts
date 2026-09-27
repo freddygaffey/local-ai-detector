@@ -24,7 +24,7 @@ export const VOICE_CALIBRATION: Record<VoiceModelId, VoiceCalibration> = {
 };
 
 /** Fewer accepted clips than this shows "—" instead of a number. */
-export const MIN_CLIPS_FOR_SCORE = 3;
+export const MIN_CLIPS_FOR_SCORE = 2;
 
 export function clipProbability(margin: number, model: VoiceModelId, sensitivity: VoiceSensitivity): number {
   const c = VOICE_CALIBRATION[model];

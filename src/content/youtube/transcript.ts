@@ -20,7 +20,7 @@ export interface Cue {
   text: string;
 }
 
-export type TranscriptSource = "panel" | "captions";
+export type TranscriptSource = "panel" | "captions" | "track" | "text";
 
 export interface Transcript {
   videoId: string;
@@ -199,4 +199,52 @@ export function looksEnglish(text: string): boolean {
   let hits = 0;
   for (const w of words) if (EN_STOP.has(w)) hits++;
   return hits / words.length >= 0.12;
+}
+
+const TS = String.raw`(?:(\d{1,2}):)?(\d{1,2}):(\d{2})(?:[.,](\d{1,3}))?`;
+const ARROW_LINE = new RegExp(String.raw`^\s*${TS}\s*-->\s*${TS}`);
+const STAMP_PREFIX = new RegExp(String.raw`^\s*[\[(]?${TS}[\])]?\s+(.*\S)\s*$`);
+
+function tsSeconds(m: RegExpMatchArray, at: number): number {
+  const h = m[at] ? Number(m[at]) : 0;
+  const frac = m[at + 3] ? Number(`0.${m[at + 3]}`) : 0;
+  return h * 3600 + Number(m[at + 1]) * 60 + Number(m[at + 2]) + frac;
+}
+
+/**
+ * Subtitle / transcript text as shown on a page: SRT, WebVTT, or
+ * "0:12 some words" transcript lines. Styling tags, cue numbers and VTT
+ * headers/notes are dropped. Pure.
+ */
+export function parseSubtitleText(text: string): Cue[] {
+  const lines = text.replace(/\r/g, "").split("\n");
+  const cues: Cue[] = [];
+  let cur: { start: number; dur?: number; text: string[] } | null = null;
+  const flush = () => {
+    if (cur && cur.text.length) cues.push({ start: cur.start, dur: cur.dur, text: cur.text.join(" ") });
+    cur = null;
+  };
+  let arrows = 0;
+  for (const line of lines) {
+    const a = line.match(ARROW_LINE);
+    if (a) {
+      flush();
+      arrows++;
+      const start = tsSeconds(a, 1);
+      cur = { start, dur: Math.max(0, tsSeconds(a, 5) - start), text: [] };
+      continue;
+    }
+    if (arrows > 0) {
+      if (!line.trim()) flush();
+      else if (cur && !/^\d+$/.test(line.trim())) cur.text.push(line.replace(/<[^>]+>/g, "").replace(/\{[^}]*\}/g, "").trim());
+    }
+  }
+  flush();
+  if (arrows > 0) return finalize(cues);
+  // No SRT/VTT arrows: "0:12 text" transcript lines.
+  for (const line of lines) {
+    const m = line.match(STAMP_PREFIX);
+    if (m) cues.push({ start: tsSeconds(m, 1), text: m[5]! });
+  }
+  return finalize(cues);
 }

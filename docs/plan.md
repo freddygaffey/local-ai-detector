@@ -268,6 +268,22 @@ If it goes ahead:
 - Show "Voice: AI 72%" beside the transcript score.
 - SynthID audio and ElevenLabs' classifier are not checkable locally.
 
+## Page-type routing (user request, built)
+`src/content/pageType.ts` classifies every page as article / thread / video / subtitles / search / app:
+URL rules first (YouTube, Vimeo, Twitch, Reddit, HN, Stack Exchange, X, Mastodon, Lemmy, search
+engines, Google/Microsoft apps, code hosts, shops, .srt/.vtt files), then a fingerprint (JSON-LD /
+microdata @type, og:type, twitter:card, generator platform, dominant player, caption tracks,
+repeated posts, result lists, prose vs link density, editable shells, cue timestamps); top score >= 3
+wins, else prose -> article, else app. Routing (src/content/main.ts): article/thread -> page text
+(Quick, Deep on click); video -> transcript + voice chips only (non-YouTube: `<track>` transcript,
+voice on click); subtitles -> timed transcript scoring; search -> snippet markers; app -> nothing
+automatic. The popup shows "Page: type (reason)" with a per-site override (Settings.pageTypes; also
+in Options -> Presence).
+
+YouTube transcripts come from the player's own caption request, read in the page world
+(entrypoints/youtube-main.content.ts): bare timedtext URLs return an empty body without the
+player's `pot` token, and a display:none transcript panel never loads.
+
 ## Phases and release (user decision)
 There is no v0.1 store release. **The first public release is v0.2.0.**
 - **Phase 1 (foundations):** T7 and T9. The cheap persona pass feeds T9. Then T12: freeze and

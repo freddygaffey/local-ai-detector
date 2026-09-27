@@ -6,6 +6,33 @@ not yet had a public store release; version numbers so far track
 
 ## [Unreleased]
 
+### Added (page-type routing)
+
+- The extension now tells a text page from a thread, a video, a subtitle file, a
+  search page and an app (URL rules for major sites, then a fingerprint from
+  structured data, OpenGraph, the site's platform and the page's shape), and
+  runs only what suits it: page text on articles and threads, transcript and
+  voice on videos (a page video's `<track>` too, voice on click), timed
+  scoring on subtitle files, snippet markers on search, nothing automatic on
+  apps. The popup shows it quietly ("Page: video (YouTube)") with a per-site
+  override; Options lists the overrides.
+
+### Fixed
+
+- YouTube transcripts: read through the player's own caption request (the
+  bare caption URLs now return nothing, and the hidden transcript panel never
+  loaded), on watch pages and Shorts. The viewer's caption settings are
+  restored afterwards.
+- Voice: the first score shows after two clips, with the front-loaded clip
+  rate in the Quick tier too; Shorts sample the Short, not the hidden watch
+  player.
+- First-run checklist lists every model the defaults use (the lite model,
+  Fusion, the voice model) and "Download & enable" downloads them all with
+  progress.
+- Transcript, search-snippet and warm-up checks no longer overwrite the tab's
+  own score in the popup/badge; search markers were never shown because
+  snippets fell under the 50-word minimum.
+
 ### Added (T9: Presence modes, battery saver, more entry points, chat/thread adapters, slop filter, site memory)
 
 - **Presence**: a single setting (default **Status chip**) for how much the

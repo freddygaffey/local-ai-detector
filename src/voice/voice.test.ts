@@ -102,8 +102,9 @@ describe("aggregation", () => {
   });
   test("needs the minimum clips before a score", () => {
     const c = (p: number, atS = 0) => ({ p, atS });
-    expect(aggregate([c(0.9), c(0.8)]).p).toBeNull();
-    expect(formatVoice(aggregate([c(0.9), c(0.8)]))).toBe("Voice: — · 2 clips");
+    expect(aggregate([c(0.9)]).p).toBeNull();
+    expect(formatVoice(aggregate([c(0.9)]))).toBe("Voice: — · 1 clip");
+    expect(formatVoice(aggregate([c(0.9), c(0.8)]))).toBe("Voice: AI 85% · 2 clips");
     const a = aggregate(Array.from({ length: 14 }, (_, i) => c(i === 0 ? 0 : 0.72, i * 10)));
     expect(formatVoice(a)).toBe("Voice: AI 72% · 14 clips");
   });

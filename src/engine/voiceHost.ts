@@ -90,7 +90,19 @@ export async function downloadVerified(
   return buf;
 }
 
-async function modelBytes(spec: VoiceModelSpec, onProgress: (l: number, t: number) => void): Promise<Uint8Array> {
+// One download per model at a time: the popup's "Download & enable" and a
+// first clip from a tab can overlap.
+const inflight = new Map<string, Promise<Uint8Array>>();
+function modelBytes(spec: VoiceModelSpec, onProgress: (l: number, t: number) => void): Promise<Uint8Array> {
+  let p = inflight.get(spec.id);
+  if (!p) {
+    p = fetchModelBytes(spec, onProgress).finally(() => inflight.delete(spec.id));
+    inflight.set(spec.id, p);
+  }
+  return p;
+}
+
+async function fetchModelBytes(spec: VoiceModelSpec, onProgress: (l: number, t: number) => void): Promise<Uint8Array> {
   const cache = await openCache();
   const url = voiceModelUrl(spec);
   const hit = await cache?.match(url).catch(() => undefined);
@@ -171,6 +183,13 @@ export async function handleVoiceHost(req: VoiceHostRequest, onProgress: (p: Voi
   try {
     if (req.op === "status") return { ok: true, cached: await isVoiceModelCached(req.model) };
     const spec = VOICE_MODELS[req.model];
+    if (req.op === "download") {
+      if (!spec) return { ok: false, error: "bad request", code: "failed" };
+      if (!(await isVoiceModelCached(req.model))) {
+        await modelBytes(spec, (l, t) => onProgress({ kind: "lad-voice-progress", id: req.id, loaded: l, total: t }));
+      }
+      return { ok: true, cached: true };
+    }
     if (!spec || !req.pcmB64) return { ok: false, error: "bad request", code: "failed" };
     const run = queue.then(async () => {
       const loaded = await load(req.model, req.allowWebGPU, (l, t) => onProgress({ kind: "lad-voice-progress", id: req.id, loaded: l, total: t }));

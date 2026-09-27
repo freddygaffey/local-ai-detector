@@ -92,6 +92,41 @@ export function checklistRows(
   });
 }
 
+/**
+ * First-run checklist rows for the default setup (docs/plan.md "Two tiers"):
+ * every text detector the defaults use -- the Quick tier's automatic pass
+ * (the lite model) and the click-to-run Fusion set -- all ticked. A row
+ * can't be unticked when it's the last detector of its tier. Deep-only
+ * extras (ModernBERT, perplexity, Binoculars) are fetched when Deep first
+ * runs, behind their own prompt.
+ */
+export function defaultsChecklistRows(
+  settings: Pick<Settings, "mode" | "fusion" | "tiers" | "modelOverrides">,
+  device: "wasm" | "webgpu",
+  cache: CacheKnown | undefined,
+): (ChecklistRow & { tier: "quick" | "click" })[] {
+  const quick = settings.tiers.autoRunQuick ? settings.tiers.quickDetectors : [];
+  const single = MODE_DETECTOR[settings.mode];
+  const click = single ? [single] : fusionFrom(settings.fusion).detectors;
+  const ids = [...new Set([...quick, ...click])];
+  return ids.map((id) => {
+    const slots = DETECTOR_SLOTS[id];
+    const inQuick = quick.includes(id);
+    const inClick = click.includes(id);
+    return {
+      id,
+      label: slots.map((s) => DEFAULT_MODELS[s].label).join(" + "),
+      role: DETECTOR_ROLE[id],
+      sizeBytes: estimateFusion([id], device, settings.modelOverrides).bytes,
+      slots,
+      cached: cache ? slots.every((s) => cache[s] === true) : false,
+      checked: true,
+      locked: !!single && inClick ? true : (inQuick && quick.length <= 1) || (inClick && click.length <= 1),
+      tier: inQuick ? "quick" : "click",
+    };
+  });
+}
+
 /** Running total over checked rows only; null if any checked row's size is unknown (custom repo). */
 export function checklistTotalBytes(rows: Pick<ChecklistRow, "checked" | "sizeBytes">[]): number | null {
   let total = 0;

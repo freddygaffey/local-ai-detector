@@ -25,6 +25,11 @@ listing claim changes** (the built `.output/chrome-mv3/manifest.json` is the sou
 - **optional_host_permissions:** `<all_urls>`, granted per site on click, for image provenance checks only
 - **content_scripts:** `<all_urls>`, for the local Quick check and chip. Causes the install warning
   "Read and change all your data on all websites".
+- **content_scripts (page world):** `*://www.youtube.com/*`, `*://m.youtube.com/*`, `world: MAIN`,
+  `document_start`. Reads the current video's captions through YouTube's own player so the
+  transcript check works (YouTube no longer serves caption files to plain requests). Talks only
+  to youtube.com, uses no extension APIs, and restores the viewer's caption settings afterwards.
+  No new permission or install warning (already covered by `<all_urls>`).
 - **commands:** analyze-page, analyze-selection, toggle-visibility
 - **CSP:** `script-src 'self' 'wasm-unsafe-eval'; object-src 'self'` (WASM bundled, no remote code)
 

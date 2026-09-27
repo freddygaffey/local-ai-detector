@@ -6,6 +6,7 @@
 // docs/plan.md ("Shared contract"). Other tasks may read these types freely
 // but should not change their shape without the lead's sign-off.
 
+import type { PageTypeOverride } from "../content/pageType";
 import { browser } from "wxt/browser";
 import { FILTER_THRESHOLD } from "./thresholds";
 import { DEFAULT_VOICE, type VoiceSettings } from "../voice/settings";
@@ -182,6 +183,11 @@ export interface Settings {
   autoRunFastMode: Mode;
   /** Per-hostname override of `autoRunPolicy`, incl. "never on this site". */
   siteRules: Record<string, AutoRunPolicy>;
+  /**
+   * Per-hostname page-type override (src/content/pageType.ts): what runs
+   * automatically on that site. Missing = "auto" (URL rules + fingerprint).
+   */
+  pageTypes: Record<string, PageTypeOverride>;
   surfaces: ResultSurfaces;
   chipCorner: Corner;
   /** Chip shows a neutral/hidden state below this score (0..1). */
@@ -339,6 +345,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autoRunPolicy: "always",
   autoRunFastMode: "classifierLite",
   siteRules: {},
+  pageTypes: {},
   surfaces: { popup: true, badge: true, chip: true, highlights: false, sidePanel: false },
   chipCorner: "bottom-right",
   chipAutoHideThreshold: 0.35,
@@ -489,4 +496,9 @@ export function watchSettings(callback: (settings: Settings) => void): () => voi
   };
   browser.storage.onChanged.addListener(listener);
   return () => browser.storage.onChanged.removeListener(listener);
+}
+
+/** The page-type override for `hostname` ("auto" when there is none). */
+export function pageTypeOverrideForSite(settings: Pick<Settings, "pageTypes">, hostname: string): PageTypeOverride {
+  return settings.pageTypes?.[hostname] ?? "auto";
 }

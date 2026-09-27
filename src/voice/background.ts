@@ -32,6 +32,9 @@ const tabForRequest = new Map<string, number>();
 function forwardProgress(p: VoiceProgress): void {
   const tabId = p.id ? tabForRequest.get(p.id) : undefined;
   if (tabId !== undefined) void browser.tabs.sendMessage(tabId, p).catch(() => {});
+  // A request from an extension page (the popup's "Download & enable"). In
+  // Chrome it already hears the offscreen document's own broadcast.
+  else if (import.meta.env.FIREFOX) void browser.runtime.sendMessage(p).catch(() => {});
 }
 
 // ---- Firefox: dedicated voice worker ----
@@ -84,7 +87,11 @@ export async function handleVoiceRequest(req: VoiceRequest, tabId: number | unde
   const voice = sanitizeVoice(settings.voice);
   if (!voice.enabled) return { ok: false, error: "Voice check is off", code: "disabled" };
   const base = { kind: "lad-voice-host" as const, model: voice.model, allowWebGPU: settings.useWebGPU !== false };
-  if (req.op === "status") return hostCall({ ...base, id: `vs${++counter}`, op: "status" });
+  if (req.op === "status") return hostCall({ ...base, model: req.model ?? voice.model, id: `vs${++counter}`, op: "status" });
+  if (req.op === "download") {
+    if (!settings.consentedDownload) return { ok: false, error: "Model download not allowed yet", code: "consent" };
+    return hostCall({ ...base, model: req.model ?? voice.model, id: `vd${++counter}`, op: "download" });
+  }
   if (!settings.consentedDownload) {
     const st = await hostCall({ ...base, id: `vs${++counter}`, op: "status" });
     if (!(st.ok && st.cached)) return { ok: false, error: "Model download not allowed yet", code: "consent" };
@@ -104,8 +111,9 @@ export function registerVoiceBackground(): void {
       forwardProgress(msg); // Chrome: from the offscreen document
       return undefined;
     }
-    if (!isVoiceRequest(msg) || !sender.tab) return undefined;
-    void handleVoiceRequest(msg, sender.tab.id).then(sendResponse, (e: unknown) =>
+    // "score" only from a tab's content script; "status"/"download" also from the popup/options.
+    if (!isVoiceRequest(msg) || (!sender.tab && msg.op === "score")) return undefined;
+    void handleVoiceRequest(msg, sender.tab?.id).then(sendResponse, (e: unknown) =>
       sendResponse({ ok: false, error: String(e), code: "failed" } satisfies VoiceResponse),
     );
     return true;

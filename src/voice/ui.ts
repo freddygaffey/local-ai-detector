@@ -6,6 +6,7 @@
 // Closed shadow DOM. The lead may later merge this into the transcript chip.
 
 import { scoreColor } from "../content/colors";
+import { visibleVideoTitle } from "../content/youtube/ui";
 import { formatVoice } from "./aggregate";
 import type { VoiceState } from "./capture";
 import { VOICE_MODELS } from "../engine/voiceModels";
@@ -87,11 +88,9 @@ const CSS = `
 `;
 
 function anchor(): Element | null {
-  return (
-    document.querySelector("ai-detector-transcript") ??
-    document.querySelector("ytd-watch-metadata #title") ??
-    document.querySelector("#above-the-fold #title")
-  );
+  const t = document.querySelector("ai-detector-transcript");
+  if (t && t.getClientRects().length && !(t as HTMLElement).style.position) return t;
+  return visibleVideoTitle();
 }
 
 export function createVoiceChip(cb: VoiceChipCallbacks, opts: { fixedOnly?: boolean } = {}): VoiceChipApi {

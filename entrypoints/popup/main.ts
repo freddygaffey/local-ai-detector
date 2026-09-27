@@ -34,7 +34,11 @@ import { segmentSentences } from "@/src/content/segment";
 import { extractTextFromFile, ACCEPTED_FILE_EXTENSIONS } from "@/src/content/fileExtract";
 import { scoreHue } from "@/src/content/colors";
 import { mountToastHost, showToast } from "@/src/ui/toast";
-import { checklistRows, modeDownloadStatus, renderModelChecklist, type CacheKnown } from "@/src/ui/modelChecklist";
+import { defaultsChecklistRows, modeDownloadStatus, renderModelChecklist, type CacheKnown } from "@/src/ui/modelChecklist";
+import { VOICE_MODELS, VOICE_MODEL_IDS } from "@/src/engine/voiceModels";
+import { isVoiceProgress, type VoiceRequest, type VoiceResponse } from "@/src/voice/protocol";
+import type { VoiceModelId } from "@/src/voice/aggregate";
+import { describeVerdict, PAGE_TYPE_OVERRIDES, type PageTypeOverride, type PageVerdict } from "@/src/content/pageType";
 import type { FusionDetector } from "@/src/shared/settings";
 import { sanitizeFusion } from "@/src/shared/settings";
 import type { ModelSlot } from "@/src/shared/settings";
@@ -60,6 +64,11 @@ interface Ctx {
   deepBusy: boolean;
   /** True once the ↻ click has shown the "download (N MB)" prompt, awaiting a second click to proceed. */
   deepChecklistOpen: boolean;
+  /** "Download & enable" in progress (or failed): what it's fetching now. */
+  setup: { label: string; message: string; loaded: number; total: number; error?: string } | null;
+  voiceCached: Partial<Record<VoiceModelId, boolean>>;
+  /** The content script's page-type verdict ("Page: video (YouTube)"), when it answers. */
+  pageType: (PageVerdict & { host?: string }) | null;
 }
 
 const ctx: Ctx = {
@@ -78,6 +87,9 @@ const ctx: Ctx = {
   checklistBusy: false,
   deepBusy: false,
   deepChecklistOpen: false,
+  setup: null,
+  voiceCached: {},
+  pageType: null,
 };
 
 const root = document.getElementById("app") as HTMLDivElement;
@@ -105,6 +117,12 @@ async function main() {
       applyStatus(status);
       render();
     });
+    sendTabMessage(tabId, "getPageType", undefined)
+      .then((v) => {
+        ctx.pageType = v as PageVerdict & { host?: string };
+        render();
+      })
+      .catch(() => {});
     sendTabMessage(tabId, "getSelectionInfo", undefined)
       .then((res) => {
         ctx.hasSelection = res.hasSelection;
@@ -130,6 +148,10 @@ async function refreshCache(): Promise<void> {
       known[slot] = entry.cached;
     }
     ctx.cache = known;
+    for (const id of VOICE_MODEL_IDS) {
+      const r = (await browser.runtime.sendMessage({ kind: "lad-voice", op: "status", model: id } satisfies VoiceRequest).catch(() => undefined)) as VoiceResponse | undefined;
+      if (r?.ok && r.cached !== undefined) ctx.voiceCached = { ...ctx.voiceCached, [id]: r.cached };
+    }
     render();
   } catch {
     // Cache info isn't critical -- the checklist just won't grey anything out yet.
@@ -185,6 +207,10 @@ function render(): void {
   clearChildren(root);
   const state = currentState();
   root.append(renderHeader());
+  if (ctx.setup) {
+    root.append(renderConsentChecklist());
+    return;
+  }
   switch (state) {
     case "consent":
       root.append(renderConsent());
@@ -253,21 +279,44 @@ function openOptions(): void {
 
 // ---- Consent (model download checklist; no paragraphs) ----
 
-/** First-run checklist: every model the selected mode needs, ticked by default, sizes + roles + a running total. */
+/**
+ * First-run checklist: every model the defaults use (the Quick tier's lite
+ * model, the click-to-run Fusion set, the voice model), all ticked, sizes +
+ * roles + a running total. "Download & enable" fetches them all now, with
+ * progress, instead of leaving them to the first check.
+ */
 function renderConsentChecklist(): HTMLElement {
-  const rows = checklistRows(ctx.settings.mode, ctx.settings.fusion, ctx.settings.modelOverrides, "wasm", ctx.cache);
-  return h(
+  const rows = defaultsChecklistRows(ctx.settings, "wasm", ctx.cache);
+  const body = h(
     "div",
     { class: "popup-body consent" },
-    h("p", { class: "field-hint" }, `${MODE_LABEL[ctx.settings.mode]} needs:`),
+    h("p", { class: "field-hint" }, "Models:"),
     renderModelChecklist({
       rows,
       onToggle: (id, checked) => void onConsentToggle(id, checked),
-      onDownload: () => void onConsent(),
+      onDownload: ctx.setup ? undefined : () => void onConsent(),
       downloadLabel: "Download & enable",
       busy: ctx.checklistBusy,
-      extraRows: voiceChecklistRows(ctx.settings.voice, (voice) => void setSettings({ voice }).then((s) => ((ctx.settings = s), render()))),
+      extraRows: voiceChecklistRows(ctx.settings.voice, (voice) => void setSettings({ voice }).then((s) => ((ctx.settings = s), render())), ctx.voiceCached),
     }),
+  );
+  if (ctx.setup) body.append(renderSetupProgress(ctx.setup));
+  return body;
+}
+
+function renderSetupProgress(setup: NonNullable<Ctx["setup"]>): HTMLElement {
+  const pct = setup.total > 0 ? Math.min(100, Math.round((100 * setup.loaded) / setup.total)) : null;
+  return h(
+    "div",
+    { class: "progress-panel" },
+    h("div", { class: "phase" }, setup.error ? "Download failed" : setup.label),
+    h("div", { class: `progress-bar${pct === null ? " indeterminate" : ""}` }, h("span", { style: `width:${pct ?? 40}%` })),
+    h(
+      "div",
+      { class: "detail" },
+      h("span", { class: "message", title: setup.error ?? setup.message }, setup.error ?? setup.message),
+      h("span", { class: "num" }, pct !== null ? `${formatBytes(setup.loaded)} / ${formatBytes(setup.total)}` : ""),
+    ),
   );
 }
 
@@ -276,16 +325,80 @@ function renderConsent(): HTMLElement {
 }
 
 async function onConsentToggle(id: FusionDetector, checked: boolean): Promise<void> {
-  const current = ctx.settings.fusion.detectors;
-  const next = checked ? [...new Set([...current, id])] : current.filter((d) => d !== id);
-  if (next.length === 0) return; // keep at least one
-  ctx.settings = await setSettings({ fusion: sanitizeFusion({ ...ctx.settings.fusion, detectors: next }) });
+  const row = defaultsChecklistRows(ctx.settings, "wasm", ctx.cache).find((r) => r.id === id);
+  if (!row || row.locked) return;
+  if (row.tier === "quick") {
+    const q = ctx.settings.tiers.quickDetectors;
+    const next = checked ? [...new Set([...q, id])] : q.filter((d) => d !== id);
+    if (next.length === 0) return;
+    ctx.settings = await setSettings({ tiers: { ...ctx.settings.tiers, quickDetectors: next } });
+  } else {
+    const current = ctx.settings.fusion.detectors;
+    const next = checked ? [...new Set([...current, id])] : current.filter((d) => d !== id);
+    if (next.length === 0) return; // keep at least one
+    ctx.settings = await setSettings({ fusion: sanitizeFusion({ ...ctx.settings.fusion, detectors: next }) });
+  }
   render();
 }
 
+// Something short and neutral to push through the detectors once, which
+// makes the engine fetch, verify and cache every checked text model.
+const WARMUP_TEXT =
+  "The library opens at nine on weekdays and at ten on weekends. Members can borrow up to six books at a time, " +
+  "and most loans last three weeks. If a book is overdue, a small fee is added for each day it is late. " +
+  "Study rooms can be booked at the front desk, and there is free wifi throughout the building for everyone who visits.";
+
 async function onConsent(): Promise<void> {
-  ctx.settings = await setSettings({ consentedDownload: true });
+  const rows = defaultsChecklistRows(ctx.settings, "wasm", ctx.cache);
+  ctx.setup = { label: "Downloading", message: "Starting…", loaded: 0, total: 0 };
+  ctx.checklistBusy = true;
   render();
+  try {
+    await setSettings({ consentedDownload: true });
+    // 1. Text models (one pass through every checked detector).
+    const text = WARMUP_TEXT;
+    await sendMessage(
+      "analyze",
+      {
+        tabId: -1,
+        mode: "ensemble",
+        fusionOverride: rows.filter((r) => r.checked).map((r) => r.id),
+        blocks: [{ id: "warmup", text, sentences: segmentSentences(text) }],
+      },
+      (p) => {
+        if (!ctx.setup) return;
+        ctx.setup = { ...ctx.setup, label: p.phase === "download" && !isCacheLoad(p) ? "Downloading text models" : "Loading text models", message: p.message, loaded: p.loaded, total: p.total };
+        render();
+      },
+    );
+    // 2. The voice model, if the voice check is on.
+    const voice = ctx.settings.voice;
+    if (voice?.enabled) {
+      ctx.setup = { label: "Downloading voice model", message: VOICE_MODELS[voice.model].label, loaded: 0, total: VOICE_MODELS[voice.model].bytes };
+      render();
+      const onVoice = (m: unknown) => {
+        if (!isVoiceProgress(m) || !ctx.setup) return;
+        ctx.setup = { ...ctx.setup, loaded: m.loaded, total: m.total };
+        render();
+      };
+      browser.runtime.onMessage.addListener(onVoice);
+      try {
+        const res = (await browser.runtime.sendMessage({ kind: "lad-voice", op: "download", model: voice.model } satisfies VoiceRequest)) as VoiceResponse | undefined;
+        if (res && !res.ok) throw new Error(res.error);
+        ctx.voiceCached = { ...ctx.voiceCached, [voice.model]: true };
+      } finally {
+        browser.runtime.onMessage.removeListener(onVoice);
+      }
+    }
+    ctx.setup = null;
+    await refreshCache();
+  } catch (err) {
+    ctx.setup = { ...(ctx.setup ?? { label: "", loaded: 0, total: 0, message: "" }), error: err instanceof Error ? err.message : String(err) };
+  } finally {
+    ctx.checklistBusy = false;
+    ctx.settings = await getSettings();
+    render();
+  }
 }
 
 // ---- Unsupported page ----
@@ -371,7 +484,50 @@ function renderMain(): HTMLElement {
   body.append(renderButtons());
   body.append(renderPasteSection());
   body.append(renderQuickSelects());
+  const page = renderPageTypeRow();
+  if (page) body.append(page);
   return body;
+}
+
+const PAGE_OVERRIDE_LABEL: Record<PageTypeOverride, string> = {
+  auto: "Auto",
+  article: "Article",
+  thread: "Thread",
+  video: "Video",
+  subtitles: "Subtitles",
+  search: "Search",
+  off: "Off",
+};
+
+/** "Page: video (YouTube)" plus this site's override -- quiet, one line. */
+function renderPageTypeRow(): HTMLElement | null {
+  if (!ctx.pageType) return null;
+  // The content script's own hostname: the popup can't always see the tab's URL.
+  const hostname = tabHostname() ?? ctx.pageType.host;
+  if (!hostname) return h("div", { class: "page-type-row" }, h("span", { class: "field-hint" }, describeVerdict(ctx.pageType)));
+  const current: PageTypeOverride = ctx.settings.pageTypes?.[hostname] ?? "auto";
+  const select = h(
+    "select",
+    {
+      class: "select-control select-small",
+      "aria-label": `Page type on ${hostname}`,
+      title: `Page type on ${hostname}`,
+      onchange: (e: Event) => void setPageTypeOverride(hostname, (e.target as HTMLSelectElement).value as PageTypeOverride),
+    },
+    ...PAGE_TYPE_OVERRIDES.map((o) => h("option", { value: o, selected: o === current }, PAGE_OVERRIDE_LABEL[o])),
+  );
+  return h("div", { class: "page-type-row" }, h("span", { class: "field-hint" }, describeVerdict(ctx.pageType)), select);
+}
+
+async function setPageTypeOverride(hostname: string, value: PageTypeOverride): Promise<void> {
+  const pageTypes = { ...ctx.settings.pageTypes };
+  if (value === "auto") delete pageTypes[hostname];
+  else pageTypes[hostname] = value;
+  ctx.settings = await setSettings({ pageTypes });
+  if (ctx.tabId !== null) {
+    ctx.pageType = (await sendTabMessage(ctx.tabId, "getPageType", undefined).catch(() => ctx.pageType)) as (PageVerdict & { host?: string }) | null;
+  }
+  render();
 }
 
 function bandWord(result: AnalyzeResult | null): { band: ReturnType<typeof bandFromResult>; text: string; score: number | null } {

@@ -40,9 +40,12 @@ import { segmentSentences, wordCount } from "./segment";
 import { formatSentenceTooltip, hideTooltip, showTooltip } from "./tooltip";
 import type { ActiveSentence, BlockRecord } from "./types";
 import { clearUnicodeMarkers, renderUnicodeMarkers } from "./unicodeMarkers";
-import { runDeepTranscriptCheck, startYouTubeTranscripts } from "./youtube";
-import { videoFromUrl } from "./youtube/acquire";
-import { runDeepVoiceCheck, startVoiceContent } from "../voice/content";
+import { runDeepTranscriptCheck, setTranscriptGate, startYouTubeTranscripts } from "./youtube";
+import { isYouTubeHost } from "./youtube/acquire";
+import { runDeepVoiceCheck, setVoiceGate, startVoiceContent } from "../voice/content";
+import { classifyPage, resolvePageType, type PageVerdict } from "./pageType";
+import { startSubtitlesPage, startVideoPage, stopPageMedia } from "./pageMedia";
+import { pageTypeOverrideForSite } from "../shared/settings";
 
 const INJECT_FLAG = "__aiDetectorContentBooted";
 
@@ -93,20 +96,60 @@ function safeHostname(): string {
   }
 }
 
-/**
- * A YouTube watch or Shorts page: the generic page chip and text highlights
- * would otherwise score the page's own chrome (title, description, related
- * videos) -- a meaningless number next to the transcript and voice chips,
- * which are the actual result there. The comment thread is a separate
- * `structuredMatch` (its own per-comment markers keep working normally --
- * same gate as any other comments site, docs/plan.md "Slop filter").
- */
-function isYouTubeChromePage(): boolean {
+// ---- Page type routing (src/content/pageType.ts) ------------------------------
+//
+//   article / thread  page text: the Quick pass automatically, Deep on click
+//                     (threads get per-item scores from the adapters)
+//   video             transcript + voice chips only (YouTube's own modules, or
+//                     src/content/pageMedia.ts elsewhere); never the page text
+//   subtitles         the page's cues, scored transcript-style
+//   search            snippet markers only
+//   app / off         nothing automatic; the popup still checks on click
+
+let page: PageVerdict = { type: "article", reason: "", via: "fallback" };
+
+function classifyNow(): PageVerdict {
   try {
-    return videoFromUrl(location.href) !== null;
+    const raw = classifyPage({ doc: document, url: location.href, viewport: { width: innerWidth, height: innerHeight } });
+    return resolvePageType(raw, pageTypeOverrideForSite(settings, hostname));
   } catch {
-    return false;
+    return { type: "article", reason: "", via: "fallback" };
   }
+}
+
+/** Article or thread: the page's own text is what gets scored. */
+function pageTextRoute(): boolean {
+  return !page.off && (page.type === "article" || page.type === "thread");
+}
+
+let mediaRoute = "";
+function applyRoute(): void {
+  const media = page.off ? "" : page.type === "video" || page.type === "subtitles" ? `${page.type}|${location.href}` : "";
+  setTranscriptGate(() => !page.off && (page.type === "video" || page.type === "subtitles"));
+  setVoiceGate(() => !page.off && page.type === "video");
+  let youtube = false;
+  try {
+    youtube = isYouTubeHost(location.hostname);
+  } catch {
+    // ignore
+  }
+  if (!youtube && media !== mediaRoute) {
+    stopPageMedia();
+    if (page.type === "video" && !page.off) startVideoPage(document);
+    else if (page.type === "subtitles" && !page.off) startSubtitlesPage(document);
+  }
+  mediaRoute = media;
+  reconcileSurfaces();
+}
+
+/** Re-classifies (after navigation, a settings change, or late-rendered content); runs what the new type wants. */
+function reroute(opts: { autoRun: boolean }): void {
+  const before = page;
+  page = classifyNow();
+  applyRoute();
+  if (!opts.autoRun || (before.type === page.type && before.off === page.off)) return;
+  if (pageTextRoute()) void maybeAutoRun();
+  if (page.type === "search") void maybeMarkSearchResults();
 }
 
 async function boot(): Promise<void> {
@@ -114,7 +157,10 @@ async function boot(): Promise<void> {
   currentStyle = settings.highlightStyle;
   hostname = safeHostname();
 
+  page = classifyNow();
+
   registerHandlers({
+    getPageType: () => ({ ...page, host: hostname }),
     extractText: async ({ target }) => {
       const blocks = doExtract(target);
       pill?.setAnalyzing({ phase: "analyze", loaded: 0, total: 0, message: "Analyzing…" });
@@ -166,6 +212,7 @@ async function boot(): Promise<void> {
     const prev = settings;
     settings = next;
     if (next.highlightStyle !== currentStyle && lastResult) changeStyle(next.highlightStyle);
+    if (JSON.stringify(prev.pageTypes ?? {}) !== JSON.stringify(next.pageTypes ?? {})) reroute({ autoRun: true });
     if (
       prev.surfaces.chip !== next.surfaces.chip ||
       prev.surfaces.highlights !== next.surfaces.highlights ||
@@ -198,10 +245,9 @@ async function boot(): Promise<void> {
         resetImageBadges();
         structuredMatch = null;
         searchMatch = null;
-        // A YouTube SPA navigation can cross into/out of a watch or Shorts
-        // page without a settings change, which is the only other trigger
-        // for this (docs/plan.md "T4"/"T9"): re-evaluate the chip here too.
-        reconcileSurfaces();
+        // An SPA navigation (YouTube, Reddit, ...) can change the page type:
+        // re-classify, and re-evaluate the chip (docs/plan.md "T4"/"T9").
+        reroute({ autoRun: false });
       },
     },
   );
@@ -213,17 +259,19 @@ async function boot(): Promise<void> {
     void import("../e2e/bridge").then(({ installContentBridge }) => installContentBridge());
   }
 
-  reconcileSurfaces();
+  applyRoute();
   startYouTubeTranscripts();
   startVoiceContent(); // T11 voice check (standalone; src/voice/content.ts)
   void maybeAutoRun();
   void maybeMarkSearchResults();
+  // Late-rendering pages (SPAs) can look empty at document_idle: look again once.
+  if (page.via === "fallback") setTimeout(() => reroute({ autoRun: true }), 2500);
 }
 
 // ---- Presence surfaces (chip / pill) ---------------------------------------
 
 function wantPill(): boolean {
-  const highlightsWanted = settings.surfaces.highlights && !(isYouTubeChromePage() && !structuredMatch);
+  const highlightsWanted = settings.surfaces.highlights && !(!pageTextRoute());
   return highlightsWanted || chipExpanded || sessionShowOnPage;
 }
 
@@ -254,7 +302,7 @@ function teardownPillIfUnwanted(): void {
 
 function reconcileSurfaces(): void {
   try {
-    const wantChip = settings.surfaces.chip && !isYouTubeChromePage();
+    const wantChip = settings.surfaces.chip && pageTextRoute();
     if (wantChip && !chip) {
       chip = createChip(settings.chipCorner, {
         onExpand: () => {
@@ -387,6 +435,7 @@ async function maybeAutoRun(): Promise<void> {
     // Tiers task (docs/plan.md "Two tiers"): "Run quick check automatically"
     // off means no automatic pass at all -- Deep still runs on click.
     if (!settings.tiers.autoRunQuick) return;
+    if (!pageTextRoute()) return; // video/subtitles/search/app: not the page text
     const policy = autoRunPolicyForSite(settings, hostname);
     if (policy !== "always") return; // "never": nothing; "ask" isn't implemented yet (treated as off).
     const [battery, pressure] = await Promise.all([readBatteryState(), readPressureState()]);
@@ -422,7 +471,7 @@ async function maybeAutoRun(): Promise<void> {
 // ---- Rendering --------------------------------------------------------------
 
 function shouldPaintOnPage(): boolean {
-  const highlightsWanted = settings.surfaces.highlights && !(isYouTubeChromePage() && !structuredMatch);
+  const highlightsWanted = settings.surfaces.highlights && !(!pageTextRoute());
   return highlightsWanted || chipExpanded || sessionShowOnPage;
 }
 
@@ -586,9 +635,11 @@ async function maybeRecordSiteMemory(result: AnalyzeResult): Promise<void> {
   await recordSiteScore(hostname, band === "ai").catch(() => {});
 }
 
+const SNIPPET_MIN_WORDS = 15;
+
 async function maybeMarkSearchResults(): Promise<void> {
   try {
-    if (!settings.slopFilter.searchMarkers) return;
+    if (!settings.slopFilter.searchMarkers || page.off || page.type !== "search") return;
     const match = detectSearchResults(document, hostname);
     searchMatch = match;
     if (!match) return;
@@ -599,7 +650,9 @@ async function maybeMarkSearchResults(): Promise<void> {
     const items = match.blocks.map((block) => {
       const scores = byBlock.get(block.id) ?? [];
       const score = scores.length ? scores.reduce((n, s) => n + s.score, 0) / scores.length : 0;
-      return { ownerEl: block.owner, score, tooShort: isBlockTooShort(block.text, settings.minWords) };
+      // Snippets are short by nature (~20-40 words): the page-level minimum
+      // (50) would rule every one out, so they get their own, lower floor.
+      return { ownerEl: block.owner, score, tooShort: isBlockTooShort(block.text, Math.min(settings.minWords, SNIPPET_MIN_WORDS)) };
     });
     applySearchMarkers(items, filterThreshold());
   } catch {

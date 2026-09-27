@@ -377,3 +377,25 @@ body {
   flex-direction: column;
   gap: 0.5em;
 }
+
+/* Page type ("Page: video (YouTube)") + this site's override: one quiet line. */
+.page-type-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+}
+.page-type-row .field-hint {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.page-type-row select {
+  flex: none;
+  width: auto;
+  min-width: 0;
+  font-size: 12px;
+  padding: 2px 4px;
+}

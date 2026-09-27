@@ -143,7 +143,10 @@ async function runAnalyze(
   const mode = req.mode ?? settings.mode;
   // A content script doesn't know its own tab id (T2 sends tabId 0), so the
   // sender's tab wins; the popup passes the real id of the active tab.
-  const tabId = meta.tabId ?? meta.senderTabId ?? (typeof req.tabId === "number" && req.tabId >= 0 ? req.tabId : -1);
+  // An explicit tabId of -1 means "not this page's result" (transcript
+  // blocks, search snippets, the popup's paste box, model warm-up): it must
+  // not become the tab's status, badge or popup score.
+  const tabId = req.tabId === -1 ? -1 : (meta.tabId ?? meta.senderTabId ?? (typeof req.tabId === "number" && req.tabId >= 0 ? req.tabId : -1));
   // Tiers task: a Deep (or explicit Quick) check overrides the Fusion
   // detector set for this run only, instead of `settings.fusion` (docs/plan.md
   // "Two tiers").
