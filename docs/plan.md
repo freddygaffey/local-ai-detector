@@ -202,6 +202,16 @@ the final package.
 **Everything is configurable, with good defaults**: every behaviour ships with a considered default,
 and users can change it in settings.
 
+## Two tiers: Quick (default) and Deep (on demand), a user decision
+- **Quick check** (default, automatic): the cheapest pass, lite model only (~0.35 s/page), voice at
+  the Light rate. It gives the general indicator (the chip / "AI 54%").
+- **Deep check**: a ↻ button at the bottom of the popup, expanded chip and side panel. Tooltip
+  "Deep check: all models, slower, more battery". It runs everything: the full Fusion set plus
+  ModernBERT, Binoculars and perplexity; on YouTube also voice at Thorough and the whole
+  transcript. The result replaces the quick score and is labelled "Deep".
+- Configurable: the quick and deep detector sets, and whether the quick check runs automatically.
+- Build after T11 lands (the same popup and settings files).
+
 ## Display rules (approved)
 - Every displayed % comes from `toDisplayProbability()`, a calibrated probability on web text.
 - Threads and comment pages show a count in the chip ("3 AI") plus per-item %. Articles show a
