@@ -12,7 +12,7 @@
 
 import { browser } from "wxt/browser";
 import type { UnicodeScanResult } from "../detectors/unicode";
-import type { Mode, ModelSlot } from "./settings";
+import type { HighlightStyle, Mode, ModelSlot } from "./settings";
 
 export interface SentenceRange {
   start: number;
@@ -50,12 +50,25 @@ export interface ProgressEvent {
   message: string;
 }
 
+/**
+ * Added by T3: a minimal, optional shape for T4's provenance/watermark
+ * summary (see docs/watermarks.md), so the popup can render a real one-line
+ * summary once T4 fills it in, and a neutral placeholder until then.
+ */
+export interface ImageProvenanceSummary {
+  total: number;
+  withCredentials: number;
+  withUnsignedClaim: number;
+}
+
 export interface AnalyzeResult {
   overall: number;
   sentences: SentenceScore[];
   unicode: UnicodeScanResult;
   tooLong?: boolean;
   notes: string[];
+  /** Optional: set by T4 once provenance checks are wired into `analyze`. */
+  images?: ImageProvenanceSummary;
 }
 
 export interface ModelUpdateInfo {
@@ -112,15 +125,161 @@ export interface PingMessage {
   response: { ok: true; ts: number };
 }
 
+// ---- Added by T3 (additive only; see docs/plan.md "Shared contract") ----
+
+/** Per-slot cache info, for the options page's model-management table and total cache size. */
+export interface ModelSlotCacheInfo {
+  cached: boolean;
+  sizeBytes: number;
+}
+
+export interface GetModelCacheInfoMessage {
+  type: "getModelCacheInfo";
+  request: undefined;
+  response: { slots: Partial<Record<ModelSlot, ModelSlotCacheInfo>>; totalBytes: number };
+}
+
+/**
+ * Sent by the popup (via `sendTabMessage`, below) to the content script of
+ * the active tab, asking it to extract text blocks to analyze. T2 owns the
+ * handler; until it registers one, `sendTabMessage` rejects and the popup
+ * shows its normal error state with retry.
+ */
+export interface ExtractTextMessage {
+  type: "extractText";
+  request: { target: "page" | "selection" };
+  response: { blocks: TextBlock[] };
+}
+
+/**
+ * Sent by the popup to the content script after `analyze` resolves, so it
+ * can render highlights in the page. T2 owns the handler.
+ */
+export interface RenderHighlightsMessage {
+  type: "renderHighlights";
+  request: { result: AnalyzeResult; style: HighlightStyle };
+  response: ActionResult;
+}
+
+/** Sent by the popup's "Clear highlights" button. T2 owns the handler. */
+export interface ClearHighlightsMessage {
+  type: "clearHighlights";
+  request: undefined;
+  response: ActionResult;
+}
+
+// ---- Added by T1 (additive only; see docs/plan.md "Shared contract") ----
+
+/**
+ * `analyze` rejects with an error whose message starts with this string when
+ * the models for the requested mode aren't cached yet and the user hasn't
+ * set `consentedDownload`. The rest of the message is human-readable.
+ */
+export const CONSENT_REQUIRED_ERROR = "consent-required";
+
+/** Result of checking a user-entered Hugging Face repo for a model slot, without switching to it. */
+export type CustomModelValidation =
+  | {
+      ok: true;
+      repo: string;
+      /** Commit SHA that would be pinned. */
+      revision: string;
+      license: string | null;
+      /** False for missing/"other"/non-open licences: show a visible warning. */
+      openLicense: boolean;
+      /** Human-readable warnings (licence, no WebGPU weights, tokenizer mismatch, ...). */
+      warnings: string[];
+      /** Approximate download size (q8 weights + tokenizer), if known. */
+      sizeBytes: number | null;
+    }
+  | { ok: false; error: string };
+
+export interface ValidateCustomModelMessage {
+  type: "validateCustomModel";
+  request: { slot: ModelSlot; repo: string };
+  response: CustomModelValidation;
+}
+
+/** Latest analysis state per tab, kept by the background router. */
+export type TabAnalysisStatus =
+  | { state: "idle" }
+  | { state: "running"; mode: Mode; progress?: ProgressEvent }
+  | { state: "done"; mode: Mode; result: AnalyzeResult; finishedAt: number }
+  | { state: "error"; mode: Mode; error: string };
+
+export interface GetTabStatusMessage {
+  type: "getTabStatus";
+  request: { tabId: number };
+  response: TabAnalysisStatus;
+}
+
+/** Inference-host facts plus the last model-update check, for the options page. */
+export interface EngineInfo {
+  runtime: {
+    device: "webgpu" | "wasm" | "cpu";
+    shaderF16: boolean;
+    threads: number;
+    crossOriginIsolated: boolean;
+    cache: "cache-api" | "indexeddb" | "filesystem" | "none";
+    persisted: boolean | null;
+  } | null;
+  lastUpdateCheck: { ts: number; updates: ModelUpdateInfo[] } | null;
+}
+
+export interface GetEngineInfoMessage {
+  type: "getEngineInfo";
+  request: undefined;
+  response: EngineInfo;
+}
+
+/**
+ * One-way event broadcast by the background whenever a tab's analysis state
+ * changes (to extension pages via runtime.sendMessage, and to that tab's
+ * content script via tabs.sendMessage), so the popup and the page can follow
+ * an analysis they didn't start themselves.
+ */
+export interface AnalysisStatusEnvelope {
+  kind: "event";
+  event: "analysisStatus";
+  tabId: number;
+  status: TabAnalysisStatus;
+}
+
+export function isAnalysisStatusEnvelope(m: unknown): m is AnalysisStatusEnvelope {
+  return (
+    !!m &&
+    typeof m === "object" &&
+    (m as { kind?: unknown }).kind === "event" &&
+    (m as { event?: unknown }).event === "analysisStatus"
+  );
+}
+
+/** Subscribes to analysisStatus events. Returns an unsubscribe function. */
+export function onAnalysisStatus(callback: (tabId: number, status: TabAnalysisStatus) => void): () => void {
+  const listener = (message: unknown) => {
+    if (isAnalysisStatusEnvelope(message)) callback(message.tabId, message.status);
+    return undefined;
+  };
+  browser.runtime.onMessage.addListener(listener);
+  return () => browser.runtime.onMessage.removeListener(listener);
+}
+
 /** Every request/response message kind, as a discriminated union. */
 export type RuntimeMessage =
+  | ValidateCustomModelMessage
+  | GetTabStatusMessage
+  | GetEngineInfoMessage
   | AnalyzeMessage
   | CheckModelUpdatesMessage
   | UpdateModelMessage
   | RollbackModelMessage
   | SetCustomModelMessage
   | DeleteCachedModelMessage
-  | PingMessage;
+  | PingMessage
+  | GetModelCacheInfoMessage
+  | ExtractTextMessage
+  | RenderHighlightsMessage
+  | ClearHighlightsMessage;
 
 export type MessageType = RuntimeMessage["type"];
 
@@ -202,6 +361,27 @@ export async function sendMessage<T extends MessageType>(
   } finally {
     if (progressListener) browser.runtime.onMessage.removeListener(progressListener);
   }
+}
+
+/**
+ * Like `sendMessage`, but targets a specific tab's content script via
+ * `browser.tabs.sendMessage` instead of the extension-wide
+ * `browser.runtime.sendMessage`. Used by the popup (T3) to talk to the
+ * content script (T2), which can register handlers for these message types
+ * with the same `registerHandlers` (it listens on `runtime.onMessage`, which
+ * also receives messages sent via `tabs.sendMessage`).
+ */
+export async function sendTabMessage<T extends MessageType>(
+  tabId: number,
+  type: T,
+  payload: RequestOf<T>,
+): Promise<ResponseOf<T>> {
+  const id = newId();
+  const request: RequestEnvelope<T> = { kind: "request", id, type, payload };
+  const res = (await browser.tabs.sendMessage(tabId, request)) as ResponseEnvelope<T> | undefined;
+  if (!res) throw new Error(`No response for tab message "${type}"`);
+  if (!res.ok) throw new Error(res.error ?? `Tab message "${type}" failed`);
+  return res.payload as unknown as ResponseOf<T>;
 }
 
 /** Broadcasts a progress event tied to `requestId` (the id `sendMessage` generated). */
