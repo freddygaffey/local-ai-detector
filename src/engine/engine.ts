@@ -96,8 +96,16 @@ async function ensureModels(
       if (!stillUsed) await unloadModels([prev]);
     }
     onProgress?.({ phase: "load", loaded: i, total: slots.length, message: `Loading ${DEFAULT_MODELS[slot].label}` });
-    out[slot] = await loadModel(slot, ref, agg.onFile, webgpuDtypes?.[slot]);
-    activeBySlot.set(slot, ref);
+    try {
+      out[slot] = await loadModel(slot, ref, agg.onFile, webgpuDtypes?.[slot]);
+      activeBySlot.set(slot, ref);
+    } catch (err) {
+      // Leave this slot out of `out` rather than failing every slot's load:
+      // a single-detector mode's own code still surfaces a clear "not
+      // loaded" error for its one required slot; Fusion (detect.ts) drops
+      // just this detector and continues with the rest.
+      console.warn(`[Local AI Detector] model for slot "${slot}" failed to download/load`, err);
+    }
   }
   onProgress?.({ phase: "load", loaded: slots.length, total: slots.length, message: "Models ready" });
   return out;

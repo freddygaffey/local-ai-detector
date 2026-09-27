@@ -263,7 +263,24 @@ export async function analyzeBlocks(
   }
 
   const spec: FusionSpec = opts.fusion ?? opts.ensembleClassifier;
-  const { detectors, method } = detectorsForMode(opts.mode, spec);
+  const { detectors: requestedDetectors, method } = detectorsForMode(opts.mode, spec);
+  // Fusion (2+ detectors) tolerates one detector's model failing to
+  // download/load (e.g. Fakespot): drop it and continue with the rest,
+  // noting it, rather than failing the whole analysis. A single-detector
+  // mode still surfaces the real "not loaded" error from `need()` below --
+  // there is nothing left to fall back to.
+  const detectors =
+    requestedDetectors.length <= 1
+      ? requestedDetectors
+      : requestedDetectors.filter((d) => {
+          const ok = DETECTOR_SLOTS[d].every((slot) => {
+            const m = models[slot];
+            return !!m && m.kind === (d === "perplexity" || d === "binoculars" ? "lm" : "classifier");
+          });
+          if (!ok) notes.push(`${DETECTOR_LABELS[d]} unavailable.`);
+          return ok;
+        });
+  if (detectors.length === 0) throw new Error("No detector models are available.");
   const firstSlot = DETECTOR_SLOTS[detectors[0]!]![0]!;
   const primary = models[firstSlot];
   if (!primary) throw new Error(`Model for slot "${firstSlot}" is not loaded`);

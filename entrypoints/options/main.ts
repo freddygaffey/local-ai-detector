@@ -61,6 +61,8 @@ interface State {
   newSiteRuleHost: string;
   newSiteRulePolicy: AutoRunPolicy;
   checklistBusy: boolean;
+  /** Terse "<Detector> unavailable" note from the last download attempt (AnalyzeResult.notes), if any. */
+  checklistNote: string | null;
 }
 
 const state: State = {
@@ -77,6 +79,7 @@ const state: State = {
   newSiteRuleHost: "",
   newSiteRulePolicy: "never",
   checklistBusy: false,
+  checklistNote: null,
 };
 
 const root = document.getElementById("app") as HTMLDivElement;
@@ -614,13 +617,15 @@ function checklistDevice(): "wasm" | "webgpu" {
 function renderChecklistCard(): HTMLElement {
   const rows = checklistRows(state.settings.mode, state.settings.fusion, state.settings.modelOverrides, checklistDevice(), checklistCache(), true);
   const anyMissingChecked = rows.some((r) => r.checked && !r.cached);
-  return renderModelChecklist({
+  const checklist = renderModelChecklist({
     rows,
     onToggle: (id, checked) => void onChecklistToggle(id, checked),
     onDownload: anyMissingChecked ? () => void doDownloadChecklist() : undefined,
     downloadLabel: "Download checked",
     busy: state.checklistBusy,
   });
+  if (state.checklistNote) checklist.append(h("p", { class: "model-error-note" }, state.checklistNote));
+  return checklist;
 }
 
 async function onChecklistToggle(id: FusionDetector, checked: boolean): Promise<void> {
@@ -637,11 +642,17 @@ async function doDownloadChecklist(): Promise<void> {
     return;
   }
   state.checklistBusy = true;
+  state.checklistNote = null;
   render();
   try {
     const blocks = [{ id: "warm", text: "warm up", sentences: [{ start: 0, end: 7 }] }];
-    await sendMessage("analyze", { tabId: -1, mode: state.settings.mode, blocks });
-    showToast("Download complete");
+    const result = await sendMessage("analyze", { tabId: -1, mode: state.settings.mode, blocks });
+    // Fusion continues with whatever detectors loaded (src/engine/detect.ts);
+    // surface a terse note here rather than only a one-off toast, since the
+    // checklist is exactly where "which model is missing" matters.
+    const unavailable = result.notes.filter((n) => n.endsWith("unavailable."));
+    state.checklistNote = unavailable.length ? unavailable.join(" ") : null;
+    showToast(unavailable.length ? "Download finished, with gaps" : "Download complete");
   } catch (err) {
     showToast(err instanceof Error ? err.message : "Download failed");
   } finally {
