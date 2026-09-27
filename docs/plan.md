@@ -85,6 +85,22 @@ total download size and a speed estimate for the chosen set. Calibrate on the br
 like T5 did, and add unit tests and E2E coverage. Update README, THIRD_PARTY, store listing,
 calibration.md and qa.md. Owner model: Opus. Runs after T5 (same files).
 
+## T8: Battery saver (added at the user's request, ships in v0.1.0)
+Browsers don't expose OS low-power mode (macOS Low Power Mode / Windows battery saver), so use
+the available signals: Battery Status API (Chrome: charging, level; verify Firefox
+availability), and Compute Pressure API (Chrome, where available). Settings (defaults in
+brackets):
+- on battery: [normal] | use lite model | pause auto-run (manual only)
+- below N% battery [20%]: pause analysis, with a "Paused to save battery, run anyway?" prompt
+  in the pill and popup
+- pause under serious/critical CPU pressure [on]
+- unload models after N minutes idle [5]
+- manual "battery saver" toggle, shown prominently where the battery API is unavailable
+  (Firefox)
+Owner model: Sonnet. Owns src/power/**. Makes additive edits to settings, the background gate
+before analysis, and the popup/options sections. Runs alongside T7 (T7 owns engine, fusion and
+calibration).
+
 ## Out of scope for v1
 Remote APIs (incl. Anthropic's planned watermark-detection API and SynthID), VideoSeal/AudioSeal/TrustMark (35–228 MB models, v2), non-English calibration, and store publishing
 (done by the user).
