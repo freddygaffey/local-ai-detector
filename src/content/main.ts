@@ -18,7 +18,7 @@ import { bandFromResult } from "../ui/verdict";
 import { displayScore, filterThreshold } from "../ui/probability";
 import { toDisplayProbability } from "../shared/thresholds";
 import { detectSearchResults, detectStructuredContent, isBlockTooShort, type AdapterBlock, type AdapterMatch } from "./adapters";
-import { extractVisibleBlocks, getRangeForOffsets, nextBlockId, proseBlocks, toWireBlocks } from "./extract";
+import { capBlockWords, extractVisibleBlocks, getRangeForOffsets, nextBlockId, proseBlocks, toWireBlocks } from "./extract";
 import { extractElementText } from "./adapters/dom";
 import { renderHighlights as renderPageHighlights, clearHighlights as clearPageHighlights } from "./highlightStyles";
 import { buildHoverIndex, hitTestPoint, type HoverIndex } from "./hover";
@@ -354,8 +354,15 @@ function doExtract(target: "page" | "selection" | "editable"): TextBlock[] {
   }
   blocksById = new Map(records.map((r) => [r.id, r]));
   blockOrder = records.map((r) => r.id);
-  return toWireBlocks(records);
+  const wire = toWireBlocks(records);
+  // Thread pages: score the start of each item rather than the first few
+  // items whole, so a long answer doesn't use up the token budget and leave
+  // every later comment unscored.
+  return target === "page" && structuredMatch ? wire.map((b) => capBlockWords(b, ITEM_WORD_CAP)) : wire;
 }
+
+// 150 words: the per-item curves are fitted on texts under 150 words.
+const ITEM_WORD_CAP = 150;
 
 function selectionRecords(): BlockRecord[] {
   const rec = extractSelectionBlock(window);

@@ -92,7 +92,7 @@ describe("renderItemLabels", () => {
   test("shows the item's own probability, 'Too short', or '—' when it wasn't analysed", async () => {
     const { renderItemLabels, clearItemLabels } = await import("./slopFilter");
     document.body.innerHTML = '<div id="a">x</div><div id="b">y</div><div id="c">z</div>';
-    const [a, b, c] = ["a", "b", "c"].map((id) => document.getElementById(id)!);
+    const [a, b, c] = ["a", "b", "c"].map((id) => document.getElementById(id)!) as [HTMLElement, HTMLElement, HTMLElement];
     renderItemLabels([
       { ownerEl: a, score: 0.9, tooShort: false, probability: 0.42 },
       { ownerEl: b, score: 0, tooShort: true },

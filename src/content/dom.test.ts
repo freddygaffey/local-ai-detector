@@ -216,3 +216,16 @@ describe("hidden-Unicode markers", () => {
     expect(document.getElementById("p")!.textContent).toBe(`Visible text${tags} continues​here.`);
   });
 });
+
+describe("capBlockWords", () => {
+  it("cuts a long item after the sentence that reaches the cap, keeping offsets", async () => {
+    const { capBlockWords } = await import("./extract");
+    const s = "one two three four five. ";
+    const text = s.repeat(4).trim();
+    const sentences = [0, 1, 2, 3].map((i) => ({ start: i * s.length, end: i * s.length + s.length - 1 }));
+    const out = capBlockWords({ id: "b", text, sentences }, 8);
+    expect(out.sentences).toHaveLength(2);
+    expect(out.text).toBe(text.slice(0, sentences[1]!.end));
+    expect(capBlockWords({ id: "b", text, sentences }, 100)).toEqual({ id: "b", text, sentences });
+  });
+});

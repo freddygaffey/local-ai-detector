@@ -285,6 +285,19 @@ export function toWireBlocks(records: BlockRecord[]): TextBlock[] {
   return records.map((r) => ({ id: r.id, text: r.text, sentences: r.sentences }));
 }
 
+/** The block cut after the sentence that reaches `maxWords` (offsets unchanged, so ranges still resolve). */
+export function capBlockWords(block: TextBlock, maxWords: number): TextBlock {
+  let words = 0;
+  for (let i = 0; i < block.sentences.length; i++) {
+    const sp = block.sentences[i]!;
+    words += block.text.slice(sp.start, sp.end).trim().split(/\s+/).filter(Boolean).length;
+    if (words >= maxWords && i < block.sentences.length - 1) {
+      return { id: block.id, text: block.text.slice(0, sp.end), sentences: block.sentences.slice(0, i + 1) };
+    }
+  }
+  return block;
+}
+
 /**
  * Resolves a [start, end) character span (within `block.text`) to a live DOM
  * Range, using the block's segment mapping. Returns null if the span is
