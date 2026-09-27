@@ -80,6 +80,10 @@ const URL_RULES: UrlRule[] = [
   // shown on the product page are what a logged-out reader sees. Scored as
   // a thread (one score per review; the listing copy isn't scored).
   { test: (u) => onHost(u, /(^|\.)amazon\.[a-z.]+$/) && /\/(dp|gp\/product)\/[A-Z0-9]{10}/.test(u.pathname), type: "thread", reason: "reviews" },
+  // Shared AI conversations (public links): the chat adapter scores the assistant's replies.
+  { test: (u) => onHost(u, /^(chatgpt\.com|chat\.openai\.com|claude\.ai|gemini\.google\.com|g\.co|grok\.com|chat\.deepseek\.com|copilot\.microsoft\.com)$/) && /\/share\//.test(u.pathname), type: "thread", reason: "shared chat" },
+  // The chat apps themselves are the reader's own conversations: nothing automatic.
+  { test: (u) => onHost(u, /^(chatgpt\.com|chat\.openai\.com|claude\.ai|gemini\.google\.com|grok\.com|chat\.deepseek\.com|copilot\.microsoft\.com|perplexity\.ai|www\.perplexity\.ai)$/), type: "app", reason: "chat app" },
 
   // Search
   { test: (u) => onHost(u, /(^|\.)google\.[a-z.]+$/) && u.pathname === "/search", type: "search", reason: "Google" },

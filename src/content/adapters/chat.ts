@@ -37,13 +37,16 @@ const TURN_SELECTOR = [
   '[class*="model-response"]',
 ].join(", ");
 
-const ASSISTANT_HINT = /assistant|bot|model|ai-response|chatbot|claude-message/i;
+// Whole words only: ChatGPT's turn classes contain "...-inset-bottom", and a
+// bare /bot/ read every turn (the user's too) as the assistant's.
+const ASSISTANT_HINT = /\b(assistant|bot|model|model-response|ai-response|chatbot|claude-message)\b/i;
 const USER_HINT = /\buser\b|human|prompt-input|user-message/i;
 
 type Role = "assistant" | "user" | null;
 
 function roleOf(el: Element): Role {
-  const attr = el.getAttribute("data-message-author-role") ?? el.getAttribute("data-author-role") ?? el.getAttribute("data-role");
+  const attr =
+    el.getAttribute("data-message-author-role") ?? el.getAttribute("data-turn") ?? el.getAttribute("data-author-role") ?? el.getAttribute("data-role");
   if (attr) {
     if (/assistant|bot|model/i.test(attr)) return "assistant";
     if (/user|human/i.test(attr)) return "user";

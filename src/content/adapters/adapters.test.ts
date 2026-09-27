@@ -42,6 +42,19 @@ describe("isChatHost / isRedditHost / searchEngineForHost", () => {
 const LONG_SENTENCE = "This is a reasonably long sentence with plenty of words in it so segmentation and word counts behave.";
 
 describe("extractChatAdapter", () => {
+  test("ChatGPT 2026 share page: turn sections whose classes contain 'bottom' are not all 'bot'", () => {
+    const cls = "text-token-text-primary w-full scroll-mb-[calc(var(--scroll-root-safe-area-inset-bottom,0px))]";
+    setBody(`
+      <main>
+        <section class="${cls}" data-testid="conversation-turn-1" data-turn="user"><div data-message-author-role="user">${LONG_SENTENCE} My question.</div></section>
+        <section class="${cls}" data-testid="conversation-turn-2" data-turn="assistant"><div data-message-author-role="assistant">${LONG_SENTENCE} The answer.</div></section>
+      </main>
+    `);
+    const result = extractChatAdapter(document);
+    expect(result!.blocks).toHaveLength(1);
+    expect(result!.blocks[0]!.text).toContain("The answer");
+  });
+
   test("scores only assistant turns (ChatGPT-style data-message-author-role)", () => {
     setBody(`
       <main>

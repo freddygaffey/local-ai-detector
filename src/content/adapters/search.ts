@@ -30,7 +30,7 @@ const RESULT_SELECTOR: Record<SearchEngine, string> = {
   kagi: ".search-result, .result",
 };
 
-const SNIPPET_SELECTOR = '[class*="snippet" i], [data-testid="result-snippet"], .b_caption, .VwiC3b, .st';
+const SNIPPET_SELECTOR = '[class*="snippet" i], [data-testid="result-snippet"], [data-result="snippet"], .b_caption, .VwiC3b, .st';
 
 const MIN_SNIPPET_WORDS = 8;
 

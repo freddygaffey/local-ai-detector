@@ -37,6 +37,9 @@ describe("URL rules", () => {
     ["https://github.com/owner/repo/issues/12", "thread", "issue thread"],
     ["https://www.amazon.com/Anker-Cable/dp/B088NRLMPV/ref=sr_1_3", "thread", "reviews"],
     ["https://www.amazon.com.au/s?k=cable", "app", "shop"],
+    ["https://chatgpt.com/share/6a951619-1c34-83ec-8628-8d4061b5e4ad", "thread", "shared chat"],
+    ["https://claude.ai/share/0b1c2d3e-aaaa-bbbb-cccc-000000000000", "thread", "shared chat"],
+    ["https://chatgpt.com/c/abc", "app", "chat app"],
     ["https://example.com/subs/movie.en.srt", "subtitles", "subtitle file"],
     ["https://example.com/captions.vtt", "subtitles", "subtitle file"],
   ])("%s -> %s", (url, type, reason) => {

@@ -475,8 +475,13 @@ async function maybeAutoRun(attempt = 0): Promise<void> {
         confirmWith: settings.tiers.confirmQuick ? settings.fusion.detectors : undefined,
       });
     }
-  } catch {
-    // Auto-run is best-effort; a manual run still works.
+  } catch (err) {
+    // Auto-run is best-effort; a manual run still works. Single-page apps
+    // (shared chats, some forums) render their text after load: try again.
+    const at = location.href;
+    if (/readable text/i.test(String(err)) && attempt < 3) {
+      setTimeout(() => location.href === at && !lastResult && void maybeAutoRun(attempt + 1), 3000 * (attempt + 1));
+    }
   }
 }
 
