@@ -7,6 +7,7 @@
 // but should not change their shape without the lead's sign-off.
 
 import { browser } from "wxt/browser";
+import { FILTER_THRESHOLD } from "./thresholds";
 
 /** Detector mode, selectable in the popup/options UI. */
 export type Mode =
@@ -80,6 +81,158 @@ export interface Settings {
 
 export type EnsembleClassifier = "classifier" | "classifierLite";
 
+// ---- Added by T9: presence modes, battery saver, slop filter, site memory ----
+// (docs/plan.md "T9: Presence modes + battery saver"). Additive to the T0
+// contract above; `autoRun` is kept (unused) for shape compatibility.
+
+/** How much the extension shows, by default. See docs/plan.md for the exact
+ * behaviour of each. "Custom" isn't a stored value -- see `isPresenceCustom`. */
+export type Presence = "onClick" | "badge" | "statusChip" | "inspector" | "sidePanel";
+
+/** Whether a fast automatic pass runs on page load: everywhere, nowhere, or
+ * (reserved for a future "ask" prompt) only after confirmation. */
+export type AutoRunPolicy = "always" | "never" | "ask";
+
+export interface ResultSurfaces {
+  popup: boolean;
+  badge: boolean;
+  /** The small corner chip (Status chip preset), independent of the pill/inspector. */
+  chip: boolean;
+  /** Sentence highlights + the floating pill on the page itself. */
+  highlights: boolean;
+  sidePanel: boolean;
+}
+
+export type Corner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
+
+export interface BatterySaverSettings {
+  /** What happens while on battery power (Battery Status API, where available). */
+  onBatteryAction: "normal" | "lite" | "pause";
+  /** Below this battery percent, auto-run pauses (manual runs still ask first). */
+  pauseBelowPercent: number;
+  /** Pause auto-run under "serious"/"critical" Compute Pressure, where the API exists. */
+  pauseOnPressure: boolean;
+  /** Unload models from memory after this many idle minutes. */
+  unloadAfterMinutes: number;
+  /** Prefer CPU (WASM) over GPU (WebGPU) while on battery power. */
+  useCpuOnBattery: boolean;
+  /** Manual override, shown prominently where the Battery Status API is unavailable (Firefox desktop). */
+  manualOverride: boolean;
+}
+
+/** Site categories the slop filter (dim/collapse) applies to. */
+export type SlopFilterSite = "reddit" | "hackernews" | "youtube" | "twitter" | "forum" | "review";
+
+export interface SlopFilterSettings {
+  enabled: boolean;
+  /** 0..1. Items scoring at/above this are dimmed/collapsed. */
+  threshold: number;
+  style: "dim" | "collapse";
+  sites: Partial<Record<SlopFilterSite, boolean>>;
+  /** Small marker on flagged search-result snippets (Google/Bing/DuckDuckGo/Kagi). */
+  searchMarkers: boolean;
+}
+
+export interface Settings {
+  mode: Mode;
+  highlightStyle: HighlightStyle;
+  /** @deprecated superseded by `autoRunPolicy`; kept for shape compatibility. */
+  autoRun: boolean;
+  /** Chunks/sentences shorter than this are too noisy to score (see feasibility.md §6). */
+  minWords: number;
+  /** Cap on tokens analyzed per page, across all chunks. */
+  maxTokens: number;
+  showUnicode: boolean;
+  checkImages: boolean;
+  /** Explicit user consent to download model weights (~100-500MB) over the network. */
+  consentedDownload: boolean;
+  autoCheckModelUpdates: boolean;
+  /**
+   * Per-slot overrides of the pinned defaults in `src/engine/models.ts`, set
+   * either by "update model" (new revision of the same repo) or by
+   * "setCustomModel" (a different repo entirely). Empty means "use defaults
+   * for every slot" -- deliberately a *partial* map (not every ModelSlot
+   * needs an entry), which is a small, intentional deviation from reading
+   * the plan's `Record<ModelSlot, ...>` literally.
+   */
+  modelOverrides: Partial<Record<ModelSlot, ModelOverride>>;
+  /**
+   * Which classifier the Ensemble mode blends with perplexity. TMR by
+   * default: it ranked better and flagged far fewer human texts on a
+   * held-out sample (docs/calibration.md, "Which classifier the ensemble
+   * uses"); the lite model is ~4x smaller and faster.
+   */
+  ensembleClassifier: EnsembleClassifier;
+  /**
+   * Use WebGPU when the browser offers it (with shader-f16). Off by default:
+   * WASM (q8) gives the same scores in Chrome and Firefox and is what the
+   * main calibration is for; WebGPU is faster but runs different weights
+   * (docs/calibration.md, "WASM vs WebGPU").
+   */
+  useWebGPU: boolean;
+
+  /** Selected Presence preset. Its underlying settings (below) are the source
+   * of truth at runtime; the preset is what "Custom" is measured against. */
+  presence: Presence;
+  autoRunPolicy: AutoRunPolicy;
+  /** Detector mode used for the automatic (auto-run) pass, kept fast/cheap.
+   * An on-demand run (click, chip expand, context menu, command) always uses `mode`. */
+  autoRunFastMode: Mode;
+  /** Per-hostname override of `autoRunPolicy`, incl. "never on this site". */
+  siteRules: Record<string, AutoRunPolicy>;
+  surfaces: ResultSurfaces;
+  chipCorner: Corner;
+  /** Chip shows a neutral/hidden state below this score (0..1). */
+  chipAutoHideThreshold: number;
+
+  battery: BatterySaverSettings;
+  slopFilter: SlopFilterSettings;
+  /** Local-only per-domain score tally (docs/plan.md "Site memory"); no text is stored. */
+  siteMemoryEnabled: boolean;
+}
+
+export const PRESENCE_PRESETS: Record<Presence, { autoRunPolicy: AutoRunPolicy; surfaces: ResultSurfaces }> = {
+  onClick: {
+    autoRunPolicy: "never",
+    surfaces: { popup: true, badge: false, chip: false, highlights: false, sidePanel: false },
+  },
+  badge: {
+    autoRunPolicy: "always",
+    surfaces: { popup: true, badge: true, chip: false, highlights: false, sidePanel: false },
+  },
+  statusChip: {
+    autoRunPolicy: "always",
+    surfaces: { popup: true, badge: true, chip: true, highlights: false, sidePanel: false },
+  },
+  inspector: {
+    autoRunPolicy: "always",
+    surfaces: { popup: true, badge: true, chip: false, highlights: true, sidePanel: false },
+  },
+  sidePanel: {
+    autoRunPolicy: "always",
+    surfaces: { popup: true, badge: true, chip: false, highlights: false, sidePanel: true },
+  },
+};
+
+/** The underlying settings a Presence preset maps onto (applied when the user picks it in Options). */
+export function presenceDefaults(preset: Presence): { autoRunPolicy: AutoRunPolicy; surfaces: ResultSurfaces } {
+  return PRESENCE_PRESETS[preset];
+}
+
+/** True when the stored autoRunPolicy/surfaces no longer match the selected preset -- Options shows "Custom". */
+export function isPresenceCustom(settings: Pick<Settings, "presence" | "autoRunPolicy" | "surfaces">): boolean {
+  const canon = presenceDefaults(settings.presence);
+  if (settings.autoRunPolicy !== canon.autoRunPolicy) return true;
+  return (Object.keys(canon.surfaces) as (keyof ResultSurfaces)[]).some(
+    (key) => settings.surfaces[key] !== canon.surfaces[key],
+  );
+}
+
+/** Effective auto-run policy for `hostname`, honouring a per-site rule over the global default. */
+export function autoRunPolicyForSite(settings: Pick<Settings, "autoRunPolicy" | "siteRules">, hostname: string): AutoRunPolicy {
+  return settings.siteRules[hostname] ?? settings.autoRunPolicy;
+}
+
 // ---- Added by T7: Fusion mode (docs/plan.md "T7: Fusion mode") ----
 //
 // Fusion subsumes the old Ensemble: the stored mode value stays "ensemble"
@@ -134,6 +287,33 @@ export const DEFAULT_SETTINGS: Settings = {
   // T7: WebGPU is the primary, calibrated path (docs/calibration.md); WASM
   // is the fallback where there is no adapter or no shader-f16.
   useWebGPU: true,
+
+  presence: "statusChip",
+  autoRunPolicy: "always",
+  autoRunFastMode: "classifierLite",
+  siteRules: {},
+  surfaces: { popup: true, badge: true, chip: true, highlights: false, sidePanel: false },
+  chipCorner: "bottom-right",
+  chipAutoHideThreshold: 0.35,
+
+  battery: {
+    onBatteryAction: "normal",
+    pauseBelowPercent: 20,
+    pauseOnPressure: true,
+    unloadAfterMinutes: 5,
+    useCpuOnBattery: false,
+    manualOverride: false,
+  },
+  slopFilter: {
+    enabled: false,
+    // T7's fitted operating point (docs/calibration.md): about 1% human
+    // false positives on the web eval set. User-editable from here on.
+    threshold: FILTER_THRESHOLD,
+    style: "dim",
+    sites: { reddit: true, hackernews: true, youtube: true, twitter: true, forum: true, review: true },
+    searchMarkers: true,
+  },
+  siteMemoryEnabled: false,
 };
 
 const STORAGE_KEY = "settings";

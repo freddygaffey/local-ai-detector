@@ -171,7 +171,9 @@ export interface GetModelCacheInfoMessage {
  */
 export interface ExtractTextMessage {
   type: "extractText";
-  request: { target: "page" | "selection" };
+  // "editable": T9's "Check text in this box" context menu -- the input,
+  // textarea or contenteditable element under the click.
+  request: { target: "page" | "selection" | "editable" };
   response: { blocks: TextBlock[] };
 }
 
@@ -472,6 +474,11 @@ export interface ScrollToSentenceMessage {
 
 /** Every request/response message kind, as a discriminated union. */
 export type RuntimeMessage =
+  | UnloadIdleModelsMessage
+  | CheckImageAtUrlMessage
+  | ShowOnPageMessage
+  | ToggleVisibilityMessage
+  | ScrollToSentenceMessage
   | AnalyzeTabMessage
   | ReportImageSummaryMessage
   | ScanImagesMessage
