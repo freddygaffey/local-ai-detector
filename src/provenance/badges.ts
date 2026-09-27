@@ -40,6 +40,8 @@ const STYLE = `
 .badge.edited { background: #a16207; }
 .badge.camera { background: #15803d; }
 .badge.unknown { background: #475569; }
+.badge.not-checked { background: #64748b; opacity: 0.55; }
+.badge.not-checked:hover, .badge.not-checked:focus-visible { opacity: 0.9; }
 .card {
   all: initial; position: fixed; box-sizing: border-box; pointer-events: auto; display: none;
   width: min(340px, calc(100vw - 16px)); max-height: min(420px, calc(100vh - 16px)); overflow: auto;
@@ -105,6 +107,7 @@ export function primarySignal(signals: ImageSignal[]): ImageSignal | undefined {
 }
 
 export function badgeText(result: ImageProvenanceResult): string | null {
+  if (result.status === "permission-needed") return "?";
   const p = primarySignal(result.signals);
   if (!p) return null;
   const extra = result.signals.length > 1 ? ` +${result.signals.length - 1}` : "";
@@ -138,6 +141,17 @@ function text(tag: string, cls: string | null, value: string): HTMLElement {
 function fillCard(result: ImageProvenanceResult): void {
   if (!card) return;
   card.replaceChildren();
+  if (result.status === "permission-needed") {
+    card.append(
+      text("h3", null, "Image not checked"),
+      text(
+        "div",
+        null,
+        "This extension doesn't have permission to read this image yet. Open the popup's Details panel and allow access, then it's checked the same as any other image.",
+      ),
+    );
+    return;
+  }
   card.append(text("h3", null, "Image provenance (checked locally)"));
   const ul = document.createElement("ul");
   for (const s of result.signals) {
@@ -231,35 +245,47 @@ function stopListening(): void {
   window.removeEventListener("resize", scheduleReposition);
 }
 
+/** Badge CSS class + aria-label for a result -- shared by the initial render and later updates. */
+function presentation(result: ImageProvenanceResult): { className: string; ariaLabel: string } {
+  if (result.status === "permission-needed") {
+    return { className: "not-checked", ariaLabel: "Image not checked: no permission to read it yet. Allow access from the popup." };
+  }
+  const primary = primarySignal(result.signals)!;
+  return { className: badgeClass(primary), ariaLabel: `Image provenance: ${signalHeading(primary)}. ${primary.detail}` };
+}
+
 /**
- * Renders (or updates) badges for analysed images. `elements` maps each
- * result's `src` to the page elements showing it; if omitted, <img>
- * elements are matched by currentSrc/src. Images without signals get no
- * badge.
+ * Renders (or updates) badges for analysed images, plus a quiet "not
+ * checked" cue for images awaiting the optional host permission (never
+ * silently skipped -- docs/integration-notes.md "For T12"). `elements` maps
+ * each result's `src` to the page elements showing it; if omitted, <img>
+ * elements are matched by currentSrc/src. Images with neither signals nor a
+ * permission gap get no badge.
  */
 export function renderImageBadgeResults(
   results: ImageProvenanceResult[],
   elements?: Map<string, Element[]>,
 ): void {
-  const withSignals = results.filter((r) => r.status === "ok" && r.signals.length > 0);
-  if (!withSignals.length) return;
+  const relevant = results.filter((r) => (r.status === "ok" && r.signals.length > 0) || r.status === "permission-needed");
+  if (!relevant.length) return;
   ensureHost();
-  const map = elements ?? matchImgElements(withSignals.map((r) => r.src));
-  for (const result of withSignals) {
-    const primary = primarySignal(result.signals)!;
+  const map = elements ?? matchImgElements(relevant.map((r) => r.src));
+  for (const result of relevant) {
+    const { className, ariaLabel } = presentation(result);
     for (const el of map.get(result.src) ?? []) {
       const existing = entries.find((e) => e.element === el);
       if (existing) {
         existing.result = result;
         existing.badge.textContent = badgeText(result);
-        existing.badge.className = `badge ${badgeClass(primary)}`;
+        existing.badge.className = `badge ${className}`;
+        existing.badge.setAttribute("aria-label", ariaLabel);
         continue;
       }
       const badge = document.createElement("button");
       badge.type = "button";
-      badge.className = `badge ${badgeClass(primary)}`;
+      badge.className = `badge ${className}`;
       badge.textContent = badgeText(result);
-      badge.setAttribute("aria-label", `Image provenance: ${signalHeading(primary)}. ${primary.detail}`);
+      badge.setAttribute("aria-label", ariaLabel);
       const entry: BadgeEntry = { element: el, result, badge };
       badge.addEventListener("mouseenter", () => openCard(entry));
       badge.addEventListener("focus", () => openCard(entry));
