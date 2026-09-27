@@ -122,6 +122,10 @@ async function boot(): Promise<void> {
   document.addEventListener("pointermove", onPointerMove, { passive: true });
   document.addEventListener("pointerleave", () => hideTooltip());
 
+  if (import.meta.env.MODE === "e2e") {
+    void import("../e2e/bridge").then(({ installContentBridge }) => installContentBridge());
+  }
+
   if (settings.autoRun) {
     void runFullAnalysis();
   }

@@ -38,6 +38,11 @@ const NETLOG = join(SCRATCH, `chrome-netlog-${Date.now()}.json`);
 if (!existsSync(join(EXT, "manifest.json"))) throw new Error(`No build at ${EXT}. Run npm run build:e2e first.`);
 if (FRESH) rmSync(PROFILE, { recursive: true, force: true });
 mkdirSync(PROFILE, { recursive: true });
+// Chrome keeps an unpacked extension's service-worker script across restarts
+// while the version number is unchanged, so a rebuilt background.js would be
+// ignored. Drop the SW registration + script cache (NOT CacheStorage, which
+// holds the downloaded models).
+for (const d of ["ScriptCache", "Database"]) rmSync(join(PROFILE, "Default", "Service Worker", d), { recursive: true, force: true });
 if (SHOTS) mkdirSync(SHOTS, { recursive: true });
 
 const { report, step, save } = makeReport("chrome");
