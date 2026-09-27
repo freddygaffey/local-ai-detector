@@ -51,6 +51,8 @@ export interface AnalysisOptions {
   ensembleClassifier?: EnsembleClassifier;
   /** Fusion detector set and method (mode "ensemble"). Default: DEFAULT_FUSION. */
   fusion?: FusionSettings;
+  /** Each block is a separate item (comment, review, snippet): units never span two blocks. */
+  itemBlocks?: boolean;
 }
 
 /** Raw statistics, for calibration and debugging. */
@@ -308,7 +310,7 @@ export async function analyzeBlocks(
   // 2. Scoring units: groups of >= minWords words, so short sentences are
   //    folded into their neighbours instead of getting their own verdict.
   const starts = blockStarts(sentences);
-  const units = buildUnits(words, opts.minWords, starts);
+  const units = buildUnits(words, opts.minWords, starts, opts.itemBlocks);
   if (analysedWords < opts.minWords) {
     notes.push(
       `Only ${analysedWords} words: below the ${opts.minWords}-word minimum, so this score is low-confidence.`,

@@ -194,6 +194,7 @@ async function runAnalyze(
           maxTokens: settings.maxTokens,
           models,
           fusion,
+          itemBlocks: req.itemBlocks,
           allowWebGPU: settings.useWebGPU && !preferCpu,
           // E2E/calibration builds only: dtype experiments (scripts/e2e/browser-t7-calibration.mjs).
           webgpuDtypes:
@@ -281,8 +282,9 @@ export function runTabAnalysis(
     imageSummaries.delete(tabId);
     const settings = await getSettings();
     let blocks: AnalyzeRequest["blocks"];
+    let itemBlocks: boolean | undefined;
     try {
-      ({ blocks } = await toTab(tabId, "extractText", { target }));
+      ({ blocks, items: itemBlocks } = await toTab(tabId, "extractText", { target }));
       if (!blocks.length) {
         throw new Error(
           target === "selection"
@@ -296,7 +298,7 @@ export function runTabAnalysis(
       throw err;
     }
     let result = await runAnalyze(
-      { tabId, mode: mode ?? settings.mode, blocks, preferCpu, tier, fusionOverride },
+      { tabId, mode: mode ?? settings.mode, blocks, preferCpu, tier, fusionOverride, itemBlocks },
       { requestId, tabId },
     );
     // Quick tier: the cheap pass only screens. An AI-leaning page is
@@ -307,7 +309,7 @@ export function runTabAnalysis(
     if (confirmWith?.length && !sameSet(confirmWith, fusionOverride ?? []) && needsQuickConfirm(result)) {
       try {
         const confirmed = await runAnalyze(
-          { tabId, mode: "ensemble", blocks, preferCpu, tier, fusionOverride: confirmWith },
+          { tabId, mode: "ensemble", blocks, preferCpu, tier, fusionOverride: confirmWith, itemBlocks },
           { requestId, tabId },
         );
         result = { ...confirmed, confirmed: true };

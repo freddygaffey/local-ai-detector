@@ -165,7 +165,7 @@ async function boot(): Promise<void> {
     extractText: async ({ target }) => {
       const blocks = doExtract(target);
       pill?.setAnalyzing({ phase: "analyze", loaded: 0, total: 0, message: "Analyzing…" });
-      return { blocks };
+      return { blocks, items: target === "page" && structuredMatch !== null };
     },
     renderHighlights: async ({ result, style }) => {
       applyResult(result, style);
@@ -673,7 +673,7 @@ async function maybeMarkSearchResults(): Promise<void> {
     const blocks = toWireBlocks(match.blocks as unknown as BlockRecord[]);
     // The Quick tier's detectors (docs/plan.md "Two tiers"), like every other automatic pass.
     const quick = fusionForTier("quick", settings.tiers);
-    const result = await sendMessage("analyze", { tabId: -1, mode: "ensemble", fusionOverride: quick.detectors, tier: "quick", blocks });
+    const result = await sendMessage("analyze", { tabId: -1, mode: "ensemble", fusionOverride: quick.detectors, tier: "quick", blocks, itemBlocks: true });
     const byBlock = new Map<string, SentenceScore[]>();
     for (const s of result.sentences) byBlock.set(s.blockId, [...(byBlock.get(s.blockId) ?? []), s]);
     const items = match.blocks.map((block) => {

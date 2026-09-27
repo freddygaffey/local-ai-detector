@@ -39,7 +39,16 @@ export function extractSearchResultsAdapter(doc: Document, hostname: string): Ad
   try {
     const engine = searchEngineForHost(hostname);
     if (!engine) return null;
-    const found = Array.from(doc.querySelectorAll(RESULT_SELECTOR[engine]));
+    let found = Array.from(doc.querySelectorAll(RESULT_SELECTOR[engine]));
+    if (engine === "google") {
+      // Google's result wrappers change often (".g" is gone; "#rso > div" is
+      // now a couple of section wrappers holding every result). Anchor on the
+      // snippets themselves and take each one's own result container.
+      const perSnippet = Array.from(doc.querySelectorAll("#rso .VwiC3b, #rso [data-sncf]"))
+        .map((sn) => sn.closest(".MjjYud, .g, [data-hveid]"))
+        .filter((el): el is Element => el !== null);
+      if (perSnippet.length > found.length) found = [...new Set(perSnippet)];
+    }
     if (found.length === 0) return null;
     const items = outermostOnly(found);
     let n = 0;

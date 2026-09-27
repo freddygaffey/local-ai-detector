@@ -207,6 +207,14 @@ describe("extractSearchResultsAdapter", () => {
     expect(result!.blocks[0]!.text).toContain("helpful snippet");
   });
 
+  test("Google 2026 markup: one block per result, not per section wrapper", () => {
+    const r = (i: number) => `<div class="MjjYud"><div data-hveid="C${i}"><h3><a href="https://e${i}.com">R${i}</a></h3><div class="VwiC3b">${LONG_SENTENCE} Snippet ${i}.</div></div></div>`;
+    setBody(`<div id="search"><div id="rso"><div>${r(1)}${r(2)}${r(3)}</div><div>${r(4)}${r(5)}</div></div></div>`);
+    const result = extractSearchResultsAdapter(document, "www.google.com");
+    expect(result!.blocks).toHaveLength(5);
+    expect(result!.blocks[2]!.text).toContain("Snippet 3");
+  });
+
   test("short snippets are dropped", () => {
     setBody(`<div id="search"><div class="g"><div class="VwiC3b">Too short.</div></div></div>`);
     expect(extractSearchResultsAdapter(document, "www.google.com")).toBeNull();

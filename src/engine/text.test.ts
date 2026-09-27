@@ -197,3 +197,18 @@ describe("hashString", () => {
     expect(hashString("abc")).not.toBe(hashString("abd"));
   });
 });
+
+describe("buildUnits with hard block boundaries (thread items)", () => {
+  it("never merges two items, however short", () => {
+    // Three items: 10 words, 12 words (two sentences), 60 words.
+    const words = [10, 6, 6, 30, 30];
+    const starts = [true, true, false, true, false];
+    expect(buildUnits(words, 50, starts, true)).toEqual([
+      { first: 0, last: 0 },
+      { first: 1, last: 2 },
+      { first: 3, last: 4 },
+    ]);
+    // Without hard boundaries the short items fold into their neighbours.
+    expect(buildUnits(words, 50, starts).length).toBeLessThan(3);
+  });
+});

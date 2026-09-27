@@ -175,7 +175,8 @@ export interface ExtractTextMessage {
   // "editable": T9's "Check text in this box" context menu -- the input,
   // textarea or contenteditable element under the click.
   request: { target: "page" | "selection" | "editable" };
-  response: { blocks: TextBlock[] };
+  /** `items`: each block is a separate item (thread comments, reviews): score them apart. */
+  response: { blocks: TextBlock[]; items?: boolean };
 }
 
 /**
@@ -450,6 +451,8 @@ export interface AnalyzeRequest {
  * docs/plan.md "Two tiers" and `TranscriptReport.tier` in ./transcript.ts.
  */
 export interface AnalyzeRequest {
+  /** Each block is a separate item (comment, review, search snippet): never score two together. */
+  itemBlocks?: boolean;
   tier?: Tier;
   /**
    * Overrides `settings.fusion.detectors` for this run only (mode

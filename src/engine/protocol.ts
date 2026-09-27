@@ -23,6 +23,8 @@ export interface EngineConfig {
   webgpuDtypes?: Partial<Record<ModelSlot, DType>>;
   /** Page URL, if known (part of the result-cache key). */
   url?: string;
+  /** Each block is a separate item (comment, review, snippet): scoring units never span two blocks. */
+  itemBlocks?: boolean;
 }
 
 export interface CachedRepo extends ModelRef {

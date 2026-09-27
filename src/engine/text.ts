@@ -132,8 +132,11 @@ export interface Span {
  * instead of spilling it into the next block's unit. Different blocks are
  * often different authors (e.g. comments), so mixing them is worse than a
  * slightly larger unit.
+ *
+ * With `hardBlocks`, every block ends its unit (each block is a separate
+ * item, e.g. a comment or a search snippet), however short.
  */
-export function buildUnits(words: number[], minWords: number, blockStart?: boolean[]): Span[] {
+export function buildUnits(words: number[], minWords: number, blockStart?: boolean[], hardBlocks = false): Span[] {
   const n = words.length;
   if (n === 0) return [];
   const min = Math.max(1, minWords);
@@ -149,6 +152,14 @@ export function buildUnits(words: number[], minWords: number, blockStart?: boole
   let acc = 0;
   for (let i = 0; i < n; i++) {
     acc += words[i]!;
+    // Items (comments, snippets) are different authors: a short one is its
+    // own (low-confidence) unit rather than being folded into the next.
+    if (hardBlocks && blockStart && (i + 1 >= n || blockStart[i + 1])) {
+      units.push({ first, last: i });
+      first = i + 1;
+      acc = 0;
+      continue;
+    }
     if (acc >= min) {
       let last = i;
       if (blockStart && i + 1 < n && !blockStart[i + 1]) {
