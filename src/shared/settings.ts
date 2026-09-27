@@ -282,6 +282,41 @@ export const SETTINGS_VERSION = 2;
  */
 export const DEFAULT_FUSION: FusionSettings = { detectors: ["fakespot", "tmr"], method: "weighted" };
 
+// ---- Added by the tiers task (additive only; see docs/plan.md "Two tiers:
+// Quick (default) and Deep (on demand)") ----
+//
+// Quick is the automatic pass (cheapest detectors); Deep is the on-demand
+// "run everything" pass (the ↻ button in the popup, the expanded chip/pill
+// and the side panel). Both reuse the Fusion machinery (mode "ensemble")
+// with their own detector set instead of `Settings.fusion`, passed per
+// request (see `AnalyzeRequest`/`AnalyzeTabRequestT7.fusionOverride` in
+// ./messages.ts and `fusionForTier` in ../engine/models.ts).
+
+/** Which pass produced a result/request: the automatic Quick pass, or an on-demand Deep run. */
+export type Tier = "quick" | "deep";
+
+export interface TierSettings {
+  /** Detectors the automatic Quick pass uses. Default: the lite classifier only. */
+  quickDetectors: FusionDetector[];
+  /** Detectors an on-demand Deep run uses. Default: everything the registry has. */
+  deepDetectors: FusionDetector[];
+  /** "Run quick check automatically" -- off means no automatic pass at all (Deep still runs on click). */
+  autoRunQuick: boolean;
+}
+
+export interface Settings {
+  tiers: TierSettings;
+}
+
+/** Deep's default: every detector the registry has (docs/plan.md: "Deep detectors (default: all)"). */
+export const ALL_TIER_DETECTORS: FusionDetector[] = ["fakespot", "tmr", "modernbert", "lite", "perplexity", "binoculars"];
+
+export const DEFAULT_TIERS: TierSettings = {
+  quickDetectors: ["lite"],
+  deepDetectors: [...ALL_TIER_DETECTORS],
+  autoRunQuick: true,
+};
+
 export const DEFAULT_SETTINGS: Settings = {
   fusion: DEFAULT_FUSION,
   settingsVersion: SETTINGS_VERSION,
@@ -327,6 +362,7 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   siteMemoryEnabled: false,
   voice: DEFAULT_VOICE,
+  tiers: DEFAULT_TIERS,
 };
 
 const STORAGE_KEY = "settings";
@@ -361,7 +397,7 @@ function mergeSettings(stored: Partial<Settings> | undefined): Settings {
  * it is unit-testable; exported for tests only.
  */
 export function migrateSettings(merged: Settings, stored: Partial<Settings> | undefined): Settings {
-  const out: Settings = { ...merged, fusion: sanitizeFusion(merged.fusion) };
+  const out: Settings = { ...merged, fusion: sanitizeFusion(merged.fusion), tiers: sanitizeTiers(merged.tiers) };
   if (stored && (stored.settingsVersion ?? 1) < 2) {
     // v1 had no Fusion: its Ensemble was one classifier + perplexity, and
     // WebGPU was an opt-in. Carry an explicit lite choice over; everything
@@ -383,6 +419,20 @@ export function sanitizeFusion(f: Partial<FusionSettings> | undefined): FusionSe
   const detectors = [...new Set((f?.detectors ?? []).filter((d) => FUSION_DETECTORS.includes(d)))];
   const method = f?.method && FUSION_METHODS.includes(f.method) ? f.method : DEFAULT_FUSION.method;
   return { detectors: detectors.length ? detectors : [...DEFAULT_FUSION.detectors], method };
+}
+
+function sanitizeTierDetectors(detectors: FusionDetector[] | undefined, fallback: readonly FusionDetector[]): FusionDetector[] {
+  const filtered = [...new Set((detectors ?? []).filter((d) => FUSION_DETECTORS.includes(d)))];
+  return filtered.length ? filtered : [...fallback];
+}
+
+/** Drops unknown detectors (e.g. from a newer version synced in); never returns an empty set for either list. */
+export function sanitizeTiers(t: Partial<TierSettings> | undefined): TierSettings {
+  return {
+    quickDetectors: sanitizeTierDetectors(t?.quickDetectors, DEFAULT_TIERS.quickDetectors),
+    deepDetectors: sanitizeTierDetectors(t?.deepDetectors, DEFAULT_TIERS.deepDetectors),
+    autoRunQuick: t?.autoRunQuick ?? DEFAULT_TIERS.autoRunQuick,
+  };
 }
 
 /** Reads the current settings, merged over the defaults. */

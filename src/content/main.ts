@@ -10,6 +10,7 @@ import { onAnalysisStatus, registerHandlers, sendMessage } from "../shared/messa
 import type { AnalyzeResult, SentenceScore, TextBlock } from "../shared/messages";
 import { autoRunPolicyForSite, DEFAULT_SETTINGS, getSettings, setSettings, watchSettings } from "../shared/settings";
 import type { HighlightStyle, Settings } from "../shared/settings";
+import { fusionForTier } from "../engine/models";
 import { FLAGGED_THRESHOLD } from "./colors";
 // The popup's "Flagged sentences" uses the same function on the same result.
 import { countFlaggedSentences } from "../ui/breakdown";
@@ -39,8 +40,8 @@ import { segmentSentences, wordCount } from "./segment";
 import { formatSentenceTooltip, hideTooltip, showTooltip } from "./tooltip";
 import type { ActiveSentence, BlockRecord } from "./types";
 import { clearUnicodeMarkers, renderUnicodeMarkers } from "./unicodeMarkers";
-import { startYouTubeTranscripts } from "./youtube";
-import { startVoiceContent } from "../voice/content";
+import { runDeepTranscriptCheck, startYouTubeTranscripts } from "./youtube";
+import { runDeepVoiceCheck, startVoiceContent } from "../voice/content";
 
 const INJECT_FLAG = "__aiDetectorContentBooted";
 
@@ -79,6 +80,9 @@ let lastEditableTarget: Element | null = null;
 // the popup's "Show on page" (On click preset) was used.
 let chipExpanded = false;
 let sessionShowOnPage = false;
+// Tiers task (docs/plan.md "Two tiers"): whether a Deep run is in flight, so
+// the pill's ↻ can spin; cleared once its `renderHighlights` call lands.
+let deepBusy = false;
 
 function safeHostname(): string {
   try {
@@ -211,6 +215,7 @@ function ensurePill(): PillApi {
         changeStyle(style);
         void setSettings({ highlightStyle: style }).catch(() => {});
       },
+      onDeepCheck: () => void runDeepCheck(),
     });
     pill.setIdle();
   }
@@ -314,10 +319,51 @@ async function runFullAnalysis(): Promise<void> {
   }
 }
 
+/**
+ * Deep check (docs/plan.md "Two tiers: Quick (default) and Deep (on
+ * demand)"): the pill's ↻. Runs the full detector set (all of
+ * `settings.tiers.deepDetectors`) via `analyzeTab`'s tier/fusionOverride
+ * channel (src/engine/router.ts), plus the whole YouTube transcript when
+ * there's a video on this page. The result replaces the quick score
+ * (`applyResult` tags it "Deep" from `AnalyzeResult.tier`).
+ */
+async function runDeepCheck(): Promise<void> {
+  deepBusy = true;
+  reRenderPillDone();
+  void runDeepTranscriptCheck().catch(() => {});
+  runDeepVoiceCheck();
+  try {
+    const deep = fusionForTier("deep", settings.tiers);
+    await sendMessage("analyzeTab", { target: "page", mode: "ensemble", fusionOverride: deep.detectors, tier: "deep" });
+  } catch (err) {
+    pill?.setError((err instanceof Error ? err.message : String(err)).replace(/^consent-required:\s*/, ""));
+  } finally {
+    deepBusy = false;
+    reRenderPillDone();
+  }
+}
+
+/** Re-renders the pill's current done view (if any) to pick up `deepBusy`/tier changes without a new analysis. */
+function reRenderPillDone(): void {
+  if (!lastResult) return;
+  pill?.setDone({
+    overall: displayScore(lastResult),
+    flaggedCount: countFlaggedSentences(lastResult.sentences),
+    current: flaggedCursor,
+    total: flaggedOrder.length,
+    style: currentStyle,
+    tier: lastResult.tier,
+    deepBusy,
+  });
+}
+
 // ---- Auto-run (battery-gated, fast mode) -----------------------------------
 
 async function maybeAutoRun(): Promise<void> {
   try {
+    // Tiers task (docs/plan.md "Two tiers"): "Run quick check automatically"
+    // off means no automatic pass at all -- Deep still runs on click.
+    if (!settings.tiers.autoRunQuick) return;
     const policy = autoRunPolicyForSite(settings, hostname);
     if (policy !== "always") return; // "never": nothing; "ask" isn't implemented yet (treated as off).
     const [battery, pressure] = await Promise.all([readBatteryState(), readPressureState()]);
@@ -326,14 +372,25 @@ async function maybeAutoRun(): Promise<void> {
       chip?.setContent({ label: null });
       return;
     }
-    // Inspector's always-on pill runs the full configured mode directly (the
-    // pre-T9 behaviour); every other preset's automatic pass stays cheap.
-    const mode = settings.surfaces.highlights && !decision.useLiteModel ? undefined : settings.autoRunFastMode;
     pill?.setAnalyzing({ phase: "download", loaded: 0, total: 0, message: "Starting…" });
     // The service worker (and Firefox's event page) can't read the Battery
     // Status API themselves, so this content script's own read has to be
     // forwarded (docs/plan.md "T8: Battery saver").
-    await sendMessage("analyzeTab", { target: "page", mode, preferCpu: decision.preferCpu });
+    if (settings.surfaces.highlights && !decision.useLiteModel) {
+      // Inspector's always-on pill runs the full configured mode directly
+      // (the pre-T9 behaviour); every other preset's automatic pass is Quick
+      // (the cheapest detector set, docs/plan.md "Two tiers").
+      await sendMessage("analyzeTab", { target: "page", preferCpu: decision.preferCpu });
+    } else {
+      const quick = fusionForTier("quick", settings.tiers);
+      await sendMessage("analyzeTab", {
+        target: "page",
+        mode: "ensemble",
+        fusionOverride: quick.detectors,
+        tier: "quick",
+        preferCpu: decision.preferCpu,
+      });
+    }
   } catch {
     // Auto-run is best-effort; a manual run still works.
   }
@@ -398,12 +455,15 @@ function applyResult(result: AnalyzeResult, style: HighlightStyle): void {
     );
     flaggedCursor = -1;
 
+    deepBusy = false;
     pill?.setDone({
       overall: displayScore(result),
       flaggedCount: countFlaggedSentences(result.sentences),
       current: flaggedCursor,
       total: flaggedOrder.length,
       style,
+      tier: result.tier,
+      deepBusy,
     });
 
     updateChip(result);
@@ -535,6 +595,8 @@ function changeStyle(style: HighlightStyle): void {
         current: flaggedCursor,
         total: flaggedOrder.length,
         style,
+        tier: lastResult.tier,
+        deepBusy,
       });
     }
   } catch {

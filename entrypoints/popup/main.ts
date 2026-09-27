@@ -38,6 +38,7 @@ import { checklistRows, modeDownloadStatus, renderModelChecklist, type CacheKnow
 import type { FusionDetector } from "@/src/shared/settings";
 import { sanitizeFusion } from "@/src/shared/settings";
 import type { ModelSlot } from "@/src/shared/settings";
+import { deepCheckRequestFields, deepDownloadStatus, isDeepResult, DEEP_CHECK_TOOLTIP } from "@/src/ui/deepCheck";
 
 interface Ctx {
   settings: Settings;
@@ -55,6 +56,10 @@ interface Ctx {
   /** Per-slot cache status, for the download checklist and mode-select hints. Undefined until known. */
   cache: CacheKnown | undefined;
   checklistBusy: boolean;
+  /** Deep check (docs/plan.md "Two tiers"): the ↻ button's own busy/spin state. */
+  deepBusy: boolean;
+  /** True once the ↻ click has shown the "download (N MB)" prompt, awaiting a second click to proceed. */
+  deepChecklistOpen: boolean;
 }
 
 const ctx: Ctx = {
@@ -71,6 +76,8 @@ const ctx: Ctx = {
   hasSelection: null,
   cache: undefined,
   checklistBusy: false,
+  deepBusy: false,
+  deepChecklistOpen: false,
 };
 
 const root = document.getElementById("app") as HTMLDivElement;
@@ -224,6 +231,18 @@ function renderFooter(): HTMLElement {
     "footer",
     { class: "popup-footer" },
     h("span", null, "Runs on this device."),
+    h(
+      "button",
+      {
+        class: `icon-btn${ctx.deepBusy ? " is-spinning" : ""}`,
+        type: "button",
+        "aria-label": "Deep check",
+        title: DEEP_CHECK_TOOLTIP,
+        disabled: ctx.deepBusy || ctx.tabId === null,
+        onclick: () => void onDeepCheck(),
+      },
+      "↻",
+    ),
     h("button", { class: "btn btn-ghost", type: "button", onclick: openOptions }, "Settings"),
   );
 }
@@ -347,6 +366,8 @@ function onRetry(): void {
 function renderMain(): HTMLElement {
   const body = h("div", { class: "popup-body" });
   body.append(renderResultSection());
+  const deepPrompt = renderDeepPrompt();
+  if (deepPrompt) body.append(deepPrompt);
   body.append(renderButtons());
   body.append(renderPasteSection());
   body.append(renderQuickSelects());
@@ -373,7 +394,9 @@ function renderResultSection(): HTMLElement {
   const readout = h("div", { class: "gauge-readout" }, valueEl);
   figure.append(readout);
   wrap.append(figure);
-  wrap.append(h("div", { class: `verdict-label ${bandClassName(band)}` }, result ? BAND_LABEL[band] : "No result"));
+  const verdictLabel = h("div", { class: `verdict-label ${bandClassName(band)}` }, result ? BAND_LABEL[band] : "No result");
+  if (isDeepResult(result)) verdictLabel.append(h("span", { class: "deep-tag" }, "Deep"));
+  wrap.append(verdictLabel);
   queueMicrotask(() => updateGauge(svg, score ?? 0, bandClassName(band)));
 
   const container = h("div", { class: "result" }, wrap);
@@ -735,6 +758,75 @@ async function runAnalyze(target: "page" | "selection"): Promise<void> {
     ctx.error = describeAnalyzeError(err);
     render();
   }
+}
+
+// ---- Deep check (docs/plan.md "Two tiers: Quick (default) and Deep (on demand)") ----
+
+/** First click: if the deep detector set isn't fully downloaded, show the inline prompt instead of running. */
+async function onDeepCheck(): Promise<void> {
+  const tabId = ctx.tabId;
+  if (tabId === null) return;
+  if (!ctx.deepChecklistOpen) {
+    const status = deepDownloadStatus(ctx.settings, "wasm", ctx.cache);
+    if (!status.cached) {
+      ctx.deepChecklistOpen = true;
+      render();
+      return;
+    }
+  }
+  ctx.deepChecklistOpen = false;
+  ctx.deepBusy = true;
+  ctx.error = null;
+  render();
+  try {
+    const target = ctx.lastTarget ?? "page";
+    const result = await sendMessage(
+      "analyzeTab",
+      { tabId, target, ...deepCheckRequestFields(ctx.settings) },
+      (progress) => {
+        ctx.progress = progress;
+        render();
+      },
+    );
+    ctx.lastTarget = target;
+    ctx.progress = null;
+    const seen = ctx.result as AnalyzeResult | null;
+    ctx.result = { ...result, images: seen?.images ?? result.images };
+  } catch (err) {
+    ctx.progress = null;
+    ctx.error = describeAnalyzeError(err);
+  } finally {
+    ctx.deepBusy = false;
+    render();
+  }
+}
+
+function renderDeepPrompt(): HTMLElement | null {
+  if (!ctx.deepChecklistOpen) return null;
+  const status = deepDownloadStatus(ctx.settings, "wasm", ctx.cache);
+  const mb = status.missingBytes !== null ? `${Math.round(status.missingBytes / 1e6)} MB` : "an unknown amount";
+  return h(
+    "div",
+    { class: "deep-prompt" },
+    h("p", { class: "field-hint" }, `Deep check needs to download ${mb} of models.`),
+    h(
+      "div",
+      { class: "btn-row" },
+      h("button", { class: "btn btn-primary btn-small", type: "button", onclick: () => void onDeepCheck() }, `Download & run (${mb})`),
+      h(
+        "button",
+        {
+          class: "btn btn-ghost btn-small",
+          type: "button",
+          onclick: () => {
+            ctx.deepChecklistOpen = false;
+            render();
+          },
+        },
+        "Cancel",
+      ),
+    ),
+  );
 }
 
 function describeAnalyzeError(err: unknown): string {

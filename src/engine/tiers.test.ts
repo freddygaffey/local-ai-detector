@@ -1,0 +1,86 @@
+// Tiers task (docs/plan.md "Two tiers: Quick (default) and Deep (on
+// demand)"): the tier -> detector-set mapping, and settings migration for
+// `Settings.tiers` (a fresh install, and a stored value missing/corrupted
+// by an older or foreign build).
+
+import { describe, expect, it } from "vitest";
+import { fusionForTier } from "./models";
+import {
+  ALL_TIER_DETECTORS,
+  DEFAULT_SETTINGS,
+  DEFAULT_TIERS,
+  migrateSettings,
+  sanitizeTiers,
+  type FusionDetector,
+  type Settings,
+  type TierSettings,
+} from "../shared/settings";
+
+describe("fusionForTier", () => {
+  it("quick uses settings.tiers.quickDetectors, weighted", () => {
+    const tiers: TierSettings = { ...DEFAULT_TIERS, quickDetectors: ["tmr", "lite"] };
+    expect(fusionForTier("quick", tiers)).toEqual({ detectors: ["tmr", "lite"], method: "weighted" });
+  });
+
+  it("deep uses settings.tiers.deepDetectors, weighted", () => {
+    const tiers: TierSettings = { ...DEFAULT_TIERS, deepDetectors: ["binoculars"] };
+    expect(fusionForTier("deep", tiers)).toEqual({ detectors: ["binoculars"], method: "weighted" });
+  });
+
+  it("defaults: quick is lite only, deep is every detector", () => {
+    expect(fusionForTier("quick", DEFAULT_TIERS).detectors).toEqual(["lite"]);
+    expect(fusionForTier("deep", DEFAULT_TIERS).detectors).toEqual(ALL_TIER_DETECTORS);
+    expect(fusionForTier("deep", DEFAULT_TIERS).detectors).toHaveLength(6);
+  });
+
+  it("falls back to the tier's own default if given an empty list (never an empty Fusion)", () => {
+    expect(fusionForTier("quick", { ...DEFAULT_TIERS, quickDetectors: [] }).detectors).toEqual(DEFAULT_TIERS.quickDetectors);
+    expect(fusionForTier("deep", { ...DEFAULT_TIERS, deepDetectors: [] }).detectors).toEqual(DEFAULT_TIERS.deepDetectors);
+  });
+});
+
+describe("sanitizeTiers", () => {
+  it("passes through a valid value", () => {
+    const t: TierSettings = { quickDetectors: ["tmr"], deepDetectors: ["tmr", "perplexity"], autoRunQuick: false };
+    expect(sanitizeTiers(t)).toEqual(t);
+  });
+
+  it("drops unknown detectors (a newer version synced in) and dedupes", () => {
+    expect(
+      sanitizeTiers({ quickDetectors: ["lite", "lite", "bogus" as FusionDetector], deepDetectors: ["tmr"], autoRunQuick: true }),
+    ).toEqual({ quickDetectors: ["lite"], deepDetectors: ["tmr"], autoRunQuick: true });
+  });
+
+  it("never returns an empty detector list for either tier", () => {
+    expect(sanitizeTiers({ quickDetectors: [], deepDetectors: [] }).quickDetectors).toEqual(DEFAULT_TIERS.quickDetectors);
+    expect(sanitizeTiers({ quickDetectors: [], deepDetectors: [] }).deepDetectors).toEqual(DEFAULT_TIERS.deepDetectors);
+  });
+
+  it("defaults autoRunQuick to on, and everything to the tier defaults, when undefined", () => {
+    expect(sanitizeTiers(undefined)).toEqual(DEFAULT_TIERS);
+  });
+});
+
+describe("settings migration: tiers", () => {
+  const migrated = (stored: Partial<Settings>) => migrateSettings({ ...DEFAULT_SETTINGS, ...stored } as Settings, stored);
+
+  it("a fresh install gets the intended defaults", () => {
+    expect(DEFAULT_SETTINGS.tiers).toEqual(DEFAULT_TIERS);
+    expect(migrated({}).tiers).toEqual(DEFAULT_TIERS);
+  });
+
+  it("settings stored before the tiers task (no `tiers` key at all) get the defaults, not a crash", () => {
+    const preTiers = { mode: "ensemble" } as Partial<Settings>;
+    expect(migrated(preTiers).tiers).toEqual(DEFAULT_TIERS);
+  });
+
+  it("a corrupted/foreign stored `tiers` value is sanitized rather than kept verbatim", () => {
+    const out = migrated({ tiers: { quickDetectors: ["nope" as FusionDetector], deepDetectors: [], autoRunQuick: false } });
+    expect(out.tiers).toEqual({ quickDetectors: DEFAULT_TIERS.quickDetectors, deepDetectors: DEFAULT_TIERS.deepDetectors, autoRunQuick: false });
+  });
+
+  it("a valid stored choice survives migration untouched", () => {
+    const custom: TierSettings = { quickDetectors: ["tmr", "lite"], deepDetectors: ["fakespot", "tmr"], autoRunQuick: false };
+    expect(migrated({ tiers: custom }).tiers).toEqual(custom);
+  });
+});

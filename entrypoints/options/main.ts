@@ -23,6 +23,7 @@ import type {
 import { isPresenceCustom, presenceDefaults } from "@/src/shared/settings";
 import { sendMessage } from "@/src/shared/messages";
 import { mountFusionSettings } from "@/src/ui/fusionSettings";
+import { mountTierSettings } from "@/src/ui/tierSettings";
 import { clearSiteMemory } from "@/src/content/siteMemory";
 import type {
   CustomModelValidation,
@@ -86,6 +87,7 @@ const state: State = {
 
 const root = document.getElementById("app") as HTMLDivElement;
 let fusionUnmount: (() => void) | null = null;
+let tiersUnmount: (() => void) | null = null;
 
 async function main() {
   mountToastHost();
@@ -132,6 +134,8 @@ async function updateSettings(partial: Partial<Settings>): Promise<void> {
 function render(): void {
   fusionUnmount?.();
   fusionUnmount = null;
+  tiersUnmount?.();
+  tiersUnmount = null;
   clearChildren(root);
   root.append(
     h(
@@ -142,6 +146,7 @@ function render(): void {
         "main",
         { class: "options-main" },
         renderDetectionSection(),
+        renderTiersSection(),
         renderPresenceSection(),
         renderBatterySection(),
         renderSlopFilterSection(),
@@ -161,6 +166,7 @@ function renderNav(): HTMLElement {
     { class: "options-nav" },
     h("div", { class: "brand" }, brandMark(), h("span", null, "Local AI Detector")),
     h("a", { href: "#detection" }, "Detection"),
+    h("a", { href: "#tiers" }, "Tiers"),
     h("a", { href: "#presence" }, "Presence"),
     h("a", { href: "#battery" }, "Battery"),
     h("a", { href: "#slop-filter" }, "Slop filter"),
@@ -252,6 +258,27 @@ function renderDetectionSection(): HTMLElement {
     fusionSection,
     (() => {
       if (s.mode === "ensemble") queueMicrotask(() => (fusionUnmount = mountFusionSettings(fusionHost)));
+      return null;
+    })(),
+  );
+}
+
+// ---- Tiers (docs/plan.md "Two tiers: Quick (default) and Deep (on demand)") ----
+
+function renderTiersSection(): HTMLElement {
+  const host = h("div", { class: "tiers-host" });
+  return h(
+    "section",
+    { id: "tiers" },
+    h("h2", null, "Tiers"),
+    h(
+      "p",
+      { class: "section-intro" },
+      "Quick is the automatic pass; Deep is the ↻ button (popup, expanded chip, side panel) -- all detectors, on demand.",
+    ),
+    host,
+    (() => {
+      queueMicrotask(() => (tiersUnmount = mountTierSettings(host)));
       return null;
     })(),
   );

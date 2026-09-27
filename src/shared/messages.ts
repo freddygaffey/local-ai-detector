@@ -20,7 +20,7 @@ import type {
   ProvenanceVerifyTextRequest,
   TextProvenanceResult,
 } from "../provenance/types";
-import type { FusionDetector, FusionMethod, HighlightStyle, Mode, ModelSlot } from "./settings";
+import type { FusionDetector, FusionMethod, HighlightStyle, Mode, ModelSlot, Tier } from "./settings";
 import type { TranscriptReport } from "./transcript";
 
 export interface SentenceRange {
@@ -434,6 +434,38 @@ export interface AnalyzeTabRequestT7 {
 /** T12b: same per-request device channel for direct `analyze` requests (additive). */
 export interface AnalyzeRequest {
   preferCpu?: boolean;
+}
+
+// ---- Added by the tiers task (additive only; see docs/plan.md "Two tiers:
+// Quick (default) and Deep (on demand)") ----
+
+/**
+ * Which pass this request/result is: 'quick' (the cheap automatic pass) or
+ * 'deep' (the on-demand ↻ button -- all detectors). Optional and only set
+ * by callers that care (auto-run, the deep-check button); a plain
+ * `analyzeTab`/`analyze` call (e.g. the paste box) omits it. Echoed back on
+ * `AnalyzeResult.tier` so the popup/pill can label a Deep result, and so a
+ * YouTube voice check (T11, once it has its own rate setting) can read the
+ * active tier and pick Light (quick) vs Thorough (deep) -- see
+ * docs/plan.md "Two tiers" and `TranscriptReport.tier` in ./transcript.ts.
+ */
+export interface AnalyzeRequest {
+  tier?: Tier;
+  /**
+   * Overrides `settings.fusion.detectors` for this run only (mode
+   * "ensemble"), e.g. `fusionForTier(tier, settings.tiers).detectors` from
+   * src/engine/models.ts. Ignored for the single-detector modes.
+   */
+  fusionOverride?: FusionDetector[];
+}
+
+export interface AnalyzeResult {
+  tier?: Tier;
+}
+
+export interface AnalyzeTabRequestT7 {
+  tier?: Tier;
+  fusionOverride?: FusionDetector[];
 }
 
 // ---- Added by T9 (additive only; see docs/plan.md "Shared contract") ----

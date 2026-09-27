@@ -15,6 +15,7 @@ import { registerHandlers, sendMessage } from "../../shared/messages";
 import { autoRunPolicyForSite, DEFAULT_SETTINGS, getSettings, watchSettings, type Settings } from "../../shared/settings";
 import { FLAGGED_THRESHOLD } from "../../shared/thresholds";
 import { toTranscriptProbability, type TranscriptReport, type TranscriptSegment } from "../../shared/transcript";
+import { fusionForTier } from "../../engine/models";
 import { decidePowerAction, readBatteryState, readPressureState } from "../../power/battery";
 import { acquireTranscript, isYouTubeHost, readDisclosure, videoFromUrl, type VideoRef } from "./acquire";
 import { buildTranscriptBlocks, resolveSentenceMode, sampleBlocks, toTextBlocks, type TranscriptBlock } from "./chunk";
@@ -97,10 +98,20 @@ async function run(pass: "fast" | "full", allowOpen: boolean): Promise<void> {
     // 0.69, docs/calibration.md "Transcripts"): leave those to the full run.
     if (pass === "fast" && resolveSentenceMode(t.cues) === "raw") return publish({ ...base, state: "idle" });
     const all = buildTranscriptBlocks(t.cues, { idPrefix: `yt-${v.videoId}` });
-    const budget = Math.max(300, Math.floor(settings.maxTokens * 0.7));
+    // Tiers task (docs/plan.md "Two tiers"): the automatic "fast" pass is
+    // Quick (the cheapest detectors, a sampled budget); the clicked "full"
+    // pass is Deep (every detector, the whole transcript).
+    const tier: "quick" | "deep" = pass === "full" ? "deep" : "quick";
+    const budget = pass === "full" ? settings.maxTokens : Math.max(300, Math.floor(settings.maxTokens * 0.7));
     const blocks = sampleBlocks(all, budget);
-    const mode = pass === "full" ? settings.mode : settings.autoRunFastMode;
-    const result = await sendMessage("analyze", { tabId: -1, mode, blocks: toTextBlocks(blocks) });
+    const fusion = fusionForTier(tier, settings.tiers);
+    const result = await sendMessage("analyze", {
+      tabId: -1,
+      mode: "ensemble",
+      fusionOverride: fusion.detectors,
+      tier,
+      blocks: toTextBlocks(blocks),
+    });
     if (stale()) return;
     const detectors = result.detectors?.map((d) => d.id);
     const method = result.fusion?.method;
@@ -117,6 +128,7 @@ async function run(pass: "fast" | "full", allowOpen: boolean): Promise<void> {
       ...base,
       state: "done",
       pass,
+      tier,
       overall: result.overall,
       probability: toTranscriptProbability(result.overall, { detectors, method, words: result.words }),
       source: t.source,
@@ -137,6 +149,10 @@ async function run(pass: "fast" | "full", allowOpen: boolean): Promise<void> {
 
 async function maybeAutoRun(): Promise<void> {
   if (!video || !settings.surfaces.chip) return;
+  // Tiers task (docs/plan.md "Two tiers"): "Run quick check automatically"
+  // off means no automatic pass here either -- the Deep ("full") pass still
+  // runs on click, from the chip or `runDeepTranscriptCheck`.
+  if (!settings.tiers.autoRunQuick) return;
   if (autoRunPolicyForSite(settings, location.hostname) !== "always") return;
   try {
     const [battery, pressure] = await Promise.all([readBatteryState(), readPressureState()]);
@@ -145,6 +161,17 @@ async function maybeAutoRun(): Promise<void> {
     // no battery info: go ahead
   }
   await run("fast", false);
+}
+
+/**
+ * Deep check (docs/plan.md "Two tiers"): triggered from the page-level ↻
+ * (popup/pill/side panel) so a Deep run also gets the whole transcript on a
+ * YouTube video page. A no-op with no video on this page (including every
+ * non-YouTube page, since `video` never gets set there).
+ */
+export async function runDeepTranscriptCheck(): Promise<void> {
+  if (!video || report?.state === "running") return;
+  await run("full", true);
 }
 
 let navTimer: ReturnType<typeof setTimeout> | undefined;

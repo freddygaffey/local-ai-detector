@@ -25,6 +25,10 @@ let chip: VoiceChipApi | null = null;
 let chipFixed = false;
 let ytVideoId: string | null = null;
 let lastContextVideo: HTMLVideoElement | null = null;
+// Quick/Deep tier (docs/plan.md "Two tiers"): automatic runs are Quick (Light rate);
+// the Deep check button switches the current video to Deep (Thorough) until the next video.
+let voiceTier: "quick" | "deep" = "quick";
+const rate = () => resolveVoiceRate({ ...settings, tier: voiceTier } as never);
 
 const voice = () => sanitizeVoice(settings.voice);
 
@@ -53,7 +57,7 @@ function adShowing(): boolean {
 }
 
 function render(state: VoiceState | null): void {
-  chip?.setState(state, { settings: voice(), rate: resolveVoiceRate(settings as never) });
+  chip?.setState(state, { settings: voice(), rate: rate() });
 }
 
 function ensureChip(fixedOnly: boolean): VoiceChipApi {
@@ -89,7 +93,7 @@ async function startSession(video: HTMLVideoElement, fixedOnly: boolean): Promis
   const power = decidePowerAction(await readBatteryState(), await readPressureState(), settings.battery);
   const v = voice();
   const s = new VoiceSession(video, {
-    rate: resolveVoiceRate(settings as never),
+    rate: rate(),
     batterySaver: power.reason !== null,
     model: v.model,
     sensitivity: v.sensitivity,
@@ -101,7 +105,7 @@ async function startSession(video: HTMLVideoElement, fixedOnly: boolean): Promis
     },
   });
   session = s;
-  c.setState(null, { settings: v, rate: resolveVoiceRate(settings as never) });
+  c.setState(null, { settings: v, rate: rate() });
   s.start();
 }
 
@@ -113,13 +117,14 @@ async function onYouTubeLocation(): Promise<void> {
     return;
   }
   ytVideoId = id;
+  voiceTier = "quick";
   stopSession();
   if (!wantChip) {
     chip?.destroy();
     chip = null;
     return;
   }
-  ensureChip(false).setState(null, { settings: voice(), rate: resolveVoiceRate(settings as never) });
+  ensureChip(false).setState(null, { settings: voice(), rate: rate() });
   if (voice().run !== "autoYouTube") return;
   const power = decidePowerAction(await readBatteryState(), await readPressureState(), settings.battery);
   if (power.pauseAutoRun) return;
@@ -129,6 +134,13 @@ async function onYouTubeLocation(): Promise<void> {
     if (v && v.readyState > 0) return void startSession(v, false);
     await new Promise((r) => setTimeout(r, 500));
   }
+}
+
+/** Deep check: restart voice sampling on the current video at the Thorough rate. */
+export function runDeepVoiceCheck(): void {
+  voiceTier = "deep";
+  const video = session?.video ?? (youTubeVideoId(location.href) !== null ? youTubeVideo() : lastContextVideo);
+  if (video) void startSession(video, session ? chipFixed : youTubeVideoId(location.href) === null);
 }
 
 export function startVoiceContent(): void {
