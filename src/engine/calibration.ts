@@ -64,12 +64,14 @@ export const CALIBRATION: Calibration = {
   // (experimental, not re-checked on the browser data).
   binoculars: { tau: 0.82, k: 10 },
   ensemble: { wClassifier: 0.7, wPerplexity: 0.3 },
+  // Paragraph level (scripts/e2e/browser-unit-calibration.mjs: ~965 human
+  // and ~895 AI paragraphs from the same texts), again at ~5% human FPR.
   unit: {
     classifier: {
-      classifier: { center: 3.84, slope: 1.27 },
-      classifierLite: { center: 2.7, slope: 1.72 },
+      classifier: { center: 4.2, slope: 1.27 },
+      classifierLite: { center: 2.34, slope: 1.72 },
     },
-    perplexityTau: 3.17,
+    perplexityTau: 3.02,
   },
 };
 
@@ -86,10 +88,10 @@ export const WEBGPU_CALIBRATION: Pick<Calibration, "classifier" | "perplexity" |
   perplexity: { tau: 2.93, a: 2.0, tauBurst: 0.58, b: 0 },
   unit: {
     classifier: {
-      classifier: { center: 3.14, slope: 1.27 },
-      classifierLite: { center: 1.91, slope: 1.72 },
+      classifier: { center: 3.87, slope: 1.27 },
+      classifierLite: { center: 2.22, slope: 1.72 },
     },
-    perplexityTau: 2.93,
+    perplexityTau: 2.81,
   },
 };
 
