@@ -161,7 +161,7 @@ Runs alongside T7. T7 exposes its fusion settings as a self-contained options mo
 agreement data to results; T9 mounts and displays them.
 
 ## Target user (user decision, overrides earlier defaults)
-**Slightly technical readers who are against low-effort AI slop overtaking the web (not against AI itself) and want to cut it from everyday reading**. Tone is **slightly hostile toward AI slop**: wry and aimed at machine-made filler, never at authors. No 'caught/busted/cheater/fake' language and no preachiness. Examples: 'Slop 82%', 'Likely AI filler', 'Reads human', 'Keep the web human': articles,
+**Slightly technical readers who are against low-effort AI slop overtaking the web (not against AI itself) and want to cut it from everyday reading**. Tone is **highly hostile toward AI slop** (low-effort filler, content farms, bot comments, SEO spam) but **not hostile toward AI in general**, and never toward authors. No 'caught/busted/cheater/fake' language and no preachiness. Examples: 'SLOP 91%', 'AI slop. Skip it.', 'Slop hidden. Show anyway', 'Reads human', 'Stop reading slop.', 'Keep the web human': articles,
 Reddit, HN, forums, reviews, YouTube comments, search results. Essay checkers (students,
 teachers) are secondary, because ZeroGPT/GPTZero already serve them for free. Consequences:
 - Default Presence is the Status chip with auto-run on, using classifierLite; clicking runs the
