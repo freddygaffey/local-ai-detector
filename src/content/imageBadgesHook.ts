@@ -7,9 +7,27 @@ import { resetImageProvenance, scanPageImages } from "../provenance/content";
 import { clearImageBadges } from "../provenance/badges";
 import { summarizeImageResults } from "../provenance/summary";
 import { sendMessage, type ImageProvenanceSummary } from "../shared/messages";
+import { isYouTubeHost } from "./youtube/acquire";
+
+/**
+ * YouTube's own thumbnails are everywhere (home, sidebar, search, the watch
+ * page's own "up next" rail) and every one would otherwise get a quiet "?"
+ * badge for lack of host permission -- noise on every page, not a result
+ * about anything. Restrict to the one place an image is actually content:
+ * the video description. `null` (no description on this page, e.g. the
+ * homepage) means nothing gets scanned at all.
+ */
+function badgeRoot(): ParentNode | null | undefined {
+  try {
+    if (!isYouTubeHost(location.hostname)) return undefined; // no restriction off YouTube
+    return document.querySelector("#description") ?? null;
+  } catch {
+    return undefined;
+  }
+}
 
 export async function scanImagesAndReport(): Promise<ImageProvenanceSummary> {
-  const scan = await scanPageImages();
+  const scan = await scanPageImages({ root: badgeRoot() });
   const summary = summarizeImageResults(scan.results, {
     permissionNeeded: scan.permissionNeeded,
     disabled: scan.disabled,

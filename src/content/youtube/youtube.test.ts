@@ -19,7 +19,7 @@ import {
   parseTimestamp,
   type Cue,
 } from "./transcript";
-import { buildTranscriptBlocks, resolveSentenceMode, sampleBlocks, timeOf, toTextBlocks } from "./chunk";
+import { buildTranscriptBlocks, resolveSentenceMode, sampleBlocks, skipQuickPass, timeOf, toTextBlocks } from "./chunk";
 import { inlineCaptionTracks, loadedCaptionUrls, readDisclosure, readOpenPanel, videoFromUrl } from "./acquire";
 import { chipLabel, detailsMeta } from "./ui";
 import { toTranscriptProbability, type TranscriptReport } from "../../shared/transcript";
@@ -169,6 +169,21 @@ describe("chunking", () => {
     const cues = Array.from({ length: 40 }, (_, i) => ({ start: i * 4, text: "we talked about it for a bit and moved on" }));
     const blocks = buildTranscriptBlocks(cues);
     expect(blocks[0]!.end).toBeLessThanOrEqual(blocks[1]!.start + 4);
+  });
+
+  test("Quick tier skips unpunctuated *auto* captions only (fresh-install bug: manual captions must still score)", () => {
+    const raw = unpunct(30, 4);
+    const punctuated = [{ start: 0, text: "So today, we're going to talk about bees. They matter. Here's why, and how." }, ...unpunct(0)];
+    expect(resolveSentenceMode(raw)).toBe("raw");
+    expect(resolveSentenceMode(punctuated)).toBe("punctuated");
+    // The lite model's measured weakness is on ASR output specifically.
+    expect(skipQuickPass(true, raw)).toBe(true);
+    // A manual/uploaded transcript that happens to read unpunctuated (rare) isn't ASR: still scored.
+    expect(skipQuickPass(false, raw)).toBe(false);
+    expect(skipQuickPass(undefined, raw)).toBe(false);
+    // Punctuated text is never skipped either way.
+    expect(skipQuickPass(true, punctuated)).toBe(false);
+    expect(skipQuickPass(false, punctuated)).toBe(false);
   });
 
   test("sampling a long transcript keeps evenly spaced blocks in order", () => {

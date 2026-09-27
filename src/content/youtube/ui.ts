@@ -14,6 +14,8 @@ import { scoreColor } from "../colors";
 export interface TranscriptChipCallbacks {
   onRun(): void;
   onSeek(seconds: number): void;
+  /** Model download not consented to yet ("consent" state): grants it and retries. */
+  onConsent(): void;
 }
 
 export interface TranscriptChipApi {
@@ -43,6 +45,9 @@ const CSS = `
     background: var(--bg); color: var(--fg); }
   .chip.muted { color: var(--muted); font-weight: 500; }
   .chip:hover, .chip:focus-visible { border-color: var(--fg); outline: none; }
+  .action { font: inherit; font-weight: 600; cursor: pointer; border-radius: 999px; padding: 4px 12px;
+    border: 1px solid var(--link); background: var(--bg); color: var(--link); }
+  .action:hover, .action:focus-visible { background: var(--link); color: var(--bg); outline: none; }
   .label { border-radius: 999px; padding: 3px 10px; background: var(--warnbg); color: var(--warnfg); font-weight: 600; }
   .details { margin-top: 6px; max-width: 560px; border: 1px solid var(--line); border-radius: 10px; padding: 8px;
     background: var(--bg); color: var(--fg); font: 12px/1.4 Roboto, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
@@ -76,6 +81,8 @@ export function chipLabel(r: TranscriptReport | null): { text: string; muted: bo
       return { text: "No transcript", muted: true };
     case "not-english":
       return { text: "Transcript: English only", muted: true };
+    case "consent":
+      return { text: "Transcript: download models", muted: true };
     case "error":
       return { text: "Transcript: —", muted: true };
     case "done":
@@ -137,6 +144,22 @@ export function createTranscriptChip(cb: TranscriptChipCallbacks): TranscriptChi
 
   const renderDetails = () => {
     details.replaceChildren();
+    if (report?.state === "consent") {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "action";
+      btn.textContent = report.consentMB !== undefined ? `Download models (${report.consentMB} MB)` : "Download models";
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        cb.onConsent();
+      });
+      const note = document.createElement("div");
+      note.className = "meta";
+      note.textContent = "Needed once, on-device; nothing leaves your device.";
+      details.append(btn, note);
+      details.hidden = false;
+      return;
+    }
     if (!report || report.state !== "done") {
       details.hidden = true;
       return;
@@ -183,7 +206,13 @@ export function createTranscriptChip(cb: TranscriptChipCallbacks): TranscriptChi
     chip.style.color = l.score !== undefined ? scoreColor(l.score, theme()) : "";
     chip.setAttribute(
       "aria-label",
-      report?.state === "done" ? `${l.text}. Show flagged segments.` : report?.state === "running" ? "Checking the transcript" : `${l.text}. Check the transcript for AI writing.`,
+      report?.state === "done"
+        ? `${l.text}. Show flagged segments.`
+        : report?.state === "running"
+          ? "Checking the transcript"
+          : report?.state === "consent"
+            ? `${l.text}. Model download needs your consent.`
+            : `${l.text}. Check the transcript for AI writing.`,
     );
     chip.disabled = report?.state === "running";
     label.hidden = !report?.disclosure;

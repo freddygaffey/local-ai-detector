@@ -41,6 +41,7 @@ import { formatSentenceTooltip, hideTooltip, showTooltip } from "./tooltip";
 import type { ActiveSentence, BlockRecord } from "./types";
 import { clearUnicodeMarkers, renderUnicodeMarkers } from "./unicodeMarkers";
 import { runDeepTranscriptCheck, startYouTubeTranscripts } from "./youtube";
+import { videoFromUrl } from "./youtube/acquire";
 import { runDeepVoiceCheck, startVoiceContent } from "../voice/content";
 
 const INJECT_FLAG = "__aiDetectorContentBooted";
@@ -89,6 +90,22 @@ function safeHostname(): string {
     return location.hostname;
   } catch {
     return "";
+  }
+}
+
+/**
+ * A YouTube watch or Shorts page: the generic page chip and text highlights
+ * would otherwise score the page's own chrome (title, description, related
+ * videos) -- a meaningless number next to the transcript and voice chips,
+ * which are the actual result there. The comment thread is a separate
+ * `structuredMatch` (its own per-comment markers keep working normally --
+ * same gate as any other comments site, docs/plan.md "Slop filter").
+ */
+function isYouTubeChromePage(): boolean {
+  try {
+    return videoFromUrl(location.href) !== null;
+  } catch {
+    return false;
   }
 }
 
@@ -181,6 +198,10 @@ async function boot(): Promise<void> {
         resetImageBadges();
         structuredMatch = null;
         searchMatch = null;
+        // A YouTube SPA navigation can cross into/out of a watch or Shorts
+        // page without a settings change, which is the only other trigger
+        // for this (docs/plan.md "T4"/"T9"): re-evaluate the chip here too.
+        reconcileSurfaces();
       },
     },
   );
@@ -202,7 +223,8 @@ async function boot(): Promise<void> {
 // ---- Presence surfaces (chip / pill) ---------------------------------------
 
 function wantPill(): boolean {
-  return settings.surfaces.highlights || chipExpanded || sessionShowOnPage;
+  const highlightsWanted = settings.surfaces.highlights && !(isYouTubeChromePage() && !structuredMatch);
+  return highlightsWanted || chipExpanded || sessionShowOnPage;
 }
 
 function ensurePill(): PillApi {
@@ -232,7 +254,8 @@ function teardownPillIfUnwanted(): void {
 
 function reconcileSurfaces(): void {
   try {
-    if (settings.surfaces.chip && !chip) {
+    const wantChip = settings.surfaces.chip && !isYouTubeChromePage();
+    if (wantChip && !chip) {
       chip = createChip(settings.chipCorner, {
         onExpand: () => {
           chipExpanded = true;
@@ -246,7 +269,7 @@ function reconcileSurfaces(): void {
           teardownPillIfUnwanted();
         },
       });
-    } else if (!settings.surfaces.chip && chip) {
+    } else if (!wantChip && chip) {
       chip.destroy();
       chip = null;
     }
@@ -399,7 +422,8 @@ async function maybeAutoRun(): Promise<void> {
 // ---- Rendering --------------------------------------------------------------
 
 function shouldPaintOnPage(): boolean {
-  return settings.surfaces.highlights || chipExpanded || sessionShowOnPage;
+  const highlightsWanted = settings.surfaces.highlights && !(isYouTubeChromePage() && !structuredMatch);
+  return highlightsWanted || chipExpanded || sessionShowOnPage;
 }
 
 function applyResult(result: AnalyzeResult, style: HighlightStyle): void {

@@ -17,6 +17,8 @@ export type TranscriptState =
   | "none"
   /** Captions exist but aren't English (the detectors and calibration are English-only). */
   | "not-english"
+  /** Got the transcript, but scoring it needs the model download consented to first. */
+  | "consent"
   /** Couldn't read the transcript. */
   | "error";
 
@@ -60,6 +62,8 @@ export interface TranscriptReport {
   /** YouTube's own disclosure label ("Made with AI", "Altered or synthetic content"), if shown. */
   disclosure: string | null;
   error?: string;
+  /** state "consent": the one-off download size the background quoted (undefined = unknown). */
+  consentMB?: number;
 }
 
 export interface TranscriptDisplayContext {

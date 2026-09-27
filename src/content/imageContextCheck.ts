@@ -11,7 +11,7 @@ import { sendMessage, type ActionResult } from "../shared/messages";
 /** Finds the clicked image by its resolved src, checks it, and renders its badge. Never throws. */
 export async function checkImageAtUrl(srcUrl: string): Promise<ActionResult> {
   try {
-    const found = await discoverImages({ minDisplay: 0, minNatural: 0, max: 400 });
+    const found = await discoverImages({ minDisplay: 0, minNatural: 0, max: 400, excludeThumbnails: false });
     const match = found.find(
       (f) => f.candidate.src === srcUrl || (f.element as HTMLImageElement).currentSrc === srcUrl,
     );

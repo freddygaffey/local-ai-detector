@@ -3,6 +3,11 @@
 //    which is the most likely to still carry metadata/watermarks)
 //  - optionally CSS background images of large elements
 //  - skips icons/thumbnails below a size threshold, SVG, and duplicates
+//  - by default (the general page scan) also skips images that read as a
+//    thumbnail -- inside a link, list item or carousel -- even when large
+//    enough, so a grid of link-wrapped thumbnails (a video listing, a
+//    product grid) doesn't get a badge per tile; the "check this image"
+//    context-menu action explicitly opts out, since the user picked that one.
 //  - data:/blob: images are read here (the background can't see them) and
 //    sent as base64; http(s) images are fetched by the background/host.
 
@@ -12,8 +17,12 @@ import type { ImageCandidate } from "./types";
 export interface DiscoverOptions {
   /** Max images returned (per call). */
   max?: number;
-  /** Minimum displayed size in CSS px (both dimensions). */
+  /** Minimum displayed size in CSS px, both dimensions (overrides width/height below). */
   minDisplay?: number;
+  /** Minimum displayed width in CSS px. */
+  minDisplayWidth?: number;
+  /** Minimum displayed height in CSS px. */
+  minDisplayHeight?: number;
   /** Minimum intrinsic size in px (both dimensions). */
   minNatural?: number;
   includeBackgrounds?: boolean;
@@ -21,6 +30,10 @@ export interface DiscoverOptions {
   maxInlineBytes?: number;
   /** URLs to skip (already scanned). */
   skip?: Set<string>;
+  /** Skip images that read as a thumbnail (see module doc). Default true; the context-menu single-image check sets it false. */
+  excludeThumbnails?: boolean;
+  /** Restrict discovery to this subtree; `null` means "nothing" (e.g. off the one section a site is trusted for). Default: the whole document. */
+  root?: ParentNode | null;
 }
 
 export interface DiscoveredImage {
@@ -30,7 +43,10 @@ export interface DiscoveredImage {
 
 export const DEFAULTS = {
   max: 30,
-  minDisplay: 96,
+  // A "content" image, not a thumbnail: big enough that a badge on it reads
+  // as about that image, not as page-chrome noise (docs/plan.md "T4").
+  minDisplayWidth: 300,
+  minDisplayHeight: 200,
   minNatural: 128,
   maxInlineBytes: 8 * 1024 * 1024,
 };
@@ -78,9 +94,9 @@ function bestImgUrl(img: HTMLImageElement): string | undefined {
   return current || undefined;
 }
 
-function isVisible(el: Element, minDisplay: number): DOMRect | null {
+function isVisible(el: Element, minWidth: number, minHeight: number): DOMRect | null {
   const r = el.getBoundingClientRect();
-  if (r.width < minDisplay || r.height < minDisplay) return null;
+  if (r.width < minWidth || r.height < minHeight) return null;
   const cs = getComputedStyle(el);
   if (cs.visibility === "hidden" || cs.display === "none" || parseFloat(cs.opacity || "1") === 0) return null;
   return r;
@@ -88,6 +104,18 @@ function isVisible(el: Element, minDisplay: number): DOMRect | null {
 
 function isSvgUrl(url: string): boolean {
   return /^data:image\/svg/i.test(url) || /\.svgz?(\?|#|$)/i.test(url);
+}
+
+/**
+ * True when `el` reads as one tile of a thumbnail grid rather than a content
+ * image in its own right: a link (the whole page's video/article/product
+ * listings), a list item, or an ARIA list/listitem (many carousels use one
+ * even without `<li>`). A badge here would be per-tile noise, not a result
+ * about a specific image (docs/plan.md "T4"; the fresh-install YouTube
+ * thumbnail-badge bug).
+ */
+function looksLikeThumbnail(el: Element): boolean {
+  return !!el.closest('a, li, [role="listitem"], [role="list"]');
 }
 
 function hashString(s: string): string {
@@ -149,11 +177,15 @@ function cssBackgroundUrl(el: Element): string | undefined {
 
 /** Finds candidate images, in-viewport first then by displayed area. */
 export async function discoverImages(opts: DiscoverOptions = {}): Promise<DiscoveredImage[]> {
+  if (opts.root === null) return []; // explicitly "nothing" (e.g. off the one section a site is trusted for)
+  const root = opts.root ?? document;
   const max = opts.max ?? DEFAULTS.max;
-  const minDisplay = opts.minDisplay ?? DEFAULTS.minDisplay;
+  const minW = opts.minDisplayWidth ?? opts.minDisplay ?? DEFAULTS.minDisplayWidth;
+  const minH = opts.minDisplayHeight ?? opts.minDisplay ?? DEFAULTS.minDisplayHeight;
   const minNatural = opts.minNatural ?? DEFAULTS.minNatural;
   const maxInline = opts.maxInlineBytes ?? DEFAULTS.maxInlineBytes;
   const skip = opts.skip ?? new Set<string>();
+  const excludeThumbnails = opts.excludeThumbnails ?? true;
 
   interface Raw {
     element: Element;
@@ -161,21 +193,24 @@ export async function discoverImages(opts: DiscoverOptions = {}): Promise<Discov
     rect: DOMRect;
   }
   const raws: Raw[] = [];
-  for (const img of Array.from(document.images)) {
+  for (const img of Array.from(root.querySelectorAll("img"))) {
     if (!img.complete || img.naturalWidth < minNatural || img.naturalHeight < minNatural) continue;
-    const rect = isVisible(img, minDisplay);
+    if (excludeThumbnails && looksLikeThumbnail(img)) continue;
+    const rect = isVisible(img, minW, minH);
     if (!rect) continue;
     const url = bestImgUrl(img);
     if (!url || isSvgUrl(url)) continue;
     raws.push({ element: img, url, rect });
   }
   if (opts.includeBackgrounds) {
-    const els = document.body ? document.body.querySelectorAll("*") : [];
+    const bgRoot = root === document ? document.body : root;
+    const els = bgRoot ? bgRoot.querySelectorAll("*") : [];
     let n = 0;
     for (const el of Array.from(els)) {
       if (++n > 5000) break;
       if (el instanceof HTMLImageElement) continue;
-      const rect = isVisible(el, Math.max(minDisplay, 200));
+      if (excludeThumbnails && looksLikeThumbnail(el)) continue;
+      const rect = isVisible(el, Math.max(minW, 200), Math.max(minH, 200));
       if (!rect) continue;
       const url = cssBackgroundUrl(el);
       if (!url || isSvgUrl(url) || url.startsWith("data:image/svg")) continue;
