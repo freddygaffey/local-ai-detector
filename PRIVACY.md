@@ -81,7 +81,25 @@ narrowly as the platform allows:
   of their own: remote manifest fetching and OCSP checking are both
   explicitly disabled, so the C2PA check never has to leave your browser.
 
-### 3. Anything else
+### 3. The slop filter, search-result markers and site memory add no new network requests
+
+Three T9 features are entirely local, and don't change anything above:
+
+- **Slop filter** (Options → Slop filter, off by default): dims/collapses
+  comments, posts and reviews scored by the same on-device engine as the
+  rest of the page. The **search-result markers** (Google/Bing/DuckDuckGo/
+  Kagi) score only the snippet text already rendered on the results page —
+  it **never fetches the linked page**.
+- **Site memory** (Options → Site memory, off by default): a local tally per
+  domain (e.g. "7 of the last 10 pages scored high"), stored with
+  `storage.local`. It records **only** the hostname, a plain high/low flag,
+  and a date — **never** page text, URLs, or scores. It's fully visible and
+  clearable from Options, and stays on your device like everything else.
+- **Chat/comment/thread adapters** and the **"Check text in this box"**
+  context menu read text already on the page (or already typed into a box);
+  neither one fetches anything.
+
+### 4. Anything else
 
 There isn't anything else. No analytics SDK, no crash/error reporting
 service, no update-ping beyond the Hugging Face metadata check above, no
@@ -102,6 +120,7 @@ fetches them automatically.
 - All settings (mode, highlight style, thresholds, model choices).
 - Cached model weights, once downloaded.
 - Image provenance results.
+- The site-memory tally (hostname + high/low flag + date only — no text or URLs), if turned on.
 
 All of the above are stored using the browser's own `storage.sync`/
 `storage.local` and Cache/IndexedDB APIs — under your browser profile,

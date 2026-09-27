@@ -2,7 +2,8 @@
 
 # Local AI Detector
 
-**A free, open-source, fully local AI-content detector for Chrome and Firefox.**
+**Filter AI-generated content. Runs on your device.**
+Free, open-source, fully local AI-content detector for Chrome and Firefox.
 No servers, no API keys, no accounts, no telemetry. Every analysis — text
 classification, perplexity, hidden-Unicode scanning, and image provenance
 (C2PA / watermarks) — runs on-device, in the browser, using models you
@@ -40,6 +41,39 @@ See [Privacy](#privacy) for the exact, complete list of network requests.
 (More screenshots, including Firefox, are in [`docs/screenshots/`](docs/screenshots/).)
 
 ## Features
+
+### Presence (Options → Presence)
+
+How much the extension shows, by default **Status chip**: a small corner
+label that stays quiet (hidden below a threshold, peekable on hover) and
+expands into the full inspector on click. Other presets: **On click**
+(nothing until you ask), **Badge** (toolbar % only), **Inspector** (today's
+always-on highlights + pill), **Side panel** (Chrome `sidePanel` / Firefox
+sidebar — a full report, click a flagged sentence to scroll to it, never
+marks the page). Auto-run uses a fast model; the full mode you've configured
+always runs on demand. Per-site rules ("never on this site") and a
+battery-saver (Battery Status API / Compute Pressure where available, a
+manual toggle where they're not) live in the same section.
+
+### More entry points
+
+Context menus to analyze the page, check an image for Content Credentials &
+watermarks, or check the text in an input/textarea/contenteditable box; a
+popup paste box and file drop (.txt/.md/.html/.docx, extracted locally); and
+rebindable keyboard shortcuts (analyze page/selection, toggle visibility).
+
+### Chat and thread adapters (`src/content/adapters/`)
+
+On ChatGPT, Claude, Gemini, Copilot, Perplexity and similar chat UIs, only
+assistant replies are scored (never your own prompt). On Reddit, Hacker
+News, forums, reviews and YouTube comments, each comment/post/reply gets its
+own score instead of being skipped by the normal page scan. An optional
+**slop filter** (off by default) dims or collapses items above a threshold,
+with a "Show" button on each, plus a small marker on flagged search-result
+snippets on Google/Bing/DuckDuckGo/Kagi (the snippet text only — it never
+fetches the linked page). An optional, local-only **site memory** keeps a
+per-domain tally ("7 of the last 10 pages scored high"); no page text or URLs
+are ever stored, and it's fully clearable from Options.
 
 ### Detector modes (Options → Mode)
 

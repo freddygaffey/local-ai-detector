@@ -19,9 +19,9 @@ doesn't exist or fit by the time you submit.
 ## Summary (AMO's short "Add-on Description" summary field, ~250 characters)
 
 ```
-Free, open-source AI-content detector. Scores text and checks image
-provenance/watermarks entirely on your device — no servers, no API keys, no
-data collection.
+Filter AI-generated content. Runs on your device. Scores text, comments and
+images for AI-generated writing/watermarks entirely locally — no servers, no
+API keys, no data collection.
 ```
 
 ## Full description

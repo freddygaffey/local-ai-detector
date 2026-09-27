@@ -17,7 +17,7 @@ an analysis overlay.
 ## Short description (132 characters max)
 
 ```
-Free, open-source AI-content detector that runs 100% on-device. No servers, no API keys, no accounts.
+Filter AI-generated content. Runs on your device. Free, open-source, no servers, no API keys, no accounts.
 ```
 
 (101 characters.)

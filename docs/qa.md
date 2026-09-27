@@ -247,3 +247,56 @@ Kept small, in [screenshots/](screenshots/):
 | `options.jpg`, `options-custom-model.jpg` | Options: models, engine line; licence warning for a custom model |
 | `popup-images-permission.png` | Production build: images not fetched; per-site permission button |
 | `firefox-popup.png`, `firefox-options.jpg`, `firefox-page-heatmap.jpg` | Same in Firefox |
+
+## T9 addendum: Presence modes, battery saver, entry points, adapters
+
+New unit/DOM tests (happy-dom where DOM is needed), all green under
+`npm test`:
+
+| File | Covers |
+|---|---|
+| `src/shared/presence.test.ts` | Presence preset mapping, "Custom" detection, per-site auto-run rules, fresh-install defaults |
+| `src/power/battery.test.ts`, `src/power/idle.test.ts` | Battery/Compute-Pressure gating decisions, idle-unload timing (pure; the real `navigator.getBattery`/`PressureObserver` calls aren't mocked) |
+| `src/content/adapters/adapters.test.ts` | Chat (ChatGPT-style `data-message-author-role`, class-hint fallback), Reddit (new `shreddit-*` and old.reddit.com), generic comments (Hacker News `.commtext`, generic forum/review), search-result snippets (Google-style fixture) |
+| `src/content/slopFilter.test.ts` | Dim/collapse/"Show", search markers, per-item labels |
+| `src/content/siteMemory.test.ts` | Per-domain ring buffer, tally, clear |
+| `src/content/fileExtract.test.ts` | .docx (a real deflate-compressed zip built with Node's `zlib` in the test, read back with the runtime's own `DecompressionStream`), .md, .html, dispatch by extension |
+| `src/ui/probability.test.ts` | The bridge to T7's `toDisplayProbability`/`MIN_WORDS_FOR_SCORE`/`filterThreshold` |
+
+**Chat/Reddit/search-engine adapters are fixture-based, not verified against
+live sites**: this agent has no network access to chatgpt.com, claude.ai,
+reddit.com or the search engines, so the selectors (ChatGPT's documented
+`data-message-author-role`, Reddit's `shreddit-*` elements and
+`old.reddit.com` markup, Google/Bing/DuckDuckGo/Kagi result containers) are
+best-effort from documented/general knowledge of each site's structure, with
+a generic structural fallback (turn/role hints, alternation) doing most of
+the real work on unfamiliar sites. Expect some selector drift on real
+sites; this is the same class of risk any DOM-scraping feature has, and it
+degrades gracefully (the adapter just doesn't match, and the page falls back
+to the normal whole-page scan).
+
+**Not done in this pass** (scope/time; flagged honestly rather than skipped
+silently):
+
+- The Chrome/Firefox E2E suites (`scripts/e2e/`) were **not** extended with
+  new scenarios for Presence modes, the chip, context menus, `commands`, the
+  side panel, or the slop filter, and were **not** re-run end to end (they
+  need real model downloads from Hugging Face and a live browser; typecheck,
+  `npm test`, both production builds, both e2e-mode builds, and
+  `web-ext lint` were all re-verified green instead — see the root
+  `README`/commit history for this task's exact commands).
+- Screenshots in `docs/screenshots/` were **not** re-taken for the new UI
+  (chip, Presence/Battery/Slop filter/Site memory options sections, side
+  panel, paste/file-drop popup).
+- The toolbar badge is always shown by the engine's own router
+  (`src/engine/router.ts`, owned by T7) once an analysis finishes, regardless
+  of `Settings.surfaces.badge` — so the "Badge" and "On click" Presence
+  presets currently look identical on the toolbar (the page-level
+  difference -- chip/highlights vs. nothing -- is unaffected).
+- "Battery saver"'s `useCpuOnBattery` computes a decision
+  (`decidePowerAction` in `src/power/battery.ts`) but there's no per-request
+  channel yet to actually force a single run onto the CPU; the engine-wide
+  `useWebGPU` toggle is the only lever until one exists.
+- Wording used "Retry" (not "Scan again") for pill actions during this pass;
+  `docs/qa.md`'s and `docs/ux/findings-pass1.md`'s older screenshots/text
+  predate that rename.
