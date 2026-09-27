@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   BLOCK_SEPARATOR,
+  blockStarts,
   buildDoc,
   buildUnits,
   capSentences,
@@ -102,6 +103,54 @@ describe("buildUnits (minWords folding)", () => {
       { first: 0, last: 0 },
       { first: 1, last: 2 },
     ]);
+  });
+});
+
+describe("block-aware grouping", () => {
+  it("buildUnits swallows a too-short block tail instead of spilling into the next block", () => {
+    // block A: 30 + 30 + 10 words, block B: 60 words
+    const words = [30, 30, 10, 60];
+    const starts = [true, false, false, true];
+    expect(buildUnits(words, 50)).toEqual([
+      { first: 0, last: 1 },
+      { first: 2, last: 3 },
+    ]);
+    expect(buildUnits(words, 50, starts)).toEqual([
+      { first: 0, last: 2 },
+      { first: 3, last: 3 },
+    ]);
+  });
+
+  it("buildUnits still merges whole short blocks with neighbours", () => {
+    expect(buildUnits([10, 10, 60], 50, [true, true, true])).toEqual([{ first: 0, last: 2 }]);
+  });
+
+  it("packChunks starts a new chunk at a block boundary once half full", () => {
+    const units = [
+      { first: 0, last: 0 },
+      { first: 1, last: 1 },
+      { first: 2, last: 2 },
+    ];
+    const counts = [150, 60, 100];
+    expect(packChunks(units, counts, 510, 384)).toEqual([{ first: 0, last: 2 }]);
+    expect(packChunks(units, counts, 510, 384, [true, false, true])).toEqual([
+      { first: 0, last: 1 },
+      { first: 2, last: 2 },
+    ]);
+    // small blocks keep packing together until the chunk is half full
+    expect(packChunks(units, [100, 20, 100], 510, 384, [true, true, true])).toEqual([{ first: 0, last: 2 }]);
+    expect(packChunks(units, [200, 20, 100], 510, 384, [true, true, true])).toEqual([
+      { first: 0, last: 0 },
+      { first: 1, last: 2 },
+    ]);
+  });
+
+  it("blockStarts marks the first sentence of each block", () => {
+    const doc = buildDoc([
+      { id: "a", text: "A b. C d.", sentences: [{ start: 0, end: 4 }, { start: 5, end: 9 }] },
+      { id: "b", text: "E f.", sentences: [{ start: 0, end: 4 }] },
+    ]);
+    expect(blockStarts(doc.sentences)).toEqual([true, false, true]);
   });
 });
 

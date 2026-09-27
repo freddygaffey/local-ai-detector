@@ -23,13 +23,18 @@ type Progress = (p: ProgressEvent) => void;
 export class LoadProgress {
   private files = new Map<string, { loaded: number; total: number }>();
   private lastEmit = 0;
+  private emit: Progress | undefined;
+  private phase: "download" | "load";
+  private label: string;
+  private throttleMs: number;
 
-  constructor(
-    private emit: Progress | undefined,
-    private phase: "download" | "load",
-    private label: string,
-    private throttleMs = 150,
-  ) {}
+  // (No TS parameter properties: the Node scripts run this file via type stripping.)
+  constructor(emit: Progress | undefined, phase: "download" | "load", label: string, throttleMs = 150) {
+    this.emit = emit;
+    this.phase = phase;
+    this.label = label;
+    this.throttleMs = throttleMs;
+  }
 
   onFile: FileProgress = ({ key, file, loaded, total, done }) => {
     const k = `${key}/${file}`;
@@ -145,6 +150,9 @@ export async function analyze(
     models,
     onProgress,
   );
+  // One scan over the blocks joined with BLOCK_SEPARATOR ("\n\n"): finding
+  // indices are offsets into that joined string, i.e. block k starts at
+  // sum(len(block j) + 2 for j < k).
   const unicode = scanUnicode(blocks.map((b) => b.text).join(BLOCK_SEPARATOR));
   const full: AnalyzeResult = { ...result, unicode };
 

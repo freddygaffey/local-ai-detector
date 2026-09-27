@@ -125,19 +125,41 @@ export interface Span {
  * into their neighbours. A trailing remainder shorter than `minWords` is
  * merged into the previous unit. If the whole text is shorter than
  * `minWords`, it becomes a single (low-confidence) unit.
+ *
+ * With `blockStart` (true where a sentence begins a new block), units prefer
+ * block boundaries: when a unit fills up mid-block and the rest of that block
+ * is too short to stand alone, the unit swallows the rest of the block
+ * instead of spilling it into the next block's unit. Different blocks are
+ * often different authors (e.g. comments), so mixing them is worse than a
+ * slightly larger unit.
  */
-export function buildUnits(words: number[], minWords: number): Span[] {
+export function buildUnits(words: number[], minWords: number, blockStart?: boolean[]): Span[] {
   const n = words.length;
   if (n === 0) return [];
   const min = Math.max(1, minWords);
+  // wordsToBlockEnd[i] = words in sentences i..(end of i's block)
+  const toBlockEnd = new Array<number>(n + 1).fill(0);
+  if (blockStart) {
+    for (let i = n - 1; i >= 0; i--) {
+      toBlockEnd[i] = words[i]! + (i + 1 < n && !blockStart[i + 1] ? toBlockEnd[i + 1]! : 0);
+    }
+  }
   const units: Span[] = [];
   let first = 0;
   let acc = 0;
   for (let i = 0; i < n; i++) {
     acc += words[i]!;
     if (acc >= min) {
-      units.push({ first, last: i });
-      first = i + 1;
+      let last = i;
+      if (blockStart && i + 1 < n && !blockStart[i + 1]) {
+        const rest = toBlockEnd[i + 1]!;
+        if (rest < min) {
+          while (last + 1 < n && !blockStart[last + 1]) last++;
+        }
+      }
+      units.push({ first, last });
+      first = last + 1;
+      i = last;
       acc = 0;
     }
   }
@@ -155,13 +177,15 @@ export function buildUnits(words: number[], minWords: number): Span[] {
  * longer than `maxTokens` becomes its own chunk (the tokenizer truncates it).
  *
  * `targetTokens` (<= maxTokens) lets callers prefer smaller chunks for finer
- * highlighting: a chunk is closed once it reaches the target.
+ * highlighting: a chunk is closed once it reaches the target, or at a block
+ * boundary (`blockStart`) once it is half full.
  */
 export function packChunks(
   units: Span[],
   tokenCounts: number[],
   maxTokens: number,
   targetTokens: number = maxTokens,
+  blockStart?: boolean[],
 ): Span[] {
   const target = Math.min(targetTokens, maxTokens);
   const chunks: Span[] = [];
@@ -199,6 +223,9 @@ export function packChunks(
       continue;
     }
     if (cur && curTokens + ut > maxTokens) flush();
+    // Prefer to start a new chunk where a new block starts, once the current
+    // chunk is at least half the target (keeps different authors apart).
+    if (cur && blockStart?.[unit.first] && curTokens >= target / 2) flush();
     if (!cur) {
       cur = { first: unit.first, last: unit.last };
       curTokens = ut;
@@ -210,6 +237,11 @@ export function packChunks(
   }
   flush();
   return chunks;
+}
+
+/** blockStart[i] is true when sentence i is the first analysed sentence of its block. */
+export function blockStarts(sentences: DocSentence[]): boolean[] {
+  return sentences.map((s, i) => i === 0 || sentences[i - 1]!.blockId !== s.blockId);
 }
 
 /** Index of the span containing sentence `i`, for each sentence. */

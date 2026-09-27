@@ -28,6 +28,7 @@ import {
   weightedMean,
 } from "./scoring";
 import {
+  blockStarts,
   buildDoc,
   buildUnits,
   capSentences,
@@ -252,7 +253,8 @@ export async function analyzeBlocks(
 
   // 2. Scoring units: groups of >= minWords words, so short sentences are
   //    folded into their neighbours instead of getting their own verdict.
-  const units = buildUnits(words, opts.minWords);
+  const starts = blockStarts(sentences);
+  const units = buildUnits(words, opts.minWords, starts);
   if (analysedWords < opts.minWords) {
     notes.push(
       `Only ${analysedWords} words: below the ${opts.minWords}-word minimum, so this score is low-confidence.`,
@@ -274,7 +276,7 @@ export async function analyzeBlocks(
     const slot = opts.mode === "classifierLite" ? "classifierLite" : "classifier";
     const m = need(models, slot, "classifier");
     const counts = idsFor(m).map((ids) => ids.length);
-    const chunks = packChunks(units, counts, m.maxLength - 2, CLASSIFIER_TARGET_TOKENS);
+    const chunks = packChunks(units, counts, m.maxLength - 2, CLASSIFIER_TARGET_TOKENS, starts);
     total += chunks.length;
     plan.push(async () => {
       cls = await runClassifier(slot, m, doc, n, counterRef.c!, chunks);
