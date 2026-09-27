@@ -12,6 +12,14 @@
 
 import { browser } from "wxt/browser";
 import type { UnicodeScanResult } from "../detectors/unicode";
+import type {
+  ProvenanceHostRequest,
+  ProvenanceHostResponse,
+  ProvenanceScanImagesRequest,
+  ProvenanceScanImagesResponse,
+  ProvenanceVerifyTextRequest,
+  TextProvenanceResult,
+} from "../provenance/types";
 import type { HighlightStyle, Mode, ModelSlot } from "./settings";
 
 export interface SentenceRange {
@@ -264,8 +272,51 @@ export function onAnalysisStatus(callback: (tabId: number, status: TabAnalysisSt
   return () => browser.runtime.onMessage.removeListener(listener);
 }
 
+// ---- Added by T4 (additive only; see docs/plan.md "Shared contract") ----
+// Provenance & watermarks. Shapes live in src/provenance/types.ts.
+
+/**
+ * Content script -> background: check images for C2PA / metadata /
+ * invisible watermarks. The background checks settings.checkImages and the
+ * optional host permission per origin, then runs the checks in the
+ * provenance host (Chrome offscreen doc / Firefox event page).
+ */
+export interface ProvenanceScanImagesMessage {
+  type: "provenanceScanImages";
+  request: ProvenanceScanImagesRequest;
+  response: ProvenanceScanImagesResponse;
+}
+
+/** Background -> Chrome offscreen document (internal relay; not for UI use). */
+export interface ProvenanceHostAnalyzeMessage {
+  type: "provenanceHostAnalyze";
+  request: ProvenanceHostRequest;
+  response: ProvenanceHostResponse;
+}
+
+/**
+ * Content/popup -> background: try to verify the signature of a C2PA text
+ * manifest extracted with `detectTextProvenance()` (src/provenance/text.ts).
+ */
+export interface ProvenanceVerifyTextMessage {
+  type: "provenanceVerifyText";
+  request: ProvenanceVerifyTextRequest;
+  response: TextProvenanceResult;
+}
+
+/** Background -> Chrome offscreen document (internal relay; not for UI use). */
+export interface ProvenanceHostVerifyTextMessage {
+  type: "provenanceHostVerifyText";
+  request: ProvenanceVerifyTextRequest;
+  response: TextProvenanceResult;
+}
+
 /** Every request/response message kind, as a discriminated union. */
 export type RuntimeMessage =
+  | ProvenanceScanImagesMessage
+  | ProvenanceHostAnalyzeMessage
+  | ProvenanceVerifyTextMessage
+  | ProvenanceHostVerifyTextMessage
   | ValidateCustomModelMessage
   | GetTabStatusMessage
   | GetEngineInfoMessage
