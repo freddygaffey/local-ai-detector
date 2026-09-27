@@ -129,6 +129,18 @@ policy with per-site rules (always / never / ask); result surfaces (popup, badge
 highlights, side panel); chip corner; auto-hide threshold; a keyboard command to toggle
 visibility; "never on this site".
 Plus the battery saver from T8.
+**More entry points** (the existing right-click "Check selected text" stays):
+- Context menus: "Analyze this page" (page context); "Check image for Content Credentials &
+  watermarks" (image context, requesting per-origin permission if needed); "Check text in this
+  box" (editable context: input, textarea, contenteditable).
+- Popup "Paste text": analyse arbitrary pasted text. The Unicode scan runs with
+  `includeNbsp: true`.
+- Popup file drop: .txt, .md, .html and .docx (text extraction must be local and have a small
+  footprint; add no heavy dependency without checking with the lead). PDF is out of scope for v1.
+- `commands` keyboard shortcuts: analyze page, analyze selection, toggle visibility (user-
+  rebindable).
+- Deliberately excluded: "analyze linked page" (it would fetch pages the user hasn't opened).
+  Google Docs' canvas rendering is a known gap, so document "select + right-click" instead.
 **Chat-site adapters** (src/content/adapters/): on chatgpt.com, claude.ai, gemini.google.com,
 copilot.microsoft.com, perplexity.ai and similar sites, analyse only assistant messages (never
 the user's prompt, the sidebar or UI chrome), with a per-reply score. There is a generic fallback
