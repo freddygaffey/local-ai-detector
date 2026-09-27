@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 280" width="440" height="280">
+  <rect width="440" height="280" fill="#154A5E"/>
+  <!-- icon mark, centered, scaled up from public/icon/src/icon.svg -->
+  <g transform="translate(152,22) scale(1.35)">
+    <circle cx="52" cy="54" r="24.5" fill="#FFFFFF" opacity="0.08"/>
+    <rect x="39" y="46.5" width="26" height="8" rx="4" fill="#F5A623"/>
+    <rect x="39" y="58.5" width="17" height="8" rx="4" fill="#FF6B57"/>
+    <circle cx="52" cy="54" r="24.5" fill="none" stroke="#FFFFFF" stroke-width="9"/>
+    <line x1="70.5" y1="72.5" x2="95" y2="97" stroke="#FFFFFF" stroke-width="12" stroke-linecap="round"/>
+  </g>
+  <text x="220" y="222" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="bold" fill="#FFFFFF">Local AI Detector</text>
+  <text x="220" y="252" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#CFE3E8">Free, open-source, 100% local</text>
+</svg>
