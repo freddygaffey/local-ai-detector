@@ -420,6 +420,19 @@ export interface AnalyzeTabRequestT7 {
    * automatic pass. Defaults to `settings.mode` (the full Fusion).
    */
   mode?: Mode;
+  /**
+   * T12b: run this analysis on the CPU (WASM) even if WebGPU is allowed,
+   * e.g. `decidePowerAction(...).preferCpu` from src/power ("use CPU instead
+   * of GPU when on battery"). The background also applies the setting itself
+   * where it can tell (manual battery-saver override, or a readable Battery
+   * Status API); this lets a context that can read the battery state say so.
+   */
+  preferCpu?: boolean;
+}
+
+/** T12b: same per-request device channel for direct `analyze` requests (additive). */
+export interface AnalyzeRequest {
+  preferCpu?: boolean;
 }
 
 // ---- Added by T9 (additive only; see docs/plan.md "Shared contract") ----

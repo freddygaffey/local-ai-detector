@@ -34,6 +34,8 @@ import {
   type ManagerDeps,
 } from "./model-manager";
 import { activeModelsForMode, estimatedDownloadBytes, slotsForMode } from "./models";
+import { decidePowerAction, readBatteryState } from "../power/battery";
+import type { Settings } from "../shared/settings";
 import type { EngineConfig } from "./protocol";
 
 type EngineWebgpuDtypes = EngineConfig["webgpuDtypes"];
@@ -86,6 +88,49 @@ async function checkConsent(mode: AnalyzeRequest["mode"], models: ReturnType<typ
   );
 }
 
+/**
+ * T12b: whether this analysis should run on the CPU (WASM). An explicit
+ * `preferCpu` from the requester wins; otherwise the battery-saver
+ * decision from src/power, with whatever battery state this context can
+ * read (the manual override always counts; service workers and Firefox have
+ * no Battery Status API, so there only the override applies).
+ */
+export async function shouldPreferCpu(settings: Settings, explicit: boolean | undefined): Promise<boolean> {
+  if (typeof explicit === "boolean") return explicit;
+  if (!settings.battery?.useCpuOnBattery) return false;
+  const battery = await readBatteryState();
+  return decidePowerAction(battery, { supported: false, level: "nominal" }, settings.battery).preferCpu;
+}
+
+/** T12b: the toolbar badge only when the "badge" result surface is on. */
+function badgeOn(settings: Settings): boolean {
+  return settings.surfaces?.badge !== false;
+}
+
+/** True once any analysis has used the inference host (so idle-unload doesn't spin one up). */
+let hostUsed = false;
+
+/**
+ * T12b: battery-saver idle unload. Frees every loaded model session in the
+ * inference host (the next analysis reloads them from the model cache).
+ * No-op if nothing has run since the last unload, so it never starts an
+ * offscreen document or worker just to unload it. Never throws.
+ *
+ * Call it directly from the background's idle alarm: a background page
+ * doesn't receive its own `runtime.sendMessage`, so the `unloadIdleModels`
+ * message handler below only serves other senders (e.g. the options page).
+ */
+export async function unloadIdleModels(): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!hostUsed) return { ok: true };
+  try {
+    await getHostClient().call("unload", {});
+    hostUsed = false;
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 async function runAnalyze(
   req: AnalyzeRequest,
   meta: { senderTabId?: number; requestId: string; tabId?: number },
@@ -99,11 +144,14 @@ async function runAnalyze(
   if (!Array.isArray(req.blocks)) throw new Error("analyze: `blocks` must be an array");
 
   await checkConsent(mode, models);
+  const preferCpu = await shouldPreferCpu(settings, req.preferCpu);
+  const showBadge = badgeOn(settings);
   void maybeAutoCheck(managerDeps()).catch(() => {});
 
   if (tabId >= 0) {
     broadcastStatus(tabId, { state: "running", mode });
-    badge.progress(tabId);
+    if (showBadge) badge.progress(tabId);
+    else badge.clear(tabId);
   }
   let lastTabRelay = 0;
   const relay = (progress: ProgressEvent) => {
@@ -117,12 +165,13 @@ async function runAnalyze(
       if (final || now - lastTabRelay > 250) {
         lastTabRelay = now;
         broadcastStatus(tabId, { state: "running", mode, progress });
-        badge.progress(tabId, progress.phase === "load" ? undefined : pct(progress));
+        if (showBadge) badge.progress(tabId, progress.phase === "load" ? undefined : pct(progress));
       }
     }
   };
 
   try {
+    hostUsed = true;
     const result = await getHostClient().call(
       "analyze",
       {
@@ -133,7 +182,7 @@ async function runAnalyze(
           maxTokens: settings.maxTokens,
           models,
           fusion: settings.fusion,
-          allowWebGPU: settings.useWebGPU,
+          allowWebGPU: settings.useWebGPU && !preferCpu,
           // E2E/calibration builds only: dtype experiments (scripts/e2e/browser-t7-calibration.mjs).
           webgpuDtypes:
             import.meta.env.MODE === "e2e"
@@ -145,14 +194,14 @@ async function runAnalyze(
     );
     if (tabId >= 0) {
       broadcastStatus(tabId, { state: "done", mode, result, finishedAt: Date.now() });
-      badge.score(tabId, result.overall);
+      if (showBadge) badge.score(tabId, result.overall);
     }
     return result;
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
     if (tabId >= 0) {
       broadcastStatus(tabId, { state: "error", mode, error });
-      badge.error(tabId);
+      if (showBadge) badge.error(tabId);
     }
     throw err;
   }
@@ -196,10 +245,12 @@ export function runTabAnalysis(
   requestId: string,
   /** Detector mode for this run (e.g. the auto-run fast mode); default settings.mode. */
   mode?: AnalyzeRequest["mode"],
+  /** T12b: force the CPU for this run (see shouldPreferCpu). */
+  preferCpu?: boolean,
 ): Promise<AnalyzeResult> {
   // Same run already going: share it. A different mode (e.g. a click while
   // the auto-run fast pass is going) queues behind it instead.
-  const key = `${target}|${mode ?? ""}`;
+  const key = `${target}|${mode ?? ""}|${preferCpu ?? ""}`;
   const running = inflight.get(tabId);
   if (running?.key === key) return running.run;
   const before = running?.run.catch(() => undefined);
@@ -222,7 +273,7 @@ export function runTabAnalysis(
       broadcastStatus(tabId, { state: "error", mode: settings.mode, error });
       throw err;
     }
-    const result = await runAnalyze({ tabId, mode: mode ?? settings.mode, blocks }, { requestId, tabId });
+    const result = await runAnalyze({ tabId, mode: mode ?? settings.mode, blocks, preferCpu }, { requestId, tabId });
     const fresh = await getSettings();
     await toTab(tabId, "renderHighlights", { result, style: fresh.highlightStyle }).catch((e) =>
       console.warn("[engine] renderHighlights failed", e),
@@ -281,7 +332,7 @@ export function startEngineRouter(): void {
     analyzeTab: (req, meta) => {
       const tabId = meta.senderTabId ?? req.tabId;
       if (typeof tabId !== "number" || tabId < 0) throw new Error("No tab to analyze.");
-      return runTabAnalysis(tabId, req.target, meta.requestId, req.mode);
+      return runTabAnalysis(tabId, req.target, meta.requestId, req.mode, req.preferCpu);
     },
     reportImageSummary: (req, meta) => {
       const tabId = meta.senderTabId;
@@ -300,6 +351,10 @@ export function startEngineRouter(): void {
     validateCustomModel: (req) => validateCustomModel(req.slot, req.repo, managerDeps()),
     deleteCachedModel: (req) => deleteCachedModel(req.slot, managerDeps()),
     getModelCacheInfo: () => modelCacheInfo(managerDeps()),
+    // T12b: battery-saver idle unload (timed by entrypoints/background.ts via
+    // src/power/idle.ts). Frees every model session; the next analysis
+    // reloads from the cache. Never starts an inference host just to unload.
+    unloadIdleModels: () => unloadIdleModels(),
     getTabStatus: (req) => {
       const status = tabStatus.get(req.tabId) ?? { state: "idle" };
       const images = imageSummaries.get(req.tabId);

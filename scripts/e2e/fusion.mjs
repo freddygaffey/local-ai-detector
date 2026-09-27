@@ -166,6 +166,28 @@ await step("v1 settings migrate: lite ensemble kept, WebGPU turned on", async (n
   note(`${ids} on ${r.device}; adapter shader-f16: ${gpu}`);
 });
 
+await step("T12b: preferCpu forces WASM for one analysis; badge follows surfaces.badge; idle unload", async (note) => {
+  await setSettings({ settingsVersion: 2, mode: "ensemble", useWebGPU: true, fusion: { detectors: ["tmr"], method: "weighted" } });
+  const tabId = await sw.evaluate(async (u) => (await chrome.tabs.query({})).find((t) => t.url === u)?.id, `${BASE}/news.html`);
+  const cpu = await ext("analyzeTab", { tabId, target: "page", mode: "classifier", preferCpu: true });
+  if (cpu.detectors[0].device !== "wasm") throw new Error(`preferCpu ran on ${cpu.detectors[0].device}`);
+  const info = await ext("getEngineInfo", undefined);
+  const gpu = await ext("analyzeTab", { tabId, target: "page", mode: "classifier" });
+  if (info.runtime?.shaderF16 && gpu.detectors[0].device !== "webgpu") throw new Error(`default run on ${gpu.detectors[0].device}`);
+  const badgeText = () => sw.evaluate((id) => chrome.action.getBadgeText({ tabId: id }), tabId);
+  const withBadge = await badgeText();
+  await setSettings({ surfaces: { popup: true, badge: false, chip: true, highlights: false, sidePanel: false } });
+  await ext("analyzeTab", { tabId, target: "page", mode: "classifierLite" });
+  const without = await badgeText();
+  if (!withBadge || without) throw new Error(`badge with surface on "${withBadge}", off "${without}"`);
+  const u = await ext("unloadIdleModels", undefined);
+  if (!u.ok) throw new Error(`unloadIdleModels: ${u.error}`);
+  const again = await ext("analyzeTab", { tabId, target: "page", mode: "classifierLite", preferCpu: false });
+  if (!(again.overall >= 0)) throw new Error("analysis after unload failed");
+  note(`preferCpu -> ${cpu.detectors[0].device}, default -> ${gpu.detectors[0].device}; badge "${withBadge}" -> "${without}"; unload ok, reload ok`);
+  await setSettings({ surfaces: { popup: true, badge: true, chip: true, highlights: false, sidePanel: false } });
+});
+
 await setSettings({ settingsVersion: 2, fusion: { detectors: FULL, method: "weighted" }, useWebGPU: true, mode: "ensemble" });
 save(OUT);
 await browser.close();
