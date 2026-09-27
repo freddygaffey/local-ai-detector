@@ -57,7 +57,7 @@ export default defineConfig({
       name: "Local AI Detector",
       description:
         "Free, open-source, fully local AI-content detector. No servers, no API keys.",
-      permissions: ["storage", "activeTab", "scripting", "contextMenus"],
+      permissions: ["storage", "activeTab", "scripting", "contextMenus", "alarms"],
       host_permissions: [
         "https://huggingface.co/*",
         "https://*.hf.co/*",
