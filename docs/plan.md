@@ -161,7 +161,7 @@ Runs alongside T7. T7 exposes its fusion settings as a self-contained options mo
 agreement data to results; T9 mounts and displays them.
 
 ## Target user (user decision, overrides earlier defaults)
-**Slightly technical readers who are against low-effort AI slop overtaking the web (not against AI itself) and want to cut it from everyday reading**. Tone is **highly hostile toward AI slop** (low-effort filler, content farms, bot comments, SEO spam) but **not hostile toward AI in general**, and never toward authors. No 'caught/busted/cheater/fake' language and no preachiness. Examples: 'SLOP 91%', 'AI slop. Skip it.', 'Slop hidden. Show anyway', 'Reads human', 'Stop reading slop.', 'Keep the web human': articles,
+**Slightly technical readers who are against low-effort AI slop overtaking the web (not against AI itself) and want to cut it from everyday reading**. **UI is clean and minimal, not hand-holdy** (user decision, final): labels and numbers such as 'AI 91%', and one-word states (AI / Mixed / Human / Too short). There is no 'slop' wording and there are no caveats on main surfaces; a single small ⓘ/Details holds the one-line 'probability, not proof' note and the technical detail. Hostility to AI content shows in behaviour (auto-run chip, filter), not words. Tagline: 'Filter AI-generated content. Runs on your device.': articles,
 Reddit, HN, forums, reviews, YouTube comments, search results. Essay checkers (students,
 teachers) are secondary, because ZeroGPT/GPTZero already serve them for free. Consequences:
 - Default Presence is the Status chip with auto-run on, using classifierLite; clicking runs the
@@ -188,9 +188,7 @@ teachers) are secondary, because ZeroGPT/GPTZero already serve them for free. Co
    phoning home. Wants power-user settings and transparency.
 6. **Older, less technical user**: was forwarded a suspicious email or article. Easily
    overwhelmed; needs plain words and a single clear answer.
-UI copy rules: plain words at a Year-8 reading level, no jargon on the main surfaces
-(perplexity, C2PA, calibration, WebGPU and q8 go behind "Details"), one short caveat instead of
-repeated hedging, and every number paired with words.
+UI copy rules: minimal labels and numbers, jargon only inside Details, no hand-holding, and no repeated caveats.
 
 ## UX walkthroughs (after T7 + T9, before final package)
 **One Sonnet agent plays all six personas in a single rough, cheap pass** (user request). It
