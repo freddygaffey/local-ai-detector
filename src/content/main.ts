@@ -39,6 +39,7 @@ import { segmentSentences, wordCount } from "./segment";
 import { formatSentenceTooltip, hideTooltip, showTooltip } from "./tooltip";
 import type { ActiveSentence, BlockRecord } from "./types";
 import { clearUnicodeMarkers, renderUnicodeMarkers } from "./unicodeMarkers";
+import { startYouTubeTranscripts } from "./youtube";
 
 const INJECT_FLAG = "__aiDetectorContentBooted";
 
@@ -187,6 +188,7 @@ async function boot(): Promise<void> {
   }
 
   reconcileSurfaces();
+  startYouTubeTranscripts();
   void maybeAutoRun();
   void maybeMarkSearchResults();
 }
