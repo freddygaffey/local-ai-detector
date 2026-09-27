@@ -216,12 +216,14 @@ auto-captions (or punctuation restoration). It detects AI-written scripts, not s
 voices. Supports Shorts. Owner: Opus.
 
 ## T11 decision (spike done, see docs/voice-spike.md): build it as an experimental, configurable, opt-in feature for v0.2
-Settings under "Voice check (experimental)", off by default:
-- Model: **W2V2-AASIST** (default; MIT weights, ODC-BY data, stricter threshold) or
+Settings under "Voice check (experimental)". **ON by default** (user: "definitely want some voice
+checking to catch the low-hanging fruit", i.e. clean TTS narration):
+- Model: **W2V2-AASIST** (default IF, at Strict, it catches clean and compressed TTS well on the
+  spike's clips; otherwise the lead asks the user before making Spectra the default) or
   **Spectra-AASIST3** (Apache-2.0, best measured accuracy, note: "training data undisclosed").
-- Run: on click (default) / auto on YouTube.
+- Run: **auto on YouTube, sampling one 10 s clip (default)** / on click only.
 - Sensitivity: Strict (default) / Balanced / Sensitive.
-- Sample: 10 s / 30 s / whole video.
+- Sample: 10 s (default) / 30 s / whole video. The model is ticked in the download checklist.
 Mechanics: capture with video.captureStream / mozCaptureStream (no tabCapture), resample in a
 16 kHz AudioContext, onnxruntime-web directly (not transformers.js), in the offscreen doc /
 worker. The model is part of the download checklist. Display: "Voice: AI 72%". Owner: Opus,
