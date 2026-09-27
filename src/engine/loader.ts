@@ -50,8 +50,8 @@ export type FileProgress = (info: { key: string; file: string; loaded: number; t
 
 const loaded = new Map<string, Promise<LoadedModel>>();
 
-function memoKey(slot: ModelSlot, ref: ModelRef): string {
-  return `${DEFAULT_MODELS[slot].task}|${refKey(ref)}`;
+function memoKey(slot: ModelSlot, ref: ModelRef, dtype?: DType): string {
+  return `${DEFAULT_MODELS[slot].task}|${refKey(ref)}${dtype ? `#${dtype}` : ""}`;
 }
 
 /** Candidate ONNX base names to try for a slot/ref (custom repos vary). */
@@ -67,11 +67,20 @@ function isMissingFileError(e: unknown): boolean {
     (e as { name?: string })?.name === "ModelFileNotFoundError";
 }
 
-export function loadModel(slot: ModelSlot, ref: ModelRef, onProgress?: FileProgress): Promise<LoadedModel> {
-  const key = memoKey(slot, ref);
+/**
+ * `webgpuDtype` (calibration/dev builds only) replaces the slot's WebGPU
+ * dtype and lets a WASM-only slot try WebGPU with it.
+ */
+export function loadModel(
+  slot: ModelSlot,
+  ref: ModelRef,
+  onProgress?: FileProgress,
+  webgpuDtype?: DType,
+): Promise<LoadedModel> {
+  const key = memoKey(slot, ref, webgpuDtype);
   let p = loaded.get(key);
   if (!p) {
-    p = doLoad(slot, ref, onProgress);
+    p = doLoad(slot, ref, onProgress, webgpuDtype);
     loaded.set(key, p);
     p.catch(() => loaded.delete(key));
   }
@@ -82,8 +91,11 @@ export function isLoaded(slot: ModelSlot, ref: ModelRef): boolean {
   return loaded.has(memoKey(slot, ref));
 }
 
-async function doLoad(slot: ModelSlot, ref: ModelRef, onProgress?: FileProgress): Promise<LoadedModel> {
-  const spec = DEFAULT_MODELS[slot];
+async function doLoad(slot: ModelSlot, ref: ModelRef, onProgress?: FileProgress, webgpuDtype?: DType): Promise<LoadedModel> {
+  const base = DEFAULT_MODELS[slot];
+  const spec: ModelSpec = webgpuDtype
+    ? { ...base, wasmOnly: false, dtypes: { ...base.dtypes, webgpuF16: webgpuDtype } }
+    : base;
   const key = refKey(ref);
   const progress_callback = onProgress
     ? (p: ProgressInfo) => {
@@ -196,7 +208,7 @@ export async function unloadModels(refs?: ModelRef[]): Promise<number> {
   let n = 0;
   const wanted = refs ? new Set(refs.map(refKey)) : null;
   for (const [key, p] of [...loaded.entries()]) {
-    const rk = key.slice(key.indexOf("|") + 1);
+    const rk = key.slice(key.indexOf("|") + 1).replace(/#.*$/, "");
     if (wanted && !wanted.has(rk)) continue;
     loaded.delete(key);
     n++;

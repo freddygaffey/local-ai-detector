@@ -78,6 +78,7 @@ async function ensureModels(
   models: Partial<Record<ModelSlot, ModelRef>>,
   slots: ModelSlot[],
   onProgress?: Progress,
+  webgpuDtypes?: EngineConfig["webgpuDtypes"],
 ): Promise<Partial<Record<ModelSlot, LoadedModel>>> {
   const cached = await Promise.all(slots.map((s) => isRefCached(s, models[s]!)));
   const needsDownload = cached.some((c) => !c);
@@ -95,7 +96,7 @@ async function ensureModels(
       if (!stillUsed) await unloadModels([prev]);
     }
     onProgress?.({ phase: "load", loaded: i, total: slots.length, message: `Loading ${DEFAULT_MODELS[slot].label}` });
-    out[slot] = await loadModel(slot, ref, agg.onFile);
+    out[slot] = await loadModel(slot, ref, agg.onFile, webgpuDtypes?.[slot]);
     activeBySlot.set(slot, ref);
   }
   onProgress?.({ phase: "load", loaded: slots.length, total: slots.length, message: "Models ready" });
@@ -115,7 +116,9 @@ function resultKey(blocks: TextBlock[], config: EngineConfig): string {
       config.mode,
       config.minWords,
       config.maxTokens,
-      slotsForMode(config.mode, config.ensembleClassifier).map((s) => (config.models[s] ? refKey(config.models[s]!) : "")),
+      config.fusion?.method ?? "",
+      JSON.stringify(config.webgpuDtypes ?? {}),
+      slotsForMode(config.mode, config.fusion ?? config.ensembleClassifier).map((s) => (config.models[s] ? refKey(config.models[s]!) : "")),
       rt?.device ?? "",
       blocks.map((b) => [b.id, b.text, b.sentences]),
     ]),
@@ -147,8 +150,8 @@ export async function analyze(
     return structuredClone(hit);
   }
 
-  const slots = slotsForMode(config.mode, config.ensembleClassifier);
-  const models = await ensureModels(config.models, slots, onProgress);
+  const slots = slotsForMode(config.mode, config.fusion ?? config.ensembleClassifier);
+  const models = await ensureModels(config.models, slots, onProgress, config.webgpuDtypes);
   const { result } = await analyzeBlocks(
     blocks,
     {
@@ -156,6 +159,7 @@ export async function analyze(
       minWords: config.minWords,
       maxTokens: config.maxTokens,
       ensembleClassifier: config.ensembleClassifier,
+      fusion: config.fusion,
     },
     models,
     onProgress,

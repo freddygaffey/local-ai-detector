@@ -5,18 +5,20 @@
 // directly.
 
 import type { Tensor } from "@huggingface/transformers";
-import type { AnalyzeResult, ProgressEvent, ScoreSource, SentenceScore, TextBlock } from "../shared/messages";
-import type { EnsembleClassifier, Mode, ModelSlot } from "../shared/settings";
+import type { AnalyzeResult, DetectorRun, ProgressEvent, ScoreSource, SentenceScore, TextBlock } from "../shared/messages";
+import type { EnsembleClassifier, FusionDetector, FusionSettings, Mode, ModelSlot } from "../shared/settings";
+import { FLAGGED_THRESHOLD, MIN_WORDS_FOR_SCORE, toDisplayProbability } from "../shared/thresholds";
 import type { LoadedClassifier, LoadedLM, LoadedModel } from "./loader";
-import { calibrationFor } from "./calibration";
-import { DEFAULT_MODELS, slotsForMode } from "./models";
+import { calibrationFor, type ClassifierSlot } from "./calibration";
+import { DEFAULT_MODELS, DETECTOR_LABELS, DETECTOR_SLOTS, detectorsForMode, type FusionSpec } from "./models";
 import {
+  agreementOf,
   binocularsProbability,
   binocularsScore,
-  blendEnsemble,
   burstiness,
   clamp01,
   finiteMean,
+  fuseScores,
   perSentenceMean,
   perplexityProbability,
   planWindows,
@@ -45,8 +47,10 @@ export interface AnalysisOptions {
   mode: Mode;
   minWords: number;
   maxTokens: number;
-  /** Classifier the ensemble uses (default "classifier", TMR). */
+  /** Legacy: classifier the v1 ensemble used. Ignored when `fusion` is set. */
   ensembleClassifier?: EnsembleClassifier;
+  /** Fusion detector set and method (mode "ensemble"). Default: DEFAULT_FUSION. */
+  fusion?: FusionSettings;
 }
 
 /** Raw statistics, for calibration and debugging. */
@@ -56,8 +60,11 @@ export interface AnalysisStats {
   analysedSentences: number;
   tokens: number;
   classifier?: number;
-  /** Classifier probability before recalibration. */
+  /** Classifier probability before recalibration (the first classifier run). */
   classifierRaw?: number;
+  /** Raw P(ai) per classifier detector, and each detector's overall score. */
+  raw?: Partial<Record<FusionDetector, number>>;
+  overallBy?: Partial<Record<FusionDetector, number>>;
   logPPL?: number;
   burstiness?: number;
   binoculars?: number;
@@ -102,7 +109,7 @@ interface ClassifierOut {
 }
 
 async function runClassifier(
-  slot: "classifier" | "classifierLite",
+  slot: ClassifierSlot,
   m: LoadedClassifier,
   doc: Doc,
   n: number,
@@ -210,14 +217,16 @@ async function runBinoculars(
   );
   const a = perSentenceMean(nll, tokenSentence, n);
   const b = perSentenceMean(xent, tokenSentence, n);
+  const cal = calibrationFor(perf.device);
+  const ucal = { ...cal.binoculars, tau: cal.unit.binocularsTau };
   const perSentence = new Float64Array(n).fill(Number.NaN);
   for (const u of units) {
     const s = binocularsScore(spanMean(a.mean, a.count, u.first, u.last), spanMean(b.mean, b.count, u.first, u.last));
-    const p = binocularsProbability(s);
+    const p = binocularsProbability(s, ucal);
     for (let i = u.first; i <= u.last; i++) perSentence[i] = p;
   }
   const score = binocularsScore(finiteMean(nll), finiteMean(xent));
-  return { perSentence, overall: binocularsProbability(score), stat: score };
+  return { perSentence, overall: binocularsProbability(score, cal.binoculars), stat: score };
 }
 
 // ---------------- orchestration ----------------
@@ -253,9 +262,11 @@ export async function analyzeBlocks(
     return { result: { overall: 0, sentences: [], notes }, stats };
   }
 
-  const slots = slotsForMode(opts.mode, opts.ensembleClassifier);
-  const primary = models[slots[0]!];
-  if (!primary) throw new Error(`Model for slot "${slots[0]}" is not loaded`);
+  const spec: FusionSpec = opts.fusion ?? opts.ensembleClassifier;
+  const { detectors, method } = detectorsForMode(opts.mode, spec);
+  const firstSlot = DETECTOR_SLOTS[detectors[0]!]![0]!;
+  const primary = models[firstSlot];
+  if (!primary) throw new Error(`Model for slot "${firstSlot}" is not loaded`);
 
   // 1. Cap the text at maxTokens (measured with the first model's tokenizer).
   const allPieces = sentencePieces(doc);
@@ -285,7 +296,7 @@ export async function analyzeBlocks(
     notes.push(
       `Only ${analysedWords} words: below the ${opts.minWords}-word minimum, so this score is low-confidence.`,
     );
-  } else if (opts.mode !== "classifier" && opts.mode !== "classifierLite") {
+  } else if (detectors.some((d) => d === "perplexity" || d === "binoculars")) {
     notes.push(`Sentence colours are scored in groups of at least ${opts.minWords} words.`);
   }
 
@@ -293,56 +304,67 @@ export async function analyzeBlocks(
   const idsFor = (m: LoadedModel) => (m === primary ? primaryIds.slice(0, n) : tokenizePieces(m, pieces));
   const plan: Array<() => Promise<void>> = [];
   let total = 0;
-  let cls: ClassifierOut | undefined;
-  let ppl: ProbOut | undefined;
-  let bino: ProbOut | undefined;
+  const outs = new Map<FusionDetector, { perSentence: Float64Array; overall: number; device: string; dtype: string }>();
   const counterRef: { c?: Counter } = {};
+  const CLS_SLOT: Partial<Record<FusionDetector, ClassifierSlot>> = {
+    tmr: "classifier",
+    lite: "classifierLite",
+    modernbert: "classifierModernBert",
+  };
 
-  if (opts.mode === "classifier" || opts.mode === "classifierLite" || opts.mode === "ensemble") {
-    const slot =
-      opts.mode === "classifierLite" || (opts.mode === "ensemble" && opts.ensembleClassifier === "classifierLite")
-        ? "classifierLite"
-        : "classifier";
-    const m = need(models, slot, "classifier");
-    const counts = idsFor(m).map((ids) => ids.length);
-    // Overall: document-sized chunks (what the calibration was fitted on).
-    const docChunks = packChunks(units, counts, m.maxLength - 2, CLASSIFIER_TARGET_TOKENS, starts);
-    // Sentence colours: never mix paragraphs (different paragraphs are often
-    // different authors: comments, quotes, pasted AI text).
-    const sentenceChunks = packChunks(units, counts, m.maxLength - 2, CLASSIFIER_TARGET_TOKENS, starts, true);
-    const keys = new Set([...docChunks, ...sentenceChunks].map((c) => `${c.first}-${c.last}`));
-    total += keys.size;
-    plan.push(async () => {
-      cls = await runClassifier(slot, m, doc, n, counterRef.c!, docChunks, sentenceChunks);
-    });
-  }
-  if (opts.mode === "perplexity" || opts.mode === "ensemble") {
-    const m = need(models, "perplexityLM", "lm");
-    const ids = idsFor(m);
-    const len = (m.bos !== null ? 1 : 0) + ids.reduce((a, x) => a + x.length, 0);
-    total += planWindows(len, m.window, m.overlap).length;
-    plan.push(async () => {
-      ppl = await runPerplexity(m, ids, units, counterRef.c!);
-    });
-  }
-  if (opts.mode === "binoculars") {
-    const obs = need(models, "binocularsObserver", "lm");
-    const perf = need(models, "binocularsPerformer", "lm");
-    const ids = idsFor(obs);
-    // Both models must tokenize identically (Binoculars compares their
-    // distributions token by token).
-    const probe = pieces.slice(0, 3).join("");
-    const a = obs.tokenizer.encode(probe, { add_special_tokens: false }) as number[];
-    const b = perf.tokenizer.encode(probe, { add_special_tokens: false }) as number[];
-    if (a.length !== b.length || a.some((t, i) => t !== b[i])) {
-      throw new Error("Binoculars observer and performer use different tokenizers; pick a matching pair.");
+  for (const det of detectors) {
+    const cslot = CLS_SLOT[det];
+    if (cslot) {
+      const m = need(models, cslot, "classifier");
+      const counts = idsFor(m).map((ids) => ids.length);
+      // Overall: document-sized chunks (what the calibration was fitted on).
+      const docChunks = packChunks(units, counts, m.maxLength - 2, CLASSIFIER_TARGET_TOKENS, starts);
+      // Sentence colours: never mix paragraphs (different paragraphs are often
+      // different authors: comments, quotes, pasted AI text).
+      const sentenceChunks = packChunks(units, counts, m.maxLength - 2, CLASSIFIER_TARGET_TOKENS, starts, true);
+      const keys = new Set([...docChunks, ...sentenceChunks].map((c) => `${c.first}-${c.last}`));
+      total += keys.size;
+      plan.push(async () => {
+        const r = await runClassifier(cslot, m, doc, n, counterRef.c!, docChunks, sentenceChunks);
+        outs.set(det, { perSentence: r.perSentence, overall: r.overall, device: m.device, dtype: m.dtype });
+        (stats.raw ??= {})[det] = r.rawOverall;
+        if (stats.classifierRaw === undefined) {
+          stats.classifier = r.overall;
+          stats.classifierRaw = r.rawOverall;
+        }
+      });
+    } else if (det === "perplexity") {
+      const m = need(models, "perplexityLM", "lm");
+      const ids = idsFor(m);
+      const len = (m.bos !== null ? 1 : 0) + ids.reduce((a, x) => a + x.length, 0);
+      total += planWindows(len, m.window, m.overlap).length;
+      plan.push(async () => {
+        const r = await runPerplexity(m, ids, units, counterRef.c!);
+        outs.set(det, { perSentence: r.perSentence, overall: r.overall, device: m.device, dtype: m.dtype });
+        stats.logPPL = r.stat;
+        stats.burstiness = r.burst;
+      });
+    } else if (det === "binoculars") {
+      const obs = need(models, "binocularsObserver", "lm");
+      const perf = need(models, "binocularsPerformer", "lm");
+      const ids = idsFor(obs);
+      // Both models must tokenize identically (Binoculars compares their
+      // distributions token by token).
+      const probe = pieces.slice(0, 3).join("");
+      const a = obs.tokenizer.encode(probe, { add_special_tokens: false }) as number[];
+      const b = perf.tokenizer.encode(probe, { add_special_tokens: false }) as number[];
+      if (a.length !== b.length || a.some((t, i) => t !== b[i])) {
+        throw new Error("Binoculars observer and performer use different tokenizers; pick a matching pair.");
+      }
+      const len = (obs.bos !== null ? 1 : 0) + ids.reduce((acc, x) => acc + x.length, 0);
+      total += planWindows(len, Math.min(obs.window, perf.window), Math.min(obs.overlap, perf.overlap)).length;
+      plan.push(async () => {
+        const r = await runBinoculars(obs, perf, ids, units, counterRef.c!);
+        outs.set(det, { perSentence: r.perSentence, overall: r.overall, device: perf.device, dtype: perf.dtype });
+        stats.binoculars = r.stat;
+      });
+      notes.push("Binoculars with 135M-parameter models is experimental.");
     }
-    const len = (obs.bos !== null ? 1 : 0) + ids.reduce((acc, x) => acc + x.length, 0);
-    total += planWindows(len, Math.min(obs.window, perf.window), Math.min(obs.overlap, perf.overlap)).length;
-    plan.push(async () => {
-      bino = await runBinoculars(obs, perf, ids, units, counterRef.c!);
-    });
-    notes.push("Binoculars with 135M-parameter models is experimental and unvalidated.");
   }
 
   counterRef.c = makeCounter(Math.max(1, total), onProgress);
@@ -350,60 +372,57 @@ export async function analyzeBlocks(
   for (const step of plan) await step();
 
   // 4. Combine into per-sentence scores.
+  const cal = calibrationFor(outs.get(detectors[0]!)?.device);
+  const weightOf = (d: FusionDetector) => (method === "weighted" ? cal.fusionWeights[d] : 1);
+  const multi = detectors.length > 1;
+  const SOURCE_OF: Record<FusionDetector, ScoreSource> = {
+    tmr: "classifier",
+    lite: "classifier",
+    modernbert: "classifier",
+    perplexity: "perplexity",
+    binoculars: "binoculars",
+  };
   const out: SentenceScore[] = [];
   for (let i = 0; i < n; i++) {
     const sources: Partial<Record<ScoreSource, number>> = {};
-    let score: number;
-    const pc = cls?.perSentence[i] ?? Number.NaN;
-    const pp = ppl?.perSentence[i] ?? Number.NaN;
-    const pb = bino?.perSentence[i] ?? Number.NaN;
-    if (Number.isFinite(pc)) sources.classifier = pc;
-    if (Number.isFinite(pp)) sources.perplexity = pp;
-    if (Number.isFinite(pb)) sources.binoculars = pb;
-    switch (opts.mode) {
-      case "classifier":
-      case "classifierLite":
-        score = pc;
-        break;
-      case "perplexity":
-        score = pp;
-        break;
-      case "binoculars":
-        score = pb;
-        break;
-      default:
-        score = blendEnsemble(pc, pp);
+    const per: Partial<Record<FusionDetector, number>> = {};
+    const scores: { p: number; weight: number }[] = [];
+    for (const d of detectors) {
+      const p = outs.get(d)?.perSentence[i] ?? Number.NaN;
+      if (!Number.isFinite(p)) continue;
+      per[d] = p;
+      // Legacy `sources`: the first classifier, perplexity, binoculars.
+      if (sources[SOURCE_OF[d]] === undefined) sources[SOURCE_OF[d]] = p;
+      scores.push({ p, weight: weightOf(d) });
     }
-    out.push({ blockId: sentences[i]!.blockId, index: sentences[i]!.index, score: clamp01(score), sources });
+    const score = fuseScores(scores, method);
+    const s: SentenceScore = { blockId: sentences[i]!.blockId, index: sentences[i]!.index, score: clamp01(score), sources };
+    if (multi) {
+      s.detectors = per;
+      s.agreement = agreementOf(scores.map((x) => x.p), score, FLAGGED_THRESHOLD);
+    }
+    out.push(s);
   }
 
-  let overall: number;
-  switch (opts.mode) {
-    case "classifier":
-    case "classifierLite":
-      overall = cls?.overall ?? Number.NaN;
-      break;
-    case "perplexity":
-      overall = ppl?.overall ?? Number.NaN;
-      break;
-    case "binoculars":
-      overall = bino?.overall ?? Number.NaN;
-      break;
-    default:
-      overall = blendEnsemble(cls?.overall ?? Number.NaN, ppl?.overall ?? Number.NaN);
-  }
+  const overallScores = detectors.map((d) => ({ p: outs.get(d)?.overall ?? Number.NaN, weight: weightOf(d) }));
+  const overall = fuseScores(overallScores, method);
+  stats.overallBy = Object.fromEntries(detectors.map((d) => [d, outs.get(d)?.overall ?? Number.NaN]));
 
-  if (cls) {
-    stats.classifier = cls.overall;
-    stats.classifierRaw = cls.rawOverall;
-  }
-  if (ppl) {
-    stats.logPPL = ppl.stat;
-    stats.burstiness = ppl.burst;
-  }
-  if (bino) stats.binoculars = bino.stat;
+  const runs: DetectorRun[] = detectors.map((d) => {
+    const o = outs.get(d);
+    const dev = o?.device === "webgpu" ? "webgpu" : o?.device === "cpu" ? "cpu" : "wasm";
+    return { id: d, label: DETECTOR_LABELS[d], overall: clamp01(o?.overall ?? Number.NaN), device: dev, dtype: o?.dtype ?? "", weight: weightOf(d) };
+  });
+  const devices = new Set(runs.map((r) => r.device));
+  const device = devices.size === 1 ? [...devices][0]! : "mixed";
 
-  const result: Analysis["result"] = { overall: clamp01(overall), sentences: out, notes };
+  const result: Analysis["result"] = { overall: clamp01(overall), sentences: out, notes, words: analysedWords, detectors: runs, device };
+  if (multi) {
+    result.fusion = { method, agreement: agreementOf(overallScores.map((x) => x.p), overall, FLAGGED_THRESHOLD) };
+  }
+  if (analysedWords >= MIN_WORDS_FOR_SCORE && Number.isFinite(overall)) {
+    result.probability = toDisplayProbability(result.overall, { detectors, method, device, words: analysedWords });
+  }
   if (tooLong) result.tooLong = true;
   return { result, stats };
 }

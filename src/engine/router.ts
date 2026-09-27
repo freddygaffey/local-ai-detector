@@ -34,6 +34,9 @@ import {
   type ManagerDeps,
 } from "./model-manager";
 import { activeModelsForMode, estimatedDownloadBytes, slotsForMode } from "./models";
+import type { EngineConfig } from "./protocol";
+
+type EngineWebgpuDtypes = EngineConfig["webgpuDtypes"];
 
 const tabStatus = new Map<number, TabAnalysisStatus>();
 const imageSummaries = new Map<number, ImageProvenanceSummary>();
@@ -73,10 +76,10 @@ function pct(p: ProgressEvent): number | undefined {
 async function checkConsent(mode: AnalyzeRequest["mode"], models: ReturnType<typeof activeModelsForMode>): Promise<void> {
   const settings = await getSettings();
   if (settings.consentedDownload) return;
-  const items = slotsForMode(mode, settings.ensembleClassifier).map((slot) => ({ slot, ref: models[slot]! }));
+  const items = slotsForMode(mode, settings.fusion).map((slot) => ({ slot, ref: models[slot]! }));
   const cached = await getHostClient().call("isCached", { items });
   if (cached.every(Boolean)) return;
-  const bytes = estimatedDownloadBytes(mode, "wasm", settings.modelOverrides, settings.ensembleClassifier);
+  const bytes = estimatedDownloadBytes(mode, settings.useWebGPU ? "webgpu-f16" : "wasm", settings.modelOverrides, settings.fusion);
   const size = bytes ? ` (about ${Math.round(bytes / 1e6)} MB, once)` : "";
   throw new Error(
     `${CONSENT_REQUIRED_ERROR}: this mode needs to download its model files from Hugging Face${size}. Allow the download in the popup first.`,
@@ -92,7 +95,7 @@ async function runAnalyze(
   // A content script doesn't know its own tab id (T2 sends tabId 0), so the
   // sender's tab wins; the popup passes the real id of the active tab.
   const tabId = meta.tabId ?? meta.senderTabId ?? (typeof req.tabId === "number" && req.tabId >= 0 ? req.tabId : -1);
-  const models = activeModelsForMode(mode, settings.modelOverrides, settings.ensembleClassifier);
+  const models = activeModelsForMode(mode, settings.modelOverrides, settings.fusion);
   if (!Array.isArray(req.blocks)) throw new Error("analyze: `blocks` must be an array");
 
   await checkConsent(mode, models);
@@ -129,8 +132,13 @@ async function runAnalyze(
           minWords: settings.minWords,
           maxTokens: settings.maxTokens,
           models,
-          ensembleClassifier: settings.ensembleClassifier,
+          fusion: settings.fusion,
           allowWebGPU: settings.useWebGPU,
+          // E2E/calibration builds only: dtype experiments (scripts/e2e/browser-t7-calibration.mjs).
+          webgpuDtypes:
+            import.meta.env.MODE === "e2e"
+              ? ((await browser.storage.local.get("ladDevWebgpuDtypes")).ladDevWebgpuDtypes as EngineWebgpuDtypes | undefined)
+              : undefined,
         },
       },
       relay,
@@ -157,7 +165,7 @@ async function runAnalyze(
 // render in the tab. State and progress reach the popup and the pill through
 // `analysisStatus` events, so it doesn't matter who started a run.
 
-const inflight = new Map<number, Promise<AnalyzeResult>>();
+const inflight = new Map<number, { key: string; run: Promise<AnalyzeResult> }>();
 
 const CONTENT_SCRIPT_FILE = "/content-scripts/content.js";
 
@@ -186,11 +194,18 @@ export function runTabAnalysis(
   tabId: number,
   target: "page" | "selection",
   requestId: string,
+  /** Detector mode for this run (e.g. the auto-run fast mode); default settings.mode. */
+  mode?: AnalyzeRequest["mode"],
 ): Promise<AnalyzeResult> {
+  // Same run already going: share it. A different mode (e.g. a click while
+  // the auto-run fast pass is going) queues behind it instead.
+  const key = `${target}|${mode ?? ""}`;
   const running = inflight.get(tabId);
-  if (running) return running;
-  imageSummaries.delete(tabId);
+  if (running?.key === key) return running.run;
+  const before = running?.run.catch(() => undefined);
   const run = (async () => {
+    await before;
+    imageSummaries.delete(tabId);
     const settings = await getSettings();
     let blocks: AnalyzeRequest["blocks"];
     try {
@@ -207,14 +222,16 @@ export function runTabAnalysis(
       broadcastStatus(tabId, { state: "error", mode: settings.mode, error });
       throw err;
     }
-    const result = await runAnalyze({ tabId, mode: settings.mode, blocks }, { requestId, tabId });
+    const result = await runAnalyze({ tabId, mode: mode ?? settings.mode, blocks }, { requestId, tabId });
     const fresh = await getSettings();
     await toTab(tabId, "renderHighlights", { result, style: fresh.highlightStyle }).catch((e) =>
       console.warn("[engine] renderHighlights failed", e),
     );
     return result;
-  })().finally(() => inflight.delete(tabId));
-  inflight.set(tabId, run);
+  })().finally(() => {
+    if (inflight.get(tabId)?.run === run) inflight.delete(tabId);
+  });
+  inflight.set(tabId, { key, run });
   return run;
 }
 
@@ -264,7 +281,7 @@ export function startEngineRouter(): void {
     analyzeTab: (req, meta) => {
       const tabId = meta.senderTabId ?? req.tabId;
       if (typeof tabId !== "number" || tabId < 0) throw new Error("No tab to analyze.");
-      return runTabAnalysis(tabId, req.target, meta.requestId);
+      return runTabAnalysis(tabId, req.target, meta.requestId, req.mode);
     },
     reportImageSummary: (req, meta) => {
       const tabId = meta.senderTabId;

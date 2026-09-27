@@ -14,7 +14,16 @@
 // Pure module (no browser APIs), so the popup/options UI may import it too,
 // e.g. to show download sizes before the user consents.
 
-import type { EnsembleClassifier, Mode, ModelRef, ModelSlot, Settings } from "../shared/settings";
+import {
+  DEFAULT_FUSION,
+  type EnsembleClassifier,
+  type FusionDetector,
+  type FusionSettings,
+  type Mode,
+  type ModelRef,
+  type ModelSlot,
+  type Settings,
+} from "../shared/settings";
 
 /** transformers.js dtype identifiers we use. */
 export type DType = "q8" | "q4f16" | "fp16" | "q4" | "fp32";
@@ -84,6 +93,29 @@ export const DEFAULT_MODELS: Record<ModelSlot, ModelSpec> = {
     sizes: { q8: 34_157_539 + 711_396 + 4 * KB, q4f16: 36_517_437 + 711_396 + 4 * KB },
     maxLength: 512,
   },
+  classifierModernBert: {
+    slot: "classifierModernBert",
+    label: "ModernBERT AI-text detector (RAID + MAGE)",
+    repo: "onnx-community/modernbert-ai-detection-raid-mage-ONNX",
+    revision: "6dcd8a3100e75d1224d7222d883bde596113d3f3",
+    task: "text-classification",
+    license: "apache-2.0",
+    upstream: "GeorgeDrayson/modernbert-ai-detection-raid-mage",
+    modelFileName: "model",
+    dtypes: { wasm: "q8", webgpuF16: "fp32" },
+    // T7: on WebGPU (Chrome 153, ORT-web 1.31 dev) its fp16 and q4f16
+    // weights give one constant output for every input, like Binoculars'.
+    // fp32 works but is a 599 MB download, so it runs on WASM q8.
+    wasmOnly: true,
+    // onnx/model_quantized.onnx 150,872,643 B; model_fp16.onnx 299,594,984 B;
+    // model_q4f16.onnx 140,208,329 B; tokenizer.json 3,583,228 B.
+    sizes: {
+      q8: 150_872_643 + 3_583_228 + 24 * KB,
+      fp16: 299_594_984 + 3_583_228 + 24 * KB,
+      q4f16: 140_208_329 + 3_583_228 + 24 * KB,
+    },
+    maxLength: 512,
+  },
   perplexityLM: {
     slot: "perplexityLM",
     label: "DistilGPT-2 (perplexity)",
@@ -149,21 +181,62 @@ export const DEFAULT_MODELS: Record<ModelSlot, ModelSpec> = {
 
 export const MODEL_SLOTS = Object.keys(DEFAULT_MODELS) as ModelSlot[];
 
-/** Which slots each detector mode needs loaded. */
-export function slotsForMode(mode: Mode, ensembleClassifier: EnsembleClassifier = "classifier"): ModelSlot[] {
+/** Model slots each Fusion detector needs. */
+export const DETECTOR_SLOTS: Record<FusionDetector, ModelSlot[]> = {
+  tmr: ["classifier"],
+  lite: ["classifierLite"],
+  modernbert: ["classifierModernBert"],
+  perplexity: ["perplexityLM"],
+  binoculars: ["binocularsObserver", "binocularsPerformer"],
+};
+
+/** Short UI labels per detector. */
+export const DETECTOR_LABELS: Record<FusionDetector, string> = {
+  tmr: "TMR",
+  lite: "Lite (e5)",
+  modernbert: "ModernBERT",
+  perplexity: "Perplexity",
+  binoculars: "Binoculars",
+};
+
+/**
+ * What an "ensemble" (Fusion) run uses: a FusionSettings, or (legacy
+ * callers) the v1 `ensembleClassifier`, which meant "that classifier +
+ * perplexity". Undefined means the default Fusion set.
+ */
+export type FusionSpec = FusionSettings | EnsembleClassifier | undefined;
+
+export function fusionFrom(spec: FusionSpec): FusionSettings {
+  if (spec === undefined) return DEFAULT_FUSION;
+  if (typeof spec === "string") {
+    return { detectors: [spec === "classifierLite" ? "lite" : "tmr", "perplexity"], method: "weighted" };
+  }
+  return spec.detectors.length ? spec : DEFAULT_FUSION;
+}
+
+/** The detectors a mode runs, in a fixed order, and how they are combined. */
+export function detectorsForMode(mode: Mode, fusion?: FusionSpec): FusionSettings {
   switch (mode) {
     case "classifier":
-      return ["classifier"];
+      return { detectors: ["tmr"], method: "weighted" };
     case "classifierLite":
-      return ["classifierLite"];
+      return { detectors: ["lite"], method: "weighted" };
     case "perplexity":
-      return ["perplexityLM"];
+      return { detectors: ["perplexity"], method: "weighted" };
     case "binoculars":
-      return ["binocularsObserver", "binocularsPerformer"];
+      return { detectors: ["binoculars"], method: "weighted" };
     case "ensemble":
-    default:
-      return [ensembleClassifier === "classifierLite" ? "classifierLite" : "classifier", "perplexityLM"];
+    default: {
+      const f = fusionFrom(fusion);
+      const order: FusionDetector[] = ["tmr", "modernbert", "lite", "perplexity", "binoculars"];
+      return { detectors: order.filter((d) => f.detectors.includes(d)), method: f.method };
+    }
   }
+}
+
+/** Which slots each detector mode needs loaded. */
+export function slotsForMode(mode: Mode, fusion?: FusionSpec): ModelSlot[] {
+  return detectorsForMode(mode, fusion).detectors.flatMap((d) => DETECTOR_SLOTS[d]);
 }
 
 export interface ActiveModel extends ModelRef {
@@ -200,10 +273,10 @@ export function activeModel(
 export function activeModelsForMode(
   mode: Mode,
   overrides: Settings["modelOverrides"] | undefined,
-  ensembleClassifier?: EnsembleClassifier,
+  fusion?: FusionSpec,
 ): Partial<Record<ModelSlot, ModelRef>> {
   const out: Partial<Record<ModelSlot, ModelRef>> = {};
-  for (const slot of slotsForMode(mode, ensembleClassifier)) {
+  for (const slot of slotsForMode(mode, fusion)) {
     const a = activeModel(slot, overrides);
     out[slot] = { repo: a.repo, revision: a.revision };
   }
@@ -219,13 +292,13 @@ export function estimatedDownloadBytes(
   mode: Mode,
   device: "wasm" | "webgpu-f16" = "wasm",
   overrides?: Settings["modelOverrides"],
-  ensembleClassifier?: EnsembleClassifier,
+  fusion?: FusionSpec,
 ): number | null {
   let total = 0;
-  for (const slot of slotsForMode(mode, ensembleClassifier)) {
+  for (const slot of slotsForMode(mode, fusion)) {
     const a = activeModel(slot, overrides);
     if (!a.isDefaultRepo) return null;
-    const dtype = device === "webgpu-f16" ? a.spec.dtypes.webgpuF16 : a.spec.dtypes.wasm;
+    const dtype = device === "webgpu-f16" && !a.spec.wasmOnly ? a.spec.dtypes.webgpuF16 : a.spec.dtypes.wasm;
     total += a.spec.sizes[dtype] ?? 0;
   }
   return total;
@@ -285,4 +358,52 @@ export function sameRef(a: ModelRef | undefined, b: ModelRef | undefined): boole
 
 export function refKey(ref: ModelRef): string {
   return `${ref.repo}@${ref.revision}`;
+}
+
+/**
+ * Measured warm analysis time per ~1,000 words, in ms, per detector and
+ * device (Chrome 153, Apple Silicon; docs/qa.md "Timings"). Rough: slower
+ * machines take several times longer. Firefox WASM is single-threaded,
+ * about 2.5x the WASM figure.
+ */
+export const DETECTOR_SPEED_MS_PER_1K_WORDS: Record<FusionDetector, { webgpu: number; wasm: number }> = {
+  tmr: { webgpu: 250, wasm: 1600 },
+  lite: { webgpu: 80, wasm: 450 },
+  modernbert: { webgpu: 350, wasm: 2600 },
+  perplexity: { webgpu: 300, wasm: 2000 },
+  binoculars: { webgpu: 11000, wasm: 11000 },
+};
+
+export interface FusionEstimate {
+  /** First-run download for the chosen set (pinned defaults), or null if a slot uses a custom repo. */
+  bytes: number | null;
+  /** Rough warm time for a ~1,000-word page, in ms. */
+  msPer1kWords: number;
+  /** Slots that would run on WASM even with WebGPU (e.g. Binoculars). */
+  wasmOnly: ModelSlot[];
+}
+
+/** Download size and speed estimate for a Fusion detector set on a device. */
+export function estimateFusion(
+  detectors: readonly FusionDetector[],
+  device: "webgpu" | "wasm",
+  overrides?: Settings["modelOverrides"],
+): FusionEstimate {
+  let bytes: number | null = 0;
+  let ms = 0;
+  const wasmOnly: ModelSlot[] = [];
+  for (const d of new Set(detectors)) {
+    ms += DETECTOR_SPEED_MS_PER_1K_WORDS[d][device];
+    for (const slot of DETECTOR_SLOTS[d]) {
+      const a = activeModel(slot, overrides);
+      if (a.spec.wasmOnly) wasmOnly.push(slot);
+      if (!a.isDefaultRepo || bytes === null) {
+        bytes = null;
+        continue;
+      }
+      const dtype = device === "webgpu" && !a.spec.wasmOnly ? a.spec.dtypes.webgpuF16 : a.spec.dtypes.wasm;
+      bytes += a.spec.sizes[dtype] ?? 0;
+    }
+  }
+  return { bytes, msPer1kWords: ms, wasmOnly };
 }

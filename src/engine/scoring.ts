@@ -332,3 +332,76 @@ export function aiLabelIndex(id2label: Record<string | number, string> | undefin
   }
   return numLabels >= 2 ? 1 : 0;
 }
+
+// ---------------- Fusion (T7) ----------------
+
+export type FuseMethod = "weighted" | "logodds" | "vote" | "max";
+
+/** One detector's score for a piece of text, with its "weighted" weight. */
+export interface DetectorScore {
+  p: number;
+  weight: number;
+}
+
+const logit = (p: number): number => {
+  const q = Math.min(1 - 1e-6, Math.max(1e-6, p));
+  return Math.log(q / (1 - q));
+};
+
+/**
+ * Combines detector scores (all on the engine's common 0..1 scale, where
+ * 0.5 is each detector's ~5%-human-FPR point). Non-finite scores are
+ * ignored; NaN if none is left.
+ * - weighted: sum(w * p) / sum(w)
+ * - logodds:  sigmoid(mean(logit p))  (equal weights)
+ * - vote:     median p  (>= 0.5 exactly when most detectors flag; ties go to the lower middle,
+ *             i.e. a 1-1 split is not flagged unless both middles are >= 0.5)
+ * - max:      max p
+ */
+export function fuseScores(scores: DetectorScore[], method: FuseMethod): number {
+  const s = scores.filter((x) => Number.isFinite(x.p));
+  if (s.length === 0) return Number.NaN;
+  if (s.length === 1) return s[0]!.p;
+  switch (method) {
+    case "max":
+      return Math.max(...s.map((x) => x.p));
+    case "logodds":
+      return sigmoid(s.reduce((a, x) => a + logit(x.p), 0) / s.length);
+    case "vote": {
+      const ps = s.map((x) => x.p).sort((a, b) => a - b);
+      const m = ps.length;
+      // Even count: the lower middle, so a tie doesn't flag (precision first).
+      return m % 2 === 1 ? ps[(m - 1) / 2]! : ps[m / 2 - 1]!;
+    }
+    case "weighted":
+    default: {
+      let num = 0;
+      let den = 0;
+      for (const x of s) {
+        const w = x.weight > 0 ? x.weight : 0;
+        num += w * x.p;
+        den += w;
+      }
+      return den > 0 ? num / den : s.reduce((a, x) => a + x.p, 0) / s.length;
+    }
+  }
+}
+
+/**
+ * How many detectors agree with the combined verdict at `threshold`, and
+ * whether they disagree badly: fewer than 2/3 agree, or their scores span
+ * 0.5 or more. Needs 2+ finite scores to ever report disagreement.
+ */
+export function agreementOf(
+  ps: number[],
+  fused: number,
+  threshold = 0.5,
+): { agree: number; total: number; disagree: boolean } {
+  const s = ps.filter((p) => Number.isFinite(p));
+  const verdict = fused >= threshold;
+  const agree = s.filter((p) => p >= threshold === verdict).length;
+  const total = s.length;
+  if (total < 2) return { agree, total, disagree: false };
+  const spread = Math.max(...s) - Math.min(...s);
+  return { agree, total, disagree: agree / total < 2 / 3 || spread >= 0.5 };
+}

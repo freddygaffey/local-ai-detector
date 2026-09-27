@@ -25,7 +25,9 @@ export type ModelSlot =
   | "classifierLite"
   | "perplexityLM"
   | "binocularsObserver"
-  | "binocularsPerformer";
+  | "binocularsPerformer"
+  // Added by T7 (fusion mode): ModernBERT RAID+MAGE classifier.
+  | "classifierModernBert";
 
 export interface ModelRef {
   repo: string;
@@ -78,7 +80,46 @@ export interface Settings {
 
 export type EnsembleClassifier = "classifier" | "classifierLite";
 
+// ---- Added by T7: Fusion mode (docs/plan.md "T7: Fusion mode") ----
+//
+// Fusion subsumes the old Ensemble: the stored mode value stays "ensemble"
+// (so existing settings and every Record<Mode, ...> keep working) and the UI
+// calls it "Fusion". Which detectors it runs and how their scores are
+// combined come from `Settings.fusion`; the old Ensemble (TMR + perplexity,
+// weighted) is just one possible selection.
+
+/** A detector Fusion can run. Each maps onto one or two model slots (src/engine/models.ts). */
+export type FusionDetector = "tmr" | "lite" | "modernbert" | "perplexity" | "binoculars";
+
+/**
+ * How Fusion combines the detectors' calibrated scores:
+ * - "weighted": weighted average, weights fitted on the calibration data (default);
+ * - "logodds": average in log-odds space (equal weights), so confident detectors count for more;
+ * - "vote": majority vote, as the median score (flagged when most detectors flag);
+ * - "max": the highest score (most sensitive, and flags the most human text).
+ */
+export type FusionMethod = "weighted" | "logodds" | "vote" | "max";
+
+export interface FusionSettings {
+  detectors: FusionDetector[];
+  method: FusionMethod;
+}
+
+export interface Settings {
+  /** Detector set and combination method for Fusion (mode "ensemble"). */
+  fusion: FusionSettings;
+  /** Settings schema version, for one-off migrations in `mergeSettings`. */
+  settingsVersion?: number;
+}
+
+/** Current `settingsVersion`. 2 = T7: Fusion replaces Ensemble, WebGPU on by default. */
+export const SETTINGS_VERSION = 2;
+
+export const DEFAULT_FUSION: FusionSettings = { detectors: ["tmr", "modernbert", "perplexity"], method: "weighted" };
+
 export const DEFAULT_SETTINGS: Settings = {
+  fusion: DEFAULT_FUSION,
+  settingsVersion: SETTINGS_VERSION,
   mode: "ensemble",
   highlightStyle: "heatmap",
   autoRun: false,
@@ -90,7 +131,9 @@ export const DEFAULT_SETTINGS: Settings = {
   autoCheckModelUpdates: false,
   modelOverrides: {},
   ensembleClassifier: "classifier",
-  useWebGPU: false,
+  // T7: WebGPU is the primary, calibrated path (docs/calibration.md); WASM
+  // is the fallback where there is no adapter or no shader-f16.
+  useWebGPU: true,
 };
 
 const STORAGE_KEY = "settings";
@@ -109,7 +152,7 @@ async function readArea(area: MinimalStorageArea): Promise<Partial<Settings> | u
 }
 
 function mergeSettings(stored: Partial<Settings> | undefined): Settings {
-  return {
+  const merged: Settings = {
     ...DEFAULT_SETTINGS,
     ...stored,
     modelOverrides: {
@@ -117,6 +160,36 @@ function mergeSettings(stored: Partial<Settings> | undefined): Settings {
       ...stored?.modelOverrides,
     },
   };
+  return migrateSettings(merged, stored);
+}
+
+/**
+ * One-off migrations for settings stored by older versions (T7). Pure, so
+ * it is unit-testable; exported for tests only.
+ */
+export function migrateSettings(merged: Settings, stored: Partial<Settings> | undefined): Settings {
+  const out: Settings = { ...merged, fusion: sanitizeFusion(merged.fusion) };
+  if (stored && (stored.settingsVersion ?? 1) < 2) {
+    // v1 had no Fusion: its Ensemble was one classifier + perplexity, and
+    // WebGPU was an opt-in. Carry an explicit lite choice over; everything
+    // else moves to the new defaults (WebGPU on, the fitted Fusion set).
+    if (!stored.fusion && stored.ensembleClassifier === "classifierLite") {
+      out.fusion = { detectors: ["lite", "perplexity"], method: "weighted" };
+    }
+    out.useWebGPU = true;
+    out.settingsVersion = SETTINGS_VERSION;
+  }
+  return out;
+}
+
+const FUSION_DETECTORS: readonly FusionDetector[] = ["tmr", "lite", "modernbert", "perplexity", "binoculars"];
+const FUSION_METHODS: readonly FusionMethod[] = ["weighted", "logodds", "vote", "max"];
+
+/** Drops unknown detectors/methods (e.g. from a newer version synced in), never returns an empty set. */
+export function sanitizeFusion(f: Partial<FusionSettings> | undefined): FusionSettings {
+  const detectors = [...new Set((f?.detectors ?? []).filter((d) => FUSION_DETECTORS.includes(d)))];
+  const method = f?.method && FUSION_METHODS.includes(f.method) ? f.method : DEFAULT_FUSION.method;
+  return { detectors: detectors.length ? detectors : [...DEFAULT_FUSION.detectors], method };
 }
 
 /** Reads the current settings, merged over the defaults. */

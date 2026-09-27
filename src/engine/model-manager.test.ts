@@ -12,7 +12,7 @@ import {
   validateCustomModel,
   type ManagerDeps,
 } from "./model-manager";
-import { activeModel, DEFAULT_MODELS } from "./models";
+import { activeModel, DEFAULT_MODELS, MODEL_SLOTS } from "./models";
 import type { CachedRepo } from "./protocol";
 
 const CLS = DEFAULT_MODELS.classifier;
@@ -105,7 +105,7 @@ describe("checkModelUpdates", () => {
     h.api.set(CLS.repo, apiModel(CLS.repo, NEW_SHA));
     h.api.set(DEFAULT_MODELS.perplexityLM.repo, apiModel(DEFAULT_MODELS.perplexityLM.repo, DEFAULT_MODELS.perplexityLM.revision, { cardData: {} }));
     const res = await checkModelUpdates(undefined, h.deps);
-    expect(res).toHaveLength(5);
+    expect(res).toHaveLength(MODEL_SLOTS.length);
     const cls = res.find((r) => r.slot === "classifier")!;
     expect(cls).toMatchObject({ repo: CLS.repo, currentRevision: CLS.revision, latestRevision: NEW_SHA, license: "mit" });
     // Conversion repo with no licence tag falls back to the upstream licence.
@@ -116,11 +116,11 @@ describe("checkModelUpdates", () => {
   it("maybeAutoCheck: off by default, at most daily when on", async () => {
     expect(await maybeAutoCheck(h.deps)).toBeNull();
     h.settings.autoCheckModelUpdates = true;
-    expect(await maybeAutoCheck(h.deps)).toHaveLength(5);
+    expect(await maybeAutoCheck(h.deps)).toHaveLength(MODEL_SLOTS.length);
     h.now += 60 * 60 * 1000;
     expect(await maybeAutoCheck(h.deps)).toBeNull();
     h.now += 24 * 60 * 60 * 1000;
-    expect(await maybeAutoCheck(h.deps)).toHaveLength(5);
+    expect(await maybeAutoCheck(h.deps)).toHaveLength(MODEL_SLOTS.length);
   });
 });
 
@@ -277,6 +277,6 @@ describe("cache management", () => {
     expect(info.slots.perplexityLM).toEqual({ cached: false, sizeBytes: 0 });
     expect(info.totalBytes).toBe(135_000_000);
     const slots = Object.keys(info.slots) as ModelSlot[];
-    expect(slots).toHaveLength(5);
+    expect(slots).toHaveLength(MODEL_SLOTS.length);
   });
 });

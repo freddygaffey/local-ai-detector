@@ -20,7 +20,7 @@ import type {
   ProvenanceVerifyTextRequest,
   TextProvenanceResult,
 } from "../provenance/types";
-import type { HighlightStyle, Mode, ModelSlot } from "./settings";
+import type { FusionDetector, FusionMethod, HighlightStyle, Mode, ModelSlot } from "./settings";
 
 export interface SentenceRange {
   start: number;
@@ -340,7 +340,7 @@ export interface ProvenanceHostVerifyTextMessage {
  */
 export interface AnalyzeTabMessage {
   type: "analyzeTab";
-  request: { tabId?: number; target: "page" | "selection" };
+  request: { tabId?: number; target: "page" | "selection" } & AnalyzeTabRequestT7;
   response: AnalyzeResult;
 }
 
@@ -356,6 +356,118 @@ export interface ScanImagesMessage {
   type: "scanImages";
   request: undefined;
   response: ImageProvenanceSummary;
+}
+
+// ---- Added by T7: Fusion, agreement, device, calibrated probability ----
+// Additive (interface merging): older results simply lack these fields.
+
+/** How many detectors agree with the combined verdict (flagged vs not flagged). */
+export interface Agreement {
+  /** Detectors whose own verdict matches the combined one. */
+  agree: number;
+  /** Detectors that produced a score for this text. */
+  total: number;
+  /** True when the detectors split badly (under 2/3 agree, or their scores are >= 0.5 apart): low confidence. */
+  disagree: boolean;
+}
+
+/** One detector's part in an analysis. */
+export interface DetectorRun {
+  id: FusionDetector;
+  /** Short UI label, e.g. "TMR", "ModernBERT", "Perplexity". */
+  label: string;
+  /** This detector's own overall score (same 0..1 scale as `AnalyzeResult.overall`). */
+  overall: number;
+  /** Where it ran. */
+  device: "webgpu" | "wasm" | "cpu";
+  /** Weights it ran with, e.g. "fp16", "q8". */
+  dtype: string;
+  /** Its weight in the "weighted" combination (1 for the other methods). */
+  weight: number;
+}
+
+export interface SentenceScore {
+  /** Each detector's score for this sentence (its paragraph-level unit). Only with 2+ detectors. */
+  detectors?: Partial<Record<FusionDetector, number>>;
+  /** Only with 2+ detectors. */
+  agreement?: Agreement;
+}
+
+export interface AnalyzeResult {
+  /**
+   * Calibrated probability that the text is AI-generated, for display
+   * ("AI 91%"): fitted on held-out web text for this detector set, device
+   * and text length (see `toDisplayProbability` in ./thresholds.ts and
+   * docs/calibration.md). Undefined below `MIN_WORDS_FOR_SCORE` words:
+   * show "—" instead of a number.
+   */
+  probability?: number;
+  /** Words actually analysed (after the maxTokens cap). */
+  words?: number;
+  /** "mixed" when some detectors ran on WebGPU and some on WASM (e.g. Binoculars). */
+  device?: "webgpu" | "wasm" | "cpu" | "mixed";
+  /** Detectors that ran, in order. */
+  detectors?: DetectorRun[];
+  /** Fusion only (2+ detectors): method and overall agreement. */
+  fusion?: { method: FusionMethod; agreement: Agreement };
+}
+
+export interface AnalyzeTabRequestT7 {
+  /**
+   * Detector mode for this run, e.g. `settings.autoRunFastMode` for the
+   * automatic pass. Defaults to `settings.mode` (the full Fusion).
+   */
+  mode?: Mode;
+}
+
+// ---- Added by T9 (additive only; see docs/plan.md "Shared contract") ----
+
+/**
+ * Background -> engine (best-effort): unload models from memory after
+ * `Settings.battery.unloadAfterMinutes` idle. src/power/idle.ts times this;
+ * the engine (T7) may not implement a handler yet, in which case this simply
+ * gets no response and is treated as a no-op (see src/power's caller).
+ */
+export interface UnloadIdleModelsMessage {
+  type: "unloadIdleModels";
+  request: undefined;
+  response: ActionResult;
+}
+
+/**
+ * Background -> the tab's content script: check one image (by its resolved
+ * src) regardless of its displayed size, for the "Check image for Content
+ * Credentials & watermarks" context-menu entry. T9's handler
+ * (src/content/imageContextCheck.ts) renders the result as a normal badge.
+ */
+export interface CheckImageAtUrlMessage {
+  type: "checkImageAtUrl";
+  request: { srcUrl: string };
+  response: ActionResult;
+}
+
+/**
+ * Popup -> content script: the "On click" preset's "Show on page" button --
+ * turns the pill + highlights on for this visit only (never persisted).
+ */
+export interface ShowOnPageMessage {
+  type: "showOnPage";
+  request: undefined;
+  response: ActionResult;
+}
+
+/** Background (toggle-visibility command) -> content script: shows the pill/highlights if hidden, hides them if shown. */
+export interface ToggleVisibilityMessage {
+  type: "toggleVisibility";
+  request: undefined;
+  response: ActionResult;
+}
+
+/** Side panel -> content script: scroll to and briefly flash one sentence, without turning highlights on. */
+export interface ScrollToSentenceMessage {
+  type: "scrollToSentence";
+  request: { blockId: string; index: number };
+  response: ActionResult;
 }
 
 /** Every request/response message kind, as a discriminated union. */

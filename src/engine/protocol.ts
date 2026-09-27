@@ -4,7 +4,8 @@
 // with the shared request/response envelopes in src/shared/messages.ts.
 
 import type { AnalyzeResult, EngineInfo, ProgressEvent, TextBlock } from "../shared/messages";
-import type { EnsembleClassifier, Mode, ModelRef, ModelSlot } from "../shared/settings";
+import type { DType } from "./models";
+import type { EnsembleClassifier, FusionSettings, Mode, ModelRef, ModelSlot } from "../shared/settings";
 
 export interface EngineConfig {
   mode: Mode;
@@ -14,8 +15,12 @@ export interface EngineConfig {
   models: Partial<Record<ModelSlot, ModelRef>>;
   /** settings.useWebGPU: false forces WASM even when WebGPU is available. */
   allowWebGPU?: boolean;
-  /** Classifier slot the ensemble uses (default "classifier", TMR). */
+  /** Legacy (v1): classifier the ensemble used. Ignored when `fusion` is set. */
   ensembleClassifier?: EnsembleClassifier;
+  /** Fusion detector set and method (mode "ensemble"). */
+  fusion?: FusionSettings;
+  /** Calibration/dev builds only: per-slot WebGPU dtype overrides (see loader.loadModel). */
+  webgpuDtypes?: Partial<Record<ModelSlot, DType>>;
   /** Page URL, if known (part of the result-cache key). */
   url?: string;
 }
