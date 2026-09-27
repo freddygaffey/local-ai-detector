@@ -107,7 +107,7 @@ export function capSentences(tokenCounts: number[], maxTokens: number): number {
   if (tokenCounts.length === 0) return 0;
   let total = 0;
   for (let i = 0; i < tokenCounts.length; i++) {
-    total += tokenCounts[i];
+    total += tokenCounts[i]!;
     if (total > maxTokens) return Math.max(1, i);
   }
   return tokenCounts.length;
@@ -134,7 +134,7 @@ export function buildUnits(words: number[], minWords: number): Span[] {
   let first = 0;
   let acc = 0;
   for (let i = 0; i < n; i++) {
-    acc += words[i];
+    acc += words[i]!;
     if (acc >= min) {
       units.push({ first, last: i });
       first = i + 1;
@@ -142,7 +142,7 @@ export function buildUnits(words: number[], minWords: number): Span[] {
     }
   }
   if (first < n) {
-    if (units.length > 0) units[units.length - 1].last = n - 1;
+    if (units.length > 0) units[units.length - 1]!.last = n - 1;
     else units.push({ first, last: n - 1 });
   }
   return units;

@@ -104,7 +104,7 @@ async function runClassifier(
   const chunkP: number[] = [];
   const chunkW: number[] = [];
   for (const ch of chunks) {
-    const text = doc.text.slice(doc.sentences[ch.first].start, doc.sentences[ch.last].end);
+    const text = doc.text.slice(doc.sentences[ch.first]!.start, doc.sentences[ch.last]!.end);
     const enc = m.tokenizer(text, { truncation: true, max_length: m.maxLength }) as unknown as Record<string, Tensor>;
     const out = (await (m.model as unknown as (x: unknown) => Promise<{ logits: Tensor }>)(enc)).logits;
     const logits = out.type === "float32" ? out : out.to("float32");
@@ -216,7 +216,7 @@ export async function analyzeBlocks(
   }
 
   const slots = slotsForMode(opts.mode);
-  const primary = models[slots[0]];
+  const primary = models[slots[0]!];
   if (!primary) throw new Error(`Model for slot "${slots[0]}" is not loaded`);
 
   // 1. Cap the text at maxTokens (measured with the first model's tokenizer).
@@ -327,7 +327,7 @@ export async function analyzeBlocks(
       default:
         score = blendEnsemble(pc, pp);
     }
-    out.push({ blockId: sentences[i].blockId, index: sentences[i].index, score: clamp01(score), sources });
+    out.push({ blockId: sentences[i]!.blockId, index: sentences[i]!.index, score: clamp01(score), sources });
   }
 
   let overall: number;

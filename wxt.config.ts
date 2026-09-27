@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "wxt";
 
 // See docs/feasibility.md §1 for why each of these manifest fields exists.
@@ -6,6 +7,25 @@ export default defineConfig({
   outDir: ".output",
   // Firefox defaults to MV2 unless we force MV3 here (equivalent to `--mv3`).
   manifestVersion: 3,
+  // T1: transformers.js imports "onnxruntime-web/webgpu", whose default
+  // export is the *bundle* build: it embeds the ORT glue and references the
+  // 27 MB .wasm via `new URL(..., import.meta.url)`, so Vite would emit a
+  // second copy of the wasm (and inline it as base64 into IIFE bundles such
+  // as the Firefox inference worker). The non-bundle build loads both files
+  // from `env.backends.onnx.wasm.wasmPaths`, which src/engine/runtime.ts
+  // points at the bundled public/ort/ copies.
+  vite: () => ({
+    resolve: {
+      alias: [
+        {
+          find: /^onnxruntime-web\/webgpu$/,
+          replacement: fileURLToPath(
+            new URL("./node_modules/onnxruntime-web/dist/ort.webgpu.min.mjs", import.meta.url),
+          ),
+        },
+      ],
+    },
+  }),
   manifest: ({ browser }) => {
     const base = {
       name: "Local AI Detector",

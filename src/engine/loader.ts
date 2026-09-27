@@ -174,7 +174,7 @@ function finish(
     let logits = out.logits;
     if (logits.type !== "float32") logits = logits.to("float32");
     const dims = logits.dims;
-    return { data: logits.data as Float32Array, vocab: dims[dims.length - 1] };
+    return { data: logits.data as Float32Array, vocab: dims[dims.length - 1]! };
   };
   return {
     kind: "lm",

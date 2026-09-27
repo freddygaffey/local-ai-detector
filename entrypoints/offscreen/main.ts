@@ -1,13 +1,20 @@
-// Chrome offscreen document (inference host). This page is created on
-// demand by the background via `chrome.offscreen.createDocument` and is
-// never shown to the user. The only extension API available in here is
-// `runtime` (see docs/feasibility.md §1).
+// Chrome offscreen document (inference host). Created on demand by the
+// background service worker via `chrome.offscreen.createDocument` (reason
+// WORKERS) and never shown. The only extension API available in here is
+// `runtime` (docs/feasibility.md §1), so everything the engine needs arrives
+// in each request from the background (see src/engine/protocol.ts).
 //
-// TODO(T1): initialize transformers.js with env.backends.onnx.wasm.wasmPaths
-// pointed at the bundled public/ort/ files (never the CDN), load the
-// classifier/perplexity/binoculars models per src/engine/models.ts, keep
-// sessions warm across calls, and register handlers (via
-// src/shared/messages.ts) that the background forwards `analyze` and
-// model-management messages to.
+// transformers.js is configured in src/engine/runtime.ts: ORT WASM from the
+// bundled ort/ directory (never the CDN), multi-threaded when the page is
+// cross-origin isolated, WebGPU when an adapter with shader-f16 exists.
+//
+// Other features may register their own offscreen handlers below (one
+// import + one call each).
 
-console.log("[Local AI Detector] offscreen document loaded (stub, see T1)");
+import { browser } from "wxt/browser";
+import { startOffscreenHost } from "@/src/engine/host-server";
+
+startOffscreenHost(browser.runtime as unknown as Parameters<typeof startOffscreenHost>[0], {
+  ortBaseUrl: browser.runtime.getURL("/ort/" as "/"),
+  firefox: false,
+});

@@ -14,17 +14,17 @@ export function logSumExpRow(data: ArrayLike<number>, pos: number, vocab: number
   const off = pos * vocab;
   let max = -Infinity;
   for (let v = 0; v < vocab; v++) {
-    const x = data[off + v];
+    const x = data[off + v]!;
     if (x > max) max = x;
   }
   let sum = 0;
-  for (let v = 0; v < vocab; v++) sum += Math.exp(data[off + v] - max);
+  for (let v = 0; v < vocab; v++) sum += Math.exp(data[off + v]! - max);
   return max + Math.log(sum);
 }
 
 /** Negative log-likelihood of `target` under row `pos` (natural log). */
 export function tokenNLL(data: ArrayLike<number>, pos: number, vocab: number, target: number): number {
-  return logSumExpRow(data, pos, vocab) - data[pos * vocab + target];
+  return logSumExpRow(data, pos, vocab) - data[pos * vocab + target]!;
 }
 
 /**
@@ -43,8 +43,8 @@ export function crossEntropyRow(
   const lsePerf = logSumExpRow(perf, pos, vocab);
   let acc = 0;
   for (let v = 0; v < vocab; v++) {
-    const p = Math.exp(obs[off + v] - lseObs);
-    acc += p * (lsePerf - perf[off + v]);
+    const p = Math.exp(obs[off + v]! - lseObs);
+    acc += p * (lsePerf - perf[off + v]!);
   }
   return acc;
 }
@@ -104,11 +104,11 @@ export async function sequenceNLL(
   const nll = new Float64Array(seq.length).fill(Number.NaN);
   const windows = planWindows(seq.length, window, overlap);
   for (let k = 0; k < windows.length; k++) {
-    const w = windows[k];
+    const w = windows[k]!;
     const ids = seq.slice(w.start, w.end);
     const { data, vocab } = await forward(ids);
     for (let j = Math.max(w.scoreFrom, w.start + 1); j < w.end; j++) {
-      nll[j] = tokenNLL(data, j - 1 - w.start, vocab, seq[j]);
+      nll[j] = tokenNLL(data, j - 1 - w.start, vocab, seq[j]!);
     }
     onWindow?.(k + 1, windows.length);
   }
@@ -131,7 +131,7 @@ export async function sequenceBinoculars(
   const xent = new Float64Array(seq.length).fill(Number.NaN);
   const windows = planWindows(seq.length, window, overlap);
   for (let k = 0; k < windows.length; k++) {
-    const w = windows[k];
+    const w = windows[k]!;
     const ids = seq.slice(w.start, w.end);
     const obs = await observer(ids);
     const perf = await performer(ids);
@@ -140,7 +140,7 @@ export async function sequenceBinoculars(
     }
     for (let j = Math.max(w.scoreFrom, w.start + 1); j < w.end; j++) {
       const row = j - 1 - w.start;
-      nll[j] = tokenNLL(perf.data, row, perf.vocab, seq[j]);
+      nll[j] = tokenNLL(perf.data, row, perf.vocab, seq[j]!);
       xent[j] = crossEntropyRow(obs.data, perf.data, row, obs.vocab);
     }
     onWindow?.(k + 1, windows.length);
@@ -153,7 +153,7 @@ export function finiteMean(values: ArrayLike<number>, from = 0, to = values.leng
   let sum = 0;
   let n = 0;
   for (let i = from; i < to; i++) {
-    const v = values[i];
+    const v = values[i]!;
     if (Number.isFinite(v)) {
       sum += v;
       n++;
@@ -174,14 +174,14 @@ export function perSentenceMean(
   const sum = new Float64Array(sentenceCount);
   const count = new Int32Array(sentenceCount);
   for (let j = 0; j < values.length; j++) {
-    const s = tokenSentence[j];
-    const v = values[j];
+    const s = tokenSentence[j]!;
+    const v = values[j]!;
     if (s < 0 || s >= sentenceCount || !Number.isFinite(v)) continue;
-    sum[s] += v;
-    count[s]++;
+    sum[s]! += v;
+    count[s]!++;
   }
   const mean = new Float64Array(sentenceCount);
-  for (let s = 0; s < sentenceCount; s++) mean[s] = count[s] > 0 ? sum[s] / count[s] : Number.NaN;
+  for (let s = 0; s < sentenceCount; s++) mean[s] = count[s]! > 0 ? sum[s]! / count[s]! : Number.NaN;
   return { mean, count };
 }
 
@@ -195,9 +195,11 @@ export function spanMean(
   let sum = 0;
   let n = 0;
   for (let i = first; i <= last; i++) {
-    if (count[i] > 0 && Number.isFinite(mean[i])) {
-      sum += mean[i] * count[i];
-      n += count[i];
+    const c = count[i]!;
+    const m = mean[i]!;
+    if (c > 0 && Number.isFinite(m)) {
+      sum += m * c;
+      n += c;
     }
   }
   return n > 0 ? sum / n : Number.NaN;
@@ -212,7 +214,7 @@ export function spanMean(
 export function burstiness(mean: ArrayLike<number>, count: ArrayLike<number>, minTokens = 5): number {
   const xs: number[] = [];
   for (let i = 0; i < mean.length; i++) {
-    if (count[i] >= minTokens && Number.isFinite(mean[i])) xs.push(mean[i]);
+    if (count[i]! >= minTokens && Number.isFinite(mean[i]!)) xs.push(mean[i]!);
   }
   if (xs.length < 3) return Number.NaN;
   const m = xs.reduce((a, b) => a + b, 0) / xs.length;
@@ -281,8 +283,8 @@ export function weightedMean(values: ArrayLike<number>, weights: ArrayLike<numbe
   let sum = 0;
   let w = 0;
   for (let i = 0; i < values.length; i++) {
-    const v = values[i];
-    const wi = weights[i];
+    const v = values[i]!;
+    const wi = weights[i]!;
     if (!Number.isFinite(v) || !(wi > 0)) continue;
     sum += v * wi;
     w += wi;
@@ -293,7 +295,7 @@ export function weightedMean(values: ArrayLike<number>, weights: ArrayLike<numbe
 /** Softmax over a small logits vector (classifier heads). */
 export function softmax(logits: ArrayLike<number>): number[] {
   let max = -Infinity;
-  for (let i = 0; i < logits.length; i++) max = Math.max(max, logits[i]);
+  for (let i = 0; i < logits.length; i++) max = Math.max(max, logits[i]!);
   const exps = Array.from(logits, (x) => Math.exp(x - max));
   const s = exps.reduce((a, b) => a + b, 0);
   return exps.map((e) => e / s);
