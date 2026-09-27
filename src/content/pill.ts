@@ -7,7 +7,7 @@
 import { browser } from "wxt/browser";
 import { bandWeight, scoreColor } from "./colors";
 import type { PillProgress } from "./types";
-import type { HighlightStyle } from "../shared/settings";
+import type { HighlightStyle, Tier } from "../shared/settings";
 
 const STORAGE_KEY = "aiDetectorPillCorner";
 type Corner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
@@ -18,13 +18,24 @@ export interface PillCallbacks {
   onClear(): void;
   onNavigate(direction: 1 | -1): void;
   onStyleChange(style: HighlightStyle): void;
+  /** Deep check (docs/plan.md "Two tiers"): the ↻ button next to the score. */
+  onDeepCheck(): void;
 }
 
 export interface PillApi {
   setIdle(): void;
   setAnalyzing(progress: PillProgress): void;
   /** `overall` is the calibrated display probability (`displayScore(result)`), or null below MIN_WORDS_FOR_SCORE ("—"). */
-  setDone(opts: { overall: number | null; flaggedCount: number; current: number; total: number; style: HighlightStyle }): void;
+  setDone(opts: {
+    overall: number | null;
+    flaggedCount: number;
+    current: number;
+    total: number;
+    style: HighlightStyle;
+    /** Docs/plan.md "Two tiers": which pass this result is, and whether a Deep run is in flight (spins the ↻). */
+    tier?: Tier;
+    deepBusy?: boolean;
+  }): void;
   setError(message: string): void;
   updateCounter(current: number, total: number): void;
   setStale(): void;
@@ -99,6 +110,11 @@ function css(): string {
     @keyframes spin { to { transform: rotate(360deg); } }
     .score { font-weight: 700; } /* colour + weight set inline per score -- see scoreColor()/bandWeight() */
     .muted { opacity: 0.75; font-size: 0.92em; }
+    .deep-tag {
+      font-size: 0.72em; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+      opacity: 0.75; border: 1px solid currentColor; border-radius: 4px; padding: 0 4px;
+    }
+    .deep-spinning { animation: ${anim}; }
     .counter { font-variant-numeric: tabular-nums; opacity: 0.85; min-width: 2.6em; text-align: center; }
     select { all: unset; background: rgba(127,127,127,0.18); border-radius: 8px; padding: 3px 6px; color: inherit; cursor: pointer; }
     .panel { padding: 8px 10px 4px; max-width: 260px; font-size: 0.92em; opacity: 0.9; }
@@ -276,7 +292,7 @@ export function createPill(callbacks: PillCallbacks): PillApi {
       announce(label.textContent);
     },
 
-    setDone({ overall, flaggedCount, current, total, style }) {
+    setDone({ overall, flaggedCount, current, total, style, tier, deepBusy }) {
       clear();
       pill.classList.add("expanded");
       const row = document.createElement("div");
@@ -295,10 +311,20 @@ export function createPill(callbacks: PillCallbacks): PillApi {
         score.textContent = `AI likelihood ${Math.round(overall * 100)}%`;
       }
       row.appendChild(score);
+      if (tier === "deep") {
+        const tag = document.createElement("span");
+        tag.className = "deep-tag";
+        tag.textContent = "Deep";
+        row.appendChild(tag);
+      }
       const flagged = document.createElement("span");
       flagged.className = "muted";
       flagged.textContent = `· ${flaggedCount} flagged`;
       row.appendChild(flagged);
+      const deepBtn = iconButton("Deep check: all models, slower, more battery", "↻", () => callbacks.onDeepCheck());
+      if (deepBusy) deepBtn.classList.add("deep-spinning");
+      deepBtn.disabled = !!deepBusy;
+      row.appendChild(deepBtn);
       pill.appendChild(row);
 
       const navRow = document.createElement("div");

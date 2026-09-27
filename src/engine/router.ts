@@ -33,7 +33,7 @@ import {
   validateCustomModel,
   type ManagerDeps,
 } from "./model-manager";
-import { activeModelsForMode, estimatedDownloadBytes, slotsForMode } from "./models";
+import { activeModelsForMode, estimatedDownloadBytes, slotsForMode, type FusionSpec } from "./models";
 import { decidePowerAction, readBatteryState } from "../power/battery";
 import type { Settings } from "../shared/settings";
 import type { EngineConfig } from "./protocol";
@@ -75,13 +75,17 @@ function pct(p: ProgressEvent): number | undefined {
   return p.total > 0 ? (100 * p.loaded) / p.total : undefined;
 }
 
-async function checkConsent(mode: AnalyzeRequest["mode"], models: ReturnType<typeof activeModelsForMode>): Promise<void> {
+async function checkConsent(
+  mode: AnalyzeRequest["mode"],
+  models: ReturnType<typeof activeModelsForMode>,
+  fusion: FusionSpec,
+): Promise<void> {
   const settings = await getSettings();
   if (settings.consentedDownload) return;
-  const items = slotsForMode(mode, settings.fusion).map((slot) => ({ slot, ref: models[slot]! }));
+  const items = slotsForMode(mode, fusion).map((slot) => ({ slot, ref: models[slot]! }));
   const cached = await getHostClient().call("isCached", { items });
   if (cached.every(Boolean)) return;
-  const bytes = estimatedDownloadBytes(mode, settings.useWebGPU ? "webgpu-f16" : "wasm", settings.modelOverrides, settings.fusion);
+  const bytes = estimatedDownloadBytes(mode, settings.useWebGPU ? "webgpu-f16" : "wasm", settings.modelOverrides, fusion);
   const size = bytes ? ` (about ${Math.round(bytes / 1e6)} MB, once)` : "";
   throw new Error(
     `${CONSENT_REQUIRED_ERROR}: this mode needs to download its model files from Hugging Face${size}. Allow the download in the popup first.`,
@@ -140,10 +144,14 @@ async function runAnalyze(
   // A content script doesn't know its own tab id (T2 sends tabId 0), so the
   // sender's tab wins; the popup passes the real id of the active tab.
   const tabId = meta.tabId ?? meta.senderTabId ?? (typeof req.tabId === "number" && req.tabId >= 0 ? req.tabId : -1);
-  const models = activeModelsForMode(mode, settings.modelOverrides, settings.fusion);
+  // Tiers task: a Deep (or explicit Quick) check overrides the Fusion
+  // detector set for this run only, instead of `settings.fusion` (docs/plan.md
+  // "Two tiers").
+  const fusion: FusionSpec = req.fusionOverride ? { detectors: req.fusionOverride, method: "weighted" } : settings.fusion;
+  const models = activeModelsForMode(mode, settings.modelOverrides, fusion);
   if (!Array.isArray(req.blocks)) throw new Error("analyze: `blocks` must be an array");
 
-  await checkConsent(mode, models);
+  await checkConsent(mode, models, fusion);
   const preferCpu = await shouldPreferCpu(settings, req.preferCpu);
   const showBadge = badgeOn(settings);
   void maybeAutoCheck(managerDeps()).catch(() => {});
@@ -181,7 +189,7 @@ async function runAnalyze(
           minWords: settings.minWords,
           maxTokens: settings.maxTokens,
           models,
-          fusion: settings.fusion,
+          fusion,
           allowWebGPU: settings.useWebGPU && !preferCpu,
           // E2E/calibration builds only: dtype experiments (scripts/e2e/browser-t7-calibration.mjs).
           webgpuDtypes:
@@ -192,11 +200,15 @@ async function runAnalyze(
       },
       relay,
     );
+    // Tiers task: echo which pass this was, so the popup/pill can label a
+    // Deep result and (once it exists) a YouTube voice check can read the
+    // active tier (docs/plan.md "Two tiers").
+    const tagged = req.tier ? { ...result, tier: req.tier } : result;
     if (tabId >= 0) {
-      broadcastStatus(tabId, { state: "done", mode, result, finishedAt: Date.now() });
-      if (showBadge) badge.score(tabId, result.overall);
+      broadcastStatus(tabId, { state: "done", mode, result: tagged, finishedAt: Date.now() });
+      if (showBadge) badge.score(tabId, tagged.overall);
     }
-    return result;
+    return tagged;
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
     if (tabId >= 0) {
@@ -247,10 +259,14 @@ export function runTabAnalysis(
   mode?: AnalyzeRequest["mode"],
   /** T12b: force the CPU for this run (see shouldPreferCpu). */
   preferCpu?: boolean,
+  /** Tiers task: which pass this is ('quick'/'deep'), echoed onto the result. */
+  tier?: AnalyzeRequest["tier"],
+  /** Tiers task: override `settings.fusion.detectors` for this run only (the tier's own set). */
+  fusionOverride?: AnalyzeRequest["fusionOverride"],
 ): Promise<AnalyzeResult> {
-  // Same run already going: share it. A different mode (e.g. a click while
-  // the auto-run fast pass is going) queues behind it instead.
-  const key = `${target}|${mode ?? ""}|${preferCpu ?? ""}`;
+  // Same run already going: share it. A different mode/tier (e.g. a Deep
+  // click while the auto-run Quick pass is going) queues behind it instead.
+  const key = `${target}|${mode ?? ""}|${preferCpu ?? ""}|${tier ?? ""}`;
   const running = inflight.get(tabId);
   if (running?.key === key) return running.run;
   const before = running?.run.catch(() => undefined);
@@ -273,7 +289,10 @@ export function runTabAnalysis(
       broadcastStatus(tabId, { state: "error", mode: settings.mode, error });
       throw err;
     }
-    const result = await runAnalyze({ tabId, mode: mode ?? settings.mode, blocks, preferCpu }, { requestId, tabId });
+    const result = await runAnalyze(
+      { tabId, mode: mode ?? settings.mode, blocks, preferCpu, tier, fusionOverride },
+      { requestId, tabId },
+    );
     const fresh = await getSettings();
     await toTab(tabId, "renderHighlights", { result, style: fresh.highlightStyle }).catch((e) =>
       console.warn("[engine] renderHighlights failed", e),
@@ -332,7 +351,7 @@ export function startEngineRouter(): void {
     analyzeTab: (req, meta) => {
       const tabId = meta.senderTabId ?? req.tabId;
       if (typeof tabId !== "number" || tabId < 0) throw new Error("No tab to analyze.");
-      return runTabAnalysis(tabId, req.target, meta.requestId, req.mode, req.preferCpu);
+      return runTabAnalysis(tabId, req.target, meta.requestId, req.mode, req.preferCpu, req.tier, req.fusionOverride);
     },
     reportImageSummary: (req, meta) => {
       const tabId = meta.senderTabId;

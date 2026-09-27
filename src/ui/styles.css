@@ -365,6 +365,19 @@ select, .text-input {
   100% { transform: translateX(250%); }
 }
 
+/* ---- Deep check (docs/plan.md "Two tiers"): the ↻ button spins while a
+   Deep run is in flight. ---- */
+.is-spinning {
+  display: inline-flex;
+  animation: lad-deep-spin 0.9s linear infinite;
+}
+@keyframes lad-deep-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .is-spinning { animation: none; }
+}
+
 /* ---- Tables (model management) ---- */
 table.data {
   width: 100%;

@@ -16,6 +16,7 @@
 
 import {
   DEFAULT_FUSION,
+  DEFAULT_TIERS,
   type EnsembleClassifier,
   type FusionDetector,
   type FusionSettings,
@@ -23,6 +24,8 @@ import {
   type ModelRef,
   type ModelSlot,
   type Settings,
+  type Tier,
+  type TierSettings,
 } from "../shared/settings";
 
 /** transformers.js dtype identifiers we use. */
@@ -271,6 +274,20 @@ export function detectorsForMode(mode: Mode, fusion?: FusionSpec): FusionSetting
 /** Which slots each detector mode needs loaded. */
 export function slotsForMode(mode: Mode, fusion?: FusionSpec): ModelSlot[] {
   return detectorsForMode(mode, fusion).detectors.flatMap((d) => DETECTOR_SLOTS[d]);
+}
+
+/**
+ * The Fusion detector set for a tier (docs/plan.md "Two tiers: Quick
+ * (default) and Deep (on demand)"): Quick's cheap automatic pass, or Deep's
+ * on-demand "run everything" pass. Combined by weighted average, like the
+ * default Fusion -- Quick/Deep only choose *which* detectors run, not how
+ * they are combined. Falls back to the tier's own default if the settings
+ * value was sanitized down to nothing.
+ */
+export function fusionForTier(tier: Tier, tiers: TierSettings): FusionSettings {
+  const detectors = tier === "deep" ? tiers.deepDetectors : tiers.quickDetectors;
+  const fallback = tier === "deep" ? DEFAULT_TIERS.deepDetectors : DEFAULT_TIERS.quickDetectors;
+  return { detectors: detectors.length ? detectors : fallback, method: "weighted" };
 }
 
 export interface ActiveModel extends ModelRef {

@@ -355,3 +355,25 @@ body {
   flex: none;
   font-family: var(--font-mono);
 }
+
+/* ---- Deep check (docs/plan.md "Two tiers") ---- */
+.verdict-label .deep-tag {
+  margin-left: 0.4em;
+  font-size: 0.7em;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.05em 0.35em;
+  vertical-align: middle;
+}
+.deep-prompt {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.6em 0.7em;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+}

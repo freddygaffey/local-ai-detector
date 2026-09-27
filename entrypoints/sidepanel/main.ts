@@ -20,15 +20,19 @@ import { brandMark } from "@/src/ui/icons";
 import { mountToastHost, showToast } from "@/src/ui/toast";
 import { CONSENT_REQUIRED_ERROR } from "@/src/shared/messages";
 import { transcriptSection } from "@/src/ui/transcriptSection";
+import { deepCheckRequestFields, deepDownloadStatus, isDeepResult, DEEP_CHECK_TOOLTIP } from "@/src/ui/deepCheck";
 
 interface Ctx {
   settings: Settings;
   tabId: number | null;
   result: AnalyzeResult | null;
   status: TabAnalysisStatus["state"];
+  /** Deep check (docs/plan.md "Two tiers"): the ↻ button's own busy/spin state. */
+  deepBusy: boolean;
+  deepChecklistOpen: boolean;
 }
 
-const ctx: Ctx = { settings: await getSettings(), tabId: null, result: null, status: "idle" };
+const ctx: Ctx = { settings: await getSettings(), tabId: null, result: null, status: "idle", deepBusy: false, deepChecklistOpen: false };
 const root = document.getElementById("app") as HTMLDivElement;
 let unsubscribeStatus: (() => void) | null = null;
 
@@ -108,6 +112,19 @@ function renderBody(): HTMLElement {
       { class: "sp-summary" },
       h("span", { class: `sp-score ${bandClassName(band)}` }, score !== null ? `AI ${Math.round(score * 100)}%` : "—"),
       h("span", { class: "sp-word" }, BAND_LABEL[band]),
+      isDeepResult(result) ? h("span", { class: "sp-deep-tag" }, "Deep") : null,
+      h(
+        "button",
+        {
+          class: `icon-btn${ctx.deepBusy ? " is-spinning" : ""}`,
+          type: "button",
+          "aria-label": "Deep check",
+          title: DEEP_CHECK_TOOLTIP,
+          disabled: ctx.deepBusy,
+          onclick: () => void onDeepCheck(),
+        },
+        "↻",
+      ),
     ),
   );
   const flagged = result.sentences.filter((s) => s.score >= FLAGGED_THRESHOLD);
@@ -158,6 +175,35 @@ async function runAnalyze(): Promise<void> {
     );
   }
   render();
+}
+
+/** Deep check (docs/plan.md "Two tiers"): the side panel's ↻, next to the summary. */
+async function onDeepCheck(): Promise<void> {
+  const tabId = ctx.tabId;
+  if (tabId === null) return;
+  const status = deepDownloadStatus(ctx.settings, "wasm", undefined);
+  if (!status.cached && !ctx.deepChecklistOpen) {
+    ctx.deepChecklistOpen = true;
+    const mb = status.missingBytes !== null ? `${Math.round(status.missingBytes / 1e6)} MB` : "some models";
+    showToast(`Deep check needs to download ${mb} -- click ↻ again to proceed`);
+    return;
+  }
+  ctx.deepChecklistOpen = false;
+  ctx.deepBusy = true;
+  render();
+  try {
+    const result = await sendMessage("analyzeTab", { tabId, target: "page", ...deepCheckRequestFields(ctx.settings) });
+    ctx.result = result;
+    ctx.status = "done";
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    showToast(
+      message.startsWith(CONSENT_REQUIRED_ERROR) ? "Download models from the popup first" : "Couldn't run the deep check",
+    );
+  } finally {
+    ctx.deepBusy = false;
+    render();
+  }
 }
 
 void main();

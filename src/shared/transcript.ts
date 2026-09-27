@@ -6,6 +6,7 @@
 
 import { MIN_WORDS_FOR_SCORE, SHORT_TEXT_WORDS } from "./thresholds";
 import { TRANSCRIPT_CURVES } from "./transcriptCalibration";
+import type { Tier } from "./settings";
 
 export type TranscriptState =
   /** Not checked yet (reading it needs the panel opened: click to check). */
@@ -35,8 +36,15 @@ export interface TranscriptSegment {
 export interface TranscriptReport {
   videoId: string;
   state: TranscriptState;
-  /** "fast" = the automatic pass (autoRunFastMode), "full" = the clicked run (settings.mode). */
+  /** "fast" = the automatic pass, "full" = the clicked run (whole transcript, all detectors). */
   pass?: "fast" | "full";
+  /**
+   * Same pass, as the tiers task's `Tier` ("fast" -> "quick", "full" ->
+   * "deep"): a voice check (T11, once it has its own rate setting) can read
+   * this to pick Light (quick) vs Thorough (deep) -- docs/plan.md "Two
+   * tiers".
+   */
+  tier?: Tier;
   /** Transcript-calibrated P(AI) for the whole transcript; undefined = "—". */
   probability?: number;
   overall?: number;

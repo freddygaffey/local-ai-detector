@@ -45,6 +45,32 @@ body {
   color: var(--ink-soft);
 }
 
+/* ---- Deep check (docs/plan.md "Two tiers") ---- */
+.sp-summary .icon-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--ink-soft);
+  padding: 0.2em 0.4em;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  margin-left: auto;
+}
+.sp-summary .icon-btn:hover {
+  background: var(--surface-sunken);
+  color: var(--ink);
+}
+.sp-deep-tag {
+  font-size: 0.72em;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.05em 0.35em;
+}
+
 .sp-list {
   list-style: none;
   margin: 0;
