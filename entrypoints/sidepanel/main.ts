@@ -19,6 +19,7 @@ import { FLAGGED_THRESHOLD } from "@/src/shared/thresholds";
 import { brandMark } from "@/src/ui/icons";
 import { mountToastHost, showToast } from "@/src/ui/toast";
 import { CONSENT_REQUIRED_ERROR } from "@/src/shared/messages";
+import { transcriptSection } from "@/src/ui/transcriptSection";
 
 interface Ctx {
   settings: Settings;
@@ -78,6 +79,7 @@ function render(): void {
     h("header", { class: "sp-header" }, brandMark(), h("h1", null, "Local AI Detector")),
     ctx.tabId === null ? renderEmpty("No page to report on.") : renderBody(),
   );
+  if (ctx.tabId !== null) root.append(transcriptSection(ctx.tabId));
 }
 
 function renderEmpty(text: string): HTMLElement {

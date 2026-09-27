@@ -21,6 +21,7 @@ import type {
   TextProvenanceResult,
 } from "../provenance/types";
 import type { FusionDetector, FusionMethod, HighlightStyle, Mode, ModelSlot } from "./settings";
+import type { TranscriptReport } from "./transcript";
 
 export interface SentenceRange {
   start: number;
@@ -499,8 +500,31 @@ export interface GetSelectionInfoMessage {
   response: { hasSelection: boolean };
 }
 
+// ---- Added by T10: YouTube transcripts (additive only) ----
+
+/**
+ * Side panel -> content script on youtube.com: the transcript report for the
+ * current video (src/shared/transcript.ts); `run: true` checks it first (the
+ * full run, opening YouTube's transcript panel hidden if needed). null off
+ * YouTube video pages.
+ */
+export interface GetTranscriptReportMessage {
+  type: "getTranscriptReport";
+  request: { run?: boolean } | undefined;
+  response: TranscriptReport | null;
+}
+
+/** Side panel -> content script: seek the current video to a transcript segment. */
+export interface SeekVideoMessage {
+  type: "seekVideo";
+  request: { seconds: number };
+  response: ActionResult;
+}
+
 /** Every request/response message kind, as a discriminated union. */
 export type RuntimeMessage =
+  | GetTranscriptReportMessage
+  | SeekVideoMessage
   | UnloadIdleModelsMessage
   | CheckImageAtUrlMessage
   | ShowOnPageMessage
