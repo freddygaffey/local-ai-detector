@@ -12,3 +12,8 @@
 - C2PA text manifests: the signature and signer are verified, but not that the manifest is bound to the text. The UI says so.
 - The Interim Trust List is not bundled because its licence is unclear.
 - DWT-DCT detection adds a vote-agreement test on top of the Hamming check, because upstream's own decoder gets 5–20% of bits wrong on small images.
+
+## From T3 (popup/options/badge)
+- The popup drives analysis itself: `extractText` goes to the tab, then analyze, then `renderHighlights` goes to the tab. Check that this doesn't duplicate T1's background-driven flow (autoRun, context menu). There should be one path.
+- `AnalyzeResult.images` is T3's *proposed* summary shape. Reconcile it with T4's real provenance result and `provenanceScanImages` flow.
+- Popup resyncs through `getTabStatus` and `onAnalysisStatus`.
