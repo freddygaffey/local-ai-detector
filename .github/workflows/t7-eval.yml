@@ -23,9 +23,12 @@ env:
   SCRATCH: ${{ github.workspace }}/.t7
 
 jobs:
+  # Once per run: the eval set, Playwright's Chromium and every model file.
+  # The shards only restore these caches, so there's one set of Hugging Face
+  # downloads per model pin instead of one per shard.
   prepare:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -33,7 +36,14 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      # datasets-server pages, cached so reruns don't refetch (same seed => same pages).
+      - id: pw
+        run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: t7-playwright-${{ steps.pw.outputs.version }}
+      - run: npx playwright install --with-deps chromium
+      # datasets-server pages (same seed => same pages).
       - uses: actions/cache@v4
         with:
           path: ${{ env.SCRATCH }}/evalcache/pages
@@ -45,6 +55,21 @@ jobs:
           name: t7-eval-set
           path: ${{ env.SCRATCH }}/eval-set.json
           retention-days: 3
+      # The browser profile holds the Cache API copy of the models, keyed on the pinned revisions.
+      - id: models
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.SCRATCH }}/chrome-profile
+          key: t7-models-${{ hashFiles('src/engine/models.ts') }}
+      - if: steps.models.outputs.cache-hit != 'true'
+        run: npm run build:e2e
+      - name: Download every model once (one text per detector)
+        if: steps.models.outputs.cache-hit != 'true'
+        run: |
+          xvfb-run --auto-servernum node scripts/e2e/browser-t7-calibration.mjs \
+            --ext .output/chrome-mv3-e2e --eval "$SCRATCH/eval-set.json" --out "$SCRATCH/warm.json" \
+            --profile "$SCRATCH/chrome-profile" --limit 1 \
+            --runs wasm:lite,wasm:perplexity,wasm:tmr,wasm:fakespot,wasm:modernbert,wasm:binoculars
 
   score:
     needs: prepare
@@ -62,13 +87,20 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - name: Install Chromium for Testing
-        run: npx playwright install --with-deps chromium
-      # The browser profile holds the Cache API copy of the models; keyed on the pinned revisions.
-      - uses: actions/cache@v4
+      - id: pw
+        run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: t7-playwright-${{ steps.pw.outputs.version }}
+          fail-on-cache-miss: true
+      - name: Chromium system libraries (apt only; the browser comes from the cache)
+        run: npx playwright install-deps chromium
+      - uses: actions/cache/restore@v4
         with:
           path: ${{ env.SCRATCH }}/chrome-profile
           key: t7-models-${{ hashFiles('src/engine/models.ts') }}
+          fail-on-cache-miss: true
       - run: npm run build:e2e
       - uses: actions/download-artifact@v4
         with:
