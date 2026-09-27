@@ -35,6 +35,8 @@ describe("URL rules", () => {
     ["https://www.notion.so/page", "app", "web app"],
     ["https://github.com/owner/repo", "app", "code host"],
     ["https://github.com/owner/repo/issues/12", "thread", "issue thread"],
+    ["https://www.amazon.com/Anker-Cable/dp/B088NRLMPV/ref=sr_1_3", "thread", "reviews"],
+    ["https://www.amazon.com.au/s?k=cable", "app", "shop"],
     ["https://example.com/subs/movie.en.srt", "subtitles", "subtitle file"],
     ["https://example.com/captions.vtt", "subtitles", "subtitle file"],
   ])("%s -> %s", (url, type, reason) => {
@@ -62,6 +64,13 @@ describe("fingerprint", () => {
   test("@graph JSON-LD is flattened", () => {
     const d = doc(`<head><script type="application/ld+json">{"@graph":[{"@type":"WebPage"},{"@type":["BlogPosting"]}]}</script></head><body></body>`);
     expect(structuredTypes(d)).toEqual(expect.arrayContaining(["WebPage", "BlogPosting"]));
+  });
+
+  test("an essay set in a table cell with <br>s and no <p> is an article (paulgraham.com)", () => {
+    const sent = "The way to do great work is to find something you are curious about and then keep working at it for years. ";
+    const body = Array.from({ length: 12 }, () => sent.repeat(3)).join("<br><br>");
+    const d = doc(`<body><table><tr><td><font size="2" face="verdana">${body}</font></td></tr></table></body>`);
+    expect(fingerprintPage({ doc: d, url, viewport: VP }).type).toBe("article");
   });
 
   test("Discourse forum via generator", () => {

@@ -76,6 +76,10 @@ const URL_RULES: UrlRule[] = [
   { test: (u) => onHost(u, /^lobste\.rs$/), type: "thread", reason: "Lobsters" },
   { test: (u) => onHost(u, /^(github\.com|gitlab\.com)$/) && /\/(issues|pull|merge_requests|discussions)\/\d+/.test(u.pathname), type: "thread", reason: "issue thread" },
   { test: (u) => onHost(u, /(^|\.)amazon\.[a-z.]+$/) && /\/product-reviews\//.test(u.pathname), type: "thread", reason: "reviews" },
+  // Product pages: the full review list now needs a login, so the reviews
+  // shown on the product page are what a logged-out reader sees. Scored as
+  // a thread (one score per review; the listing copy isn't scored).
+  { test: (u) => onHost(u, /(^|\.)amazon\.[a-z.]+$/) && /\/(dp|gp\/product)\/[A-Z0-9]{10}/.test(u.pathname), type: "thread", reason: "reviews" },
 
   // Search
   { test: (u) => onHost(u, /(^|\.)google\.[a-z.]+$/) && u.pathname === "/search", type: "search", reason: "Google" },
@@ -281,9 +285,28 @@ export function proseStats(doc: Document): { proseWords: number; linkDensity: nu
     if (t.length < 40 || link / Math.max(1, t.length) > 0.5) continue;
     prose += words(t);
   }
+  // Older hand-made pages set text straight into a <td>/<font>/<div>
+  // separated by <br>s, with no <p> at all (e.g. paulgraham.com essays).
+  // Count such bare sentence text too.
+  if (prose < 250) prose += bareTextWords(root);
   const all = (doc.body?.textContent ?? "").length;
   const links = Array.from(doc.querySelectorAll("a")).reduce((n, a) => n + (a.textContent ?? "").length, 0);
   return { proseWords: prose, linkDensity: all ? links / all : 1 };
+}
+
+/** Words in text nodes sitting directly in a non-paragraph element, where that element holds sentence prose (>= 40 words, several full stops). */
+function bareTextWords(root: Element): number {
+  let total = 0;
+  const els = root.querySelectorAll("div, td, font, section, span, center, body");
+  for (let i = 0; i < els.length && i < 4000; i++) {
+    const el = els[i]!;
+    if (el.closest("nav, header, footer, aside, [role=navigation], form, p, li, a, script, style")) continue;
+    let text = "";
+    for (const n of Array.from(el.childNodes)) if (n.nodeType === 3) text += ` ${n.textContent ?? ""}`;
+    const w = words(text);
+    if (w >= 40 && (text.match(/[.!?](\s|$)/g)?.length ?? 0) >= 3) total += w;
+  }
+  return total;
 }
 
 function appShell(doc: Document): boolean {
