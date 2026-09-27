@@ -4,7 +4,7 @@ The matrix in [qa-matrix.md](qa-matrix.md), run by an agent in the user's real C
 macOS, Apple Silicon, WebGPU) through the chrome-devtools MCP, on its own tabs only. The extension was on
 default settings throughout; anything changed for a row (slop filter, site memory, presence, battery
 saver, per-site rule, first-run consent) was changed back straight after it and checked. Screenshots are in
-[qa/shots/](qa/shots/). Firefox (section C) was out of scope for this pass.
+[qa/shots/](qa/shots/). Firefox (section C) is in [its own section](#firefox-section-c) below.
 
 **Tally: A + B = 44 rows. ✅ 36 · ⚠️ 8 · ❌ 0.** 23 rows failed on the first try and were fixed
 (commits in the rows), then re-tested in the browser.
@@ -97,5 +97,61 @@ Commit: e9b8b26.
 
 ## Not done / blocked
 
-- Firefox (section C): out of scope for this pass.
 - Nothing was blocked by tool permissions.
+
+## Firefox (section C)
+
+Firefox 156.0.1, macOS, Apple Silicon (WebGPU with shader-f16), production build installed as a temporary
+add-on in a throwaway profile (scratchpad, deleted afterwards). No logins. Driven two ways:
+
+- **geckodriver/Marionette** (classic WebDriver session): pages, the real popup (opened from the toolbar
+  button and clicked in place), the sidebar, native context menus (synthesised right-click, item activated
+  in Firefox's own menu), options.
+- **No WebDriver** (Firefox started with `-start-debugger-server`, driven over the remote debugging
+  protocol) for YouTube and Google: with WebDriver on (`navigator.webdriver`), YouTube refuses playback
+  ("Something went wrong") and serves empty caption bodies even to its own player, and Google answers
+  with its `/sorry` bot page.
+
+Screenshots are native window captures (`FF-*` in [qa/shots/](qa/shots/)); the popup is drawn in from
+its own snapshot. Firefox runs the event page + dedicated `inference-worker` / `voice-worker` (no
+offscreen document): engine info `device: webgpu, shaderF16: true, threads: 1, crossOriginIsolated:
+false, cache: cache-api`. `web-ext lint`: 0 errors (3 warnings: the dynamic `import()` in the two
+workers and ORT's `Function` use, as before).
+
+**Tally: 12 rows. ✅ 11 · ⚠️ 1 · ❌ 0.** 4 rows failed on the first try and were fixed in code (A6, B1, B6, B9); A10 was sped up but stays ⚠️.
+
+| # | Row | Result | Notes | Shot |
+|---|---|---|---|---|
+| A1 | YouTube captioned (TED) | ✅ | `Transcript: AI 23%` (same as Chrome), `Voice: AI 2% · 2 clips` after ~2 min of playback; no page chip. The MAIN-world captions helper runs (Firefox supports `world: "MAIN"` since 128; `strict_min_version` is 140). Firefox 156 has unprefixed `captureStream()`, so the `mozCaptureStream` fallback isn't used; the tab stays audible while voice listens. Voice's AudioContext starts suspended until the page gets a click (autoplay policy, same as Chrome); the no-WebDriver profile allowed Web Audio by pref instead. Needs the no-WebDriver run (see above). | FF-A1-youtube-ted.jpeg |
+| A6 | Reddit thread | ✅ fixed | thread (Reddit), page 41% (Chrome: 41%), 12 per-comment labels (`AI 72%` mod welcome, 6–45%, "Too short"). **Bug (both browsers):** Reddit hides every `:not(:defined)` element, and our chip/pill/tooltip/transcript/voice hosts are undefined custom elements, so the chip was invisible and couldn't be expanded to show the labels. Hosts now force `visibility: visible !important` (891743f). | FF-A6-reddit-thread.jpeg, FF-A6-reddit-popup.jpeg |
+| A10 | Wikipedia | ⚠️ slow | "Hedgehog": 34% (Chrome: 34%), chip hidden, hover peek shows `AI 34%`. **Speed:** Quick (TMR on WebGPU) took ~9–10 s for the 4096-token budget (Chrome's timing table predicts ~1 s); pages that lean AI are then confirmed by Fusion, whose Fakespot runs single-threaded WASM on Firefox (~23 s). Before the fix the event page (and every loaded model) was dropped ~30 s after each run, so each page reloaded the models, and the confirmation re-ran TMR: cold 70 s / warm 46 s. Now 37 s cold / ~35 s warm when confirmation runs, ~10 s when it doesn't (03fc73f). TMR on WASM (Firefox on Linux, no WebGPU) measured 35 s for the same page. | FF-A10-wikipedia-peek.jpeg |
+| A16 | Google results | ✅ | search (Google), no page chip. Firefox gets different Google markup than Chrome; a diagnostic build (not committed) logged 9/9 snippets scored, 23–37%, so no markers. | FF-A16-google.jpeg |
+| A22 | `.srt` file (served as text/plain) | ✅ | subtitles (subtitle file), `Transcript: AI 97%`. Minor (shared with Chrome): the popup says "No result" on a subtitle page, since the transcript isn't the tab's page result. | FF-A22-srt.jpeg |
+| B1 | Fresh install → popup | ✅ fixed | Genuinely fresh profile: checklist TMR (locked), Fakespot, Spectra-AASIST3 ticked, W2V2 unticked, ~594.9 MB. Firefox also opened our sidebar by itself on install (`sidebar_action` defaults to `open_at_install`), showing "No result yet"; now off (ffc162a). | FF-B1-first-run-checklist.jpeg |
+| B2 | Download & enable | ✅ | Real download from empty: text models then voice model, byte progress, done in 76 s; all in the Cache API afterwards (IndexedDB fallback not needed; a 5 MB Blob round trip through IndexedDB on the extension origin also checked). | FF-B2-download-progress.jpeg |
+| B3 | Auto Quick chip | ✅ | AI-written article: chip `AI 98%` (Quick confirmed by Fusion) in 11 s; Wikipedia: chip hidden, hover peek `AI 34%`. | FF-B3-auto-quick-chip.jpeg, FF-A10-wikipedia-peek.jpeg |
+| B4 | Deep check ↻ | ✅ | Popup ↻ → inline "Download & run (556 MB)" → progress → six detectors, labelled DEEP. Hedgehog Deep 32% (Chrome: 32%). Slow on Firefox: ~140 s per long article (ModernBERT, Binoculars on single-thread WASM). | FF-B4-deep-popup.jpeg |
+| B6 | Context menus | ✅ fixed | Firefox's real menu, all four entries: page (result revealed on the page), selected text (4 sentences, 97%), text box (97%, 7 flagged), image (`CR` badge on a C2PA image). **Bugs:** the image entry awaited `permissions.contains()` before `permissions.request()`, which Firefox then refuses (no longer inside the click); and Firefox menus treat `&` as an access key, so the label read "Credentials  watermarks" (2f35d74). In Firefox the `<all_urls>` content-script match already grants image access here, so no prompt appeared. | FF-B6-menu-page.jpeg, FF-B6-menu-selection.jpeg, FF-B6-menu-textbox.jpeg, FF-B6-menu-image.jpeg |
+| B9 | Sidebar (in place of the side panel) | ✅ fixed | Lists flagged sentences with text and %, follows the active tab; clicking one scrolls the page (y 0 → 162) and shows its tooltip. **Bug:** Presence "Side panel" did nothing in Firefox (Chrome's `sidePanel.setPanelBehavior` has no Firefox counterpart). Now the toolbar icon drops its popup and toggles the sidebar (`sidebarAction.toggle()` from `action.onClicked`); back to the popup when Presence changes (ffc162a). | FF-B9-sidebar.jpeg |
+| B13 | Options | ✅ | Real click on a checkbox at scroll 1300: stays at 1300; select change at 2000: stays; both persist across reload; restored. | FF-B13-options.jpeg |
+
+Other Firefox fixes: the popup's action row overflowed 360 px ("Never on this s…" and a horizontal
+scrollbar) with Firefox's font metrics; the row now wraps (ffc162a, FF-popup-buttons-wrap.jpeg).
+`scripts/e2e/firefox.mjs` forces the Inspector presence for its highlight checks, as the Chrome suite does
+(it failed 5 steps against the current default of Status chip); now 18/18 (headless, WASM path, real downloads).
+
+Chrome safety: the shared changes are the overlay-host visibility (inline style only), the per-model
+score memo in `detect.ts` (keyed on the loaded model object; results identical, 482 unit tests pass), the
+permission request order in the image menu handler, and the popup row wrap (no change where the row
+already fits). The keep-alive change is inside the Firefox worker client only; the sidebar toggle runs
+only where `sidebarAction` exists; `open_at_install` is a `sidebar_action` key (absent from the Chrome
+manifest). Both builds, typecheck and unit tests pass after every change.
+
+### Firefox remaining ⚠️
+
+- A10 / B4 speed: Firefox's WebGPU ran TMR ~8× slower than Chrome's figures, and WASM is
+  single-threaded (no cross-origin isolation for extension pages, bug 1673477). A Wikipedia-length page
+  takes ~10 s Quick, ~35 s with the Fusion confirmation, ~140 s Deep. On Linux (no WebGPU) Quick alone
+  is ~35 s. A smaller Quick token budget on Firefox would help but changes results; left as a decision
+  (it could be a setting).
+- YouTube and Google bot-wall WebDriver-driven Firefox; both were tested without WebDriver instead.
