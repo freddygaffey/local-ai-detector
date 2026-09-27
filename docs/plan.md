@@ -161,7 +161,7 @@ Runs alongside T7. T7 exposes its fusion settings as a self-contained options mo
 agreement data to results; T9 mounts and displays them.
 
 ## Target user (user decision, overrides earlier defaults)
-**Slightly technical, anti-AI readers who want to cut AI slop from everyday reading**: articles,
+**Slightly technical readers who are against low-effort AI slop overtaking the web (not against AI itself) and want to cut it from everyday reading**. Tone is neutral toward AI: never hostile or moralising, and no 'caught/fake/cheating' language: articles,
 Reddit, HN, forums, reviews, YouTube comments, search results. Essay checkers (students,
 teachers) are secondary, because ZeroGPT/GPTZero already serve them for free. Consequences:
 - Default Presence is the Status chip with auto-run on, using classifierLite; clicking runs the
