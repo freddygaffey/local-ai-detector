@@ -207,7 +207,7 @@ the final package.
 - Below `MIN_WORDS_FOR_SCORE` the UI shows "—".
 - The chip is fully hidden below the display threshold.
 
-## v0.2: T10 YouTube transcripts (planned after release)
+## Phase 2: T10 YouTube transcripts (planned after release)
 Read the transcript from YouTube's own transcript panel, falling back to the player's caption
 track (same-origin youtube.com, nothing new leaves the device). The chip reads
 "Transcript: AI 84%", and clicking a flagged segment seeks the video. Also surface YouTube's
@@ -215,7 +215,7 @@ track (same-origin youtube.com, nothing new leaves the device). The chip reads
 auto-captions (or punctuation restoration). It detects AI-written scripts, not synthetic
 voices. Supports Shorts. Owner: Opus.
 
-## v0.2: T11 AI voice detection (experimental, gated on a research spike)
+## Phase 2: T11 AI voice detection (experimental, gated on a research spike)
 Spike (Opus) first:
 - Find licence-clean open audio-deepfake detectors (wav2vec2/AASIST-style trained on ASVspoof,
   In-the-Wild, MLAAD or similar) with ONNX export.
@@ -231,6 +231,16 @@ If it goes ahead:
 - Chunk and resample to 16 kHz, and run in the offscreen doc or worker.
 - Show "Voice: AI 72%" beside the transcript score.
 - SynthID audio and ElevenLabs' classifier are not checkable locally.
+
+## Phases and release (user decision)
+There is no v0.1 store release. **The first public release is v0.2.0.**
+- **Phase 1 (foundations):** T7 and T9. The cheap persona pass feeds T9. Then T12: freeze and
+  version the message contract (`contractVersion` in AnalyzeResult), add a mock-engine dev mode
+  (`npm run dev:ui`: hot reload, canned results for every state and surface, no models), and
+  write the docs/ui-dev.md handover.
+- **Phase 2:** the user iterates on UI and workflow. T10 YouTube transcripts; the T11 voice spike
+  and maybe the feature; an optional thorough persona pass; final QA, then package v0.2.0, and
+  the user publishes.
 
 ## Out of scope for v1
 Remote APIs (incl. Anthropic's planned watermark-detection API and SynthID), VideoSeal/AudioSeal/TrustMark (35–228 MB models, v2), non-English calibration, and store publishing
