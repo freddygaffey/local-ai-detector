@@ -44,19 +44,19 @@ export function bandFromResult(result: AnalyzeResult, _settings: Settings): Band
   });
 }
 
+// Terse, label-not-sentence wording (T9 copy pass): the main surfaces show a
+// number plus one word, never a caveat or a full sentence. The old
+// longer-form BAND_DESCRIPTION lives on as DETAILS_NOTE below -- one fixed
+// line, shown only behind the ⓘ/Details affordance.
 export const BAND_LABEL: Record<Band, string> = {
-  human: "Likely human-written patterns",
-  mixed: "Mixed signals",
-  ai: "Likely AI-generated patterns",
-  insufficient: "Too little text to assess",
+  human: "Human",
+  mixed: "Mixed",
+  ai: "AI",
+  insufficient: "Too short",
 };
 
-export const BAND_DESCRIPTION: Record<Band, string> = {
-  human: "Most of this text reads like the detectors' human-written examples.",
-  mixed: "Parts of this text read like AI output, parts like human writing.",
-  ai: "Most of this text reads like the detectors' AI-generated examples.",
-  insufficient: "There isn't enough text here for the detectors to say anything reliable.",
-};
+/** One-line note shown once, behind Details -- never repeated on a main surface. */
+export const DETAILS_NOTE = "A probability estimate, not proof.";
 
 /** CSS custom-property name carrying this band's colour (see src/ui/styles.css). */
 export function bandColorVar(band: Band): string {

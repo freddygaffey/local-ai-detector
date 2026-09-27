@@ -5,13 +5,16 @@
 // here — read it from src/engine/models.ts so there is exactly one source
 // of truth for repos/revisions/sizes/licences.
 
-import { estimatedDownloadBytes } from "../engine/models";
-import type { EnsembleClassifier, Mode } from "../shared/settings";
+import { estimatedDownloadBytes, type FusionSpec } from "../engine/models";
+import type { Mode } from "../shared/settings";
 
 export { DEFAULT_MODELS as MODEL_REGISTRY } from "../engine/models";
 
+// "ensemble" is the stored Mode value for T7's Fusion (docs/plan.md "T7:
+// Fusion mode") -- the value is kept for settings/type compatibility, but
+// the UI always calls it "Fusion".
 export const MODE_LABEL: Record<Mode, string> = {
-  ensemble: "Ensemble",
+  ensemble: "Fusion",
   classifier: "Classifier",
   classifierLite: "Classifier — lite",
   perplexity: "Perplexity",
@@ -22,8 +25,8 @@ export const MODE_LABEL: Record<Mode, string> = {
 export const EXPERIMENTAL_MODES = new Set<Mode>(["binoculars"]);
 
 /** Total estimated download size in MB for a mode's default model slots (WASM/q8 sizes). */
-export function modeSizeMB(mode: Mode, ensembleClassifier?: EnsembleClassifier): number {
-  const bytes = estimatedDownloadBytes(mode, "wasm", undefined, ensembleClassifier);
+export function modeSizeMB(mode: Mode, fusion?: FusionSpec): number {
+  const bytes = estimatedDownloadBytes(mode, "wasm", undefined, fusion);
   return bytes === null ? 0 : Math.round(bytes / (1024 * 1024));
 }
 
