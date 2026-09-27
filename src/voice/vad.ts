@@ -19,7 +19,7 @@ export function frameDb(x: Float32Array): number[] {
   const out: number[] = [];
   for (let i = 0; i + FRAME <= x.length; i += FRAME) {
     let s = 0;
-    for (let j = i; j < i + FRAME; j++) s += x[j] * x[j];
+    for (let j = i; j < i + FRAME; j++) s += x[j]! * x[j]!;
     const rms = Math.sqrt(s / FRAME);
     out.push(20 * Math.log10(Math.max(rms, 1e-10)));
   }
@@ -28,7 +28,7 @@ export function frameDb(x: Float32Array): number[] {
 
 export function speechGate(x: Float32Array): GateResult {
   let total = 0;
-  for (let i = 0; i < x.length; i++) total += x[i] * x[i];
+  for (let i = 0; i < x.length; i++) total += x[i]! * x[i]!;
   if (x.length === 0 || Math.sqrt(total / x.length) < SILENT_RMS) {
     return { ok: false, reason: "silent", activeFraction: 0 };
   }
