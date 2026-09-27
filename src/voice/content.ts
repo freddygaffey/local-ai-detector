@@ -63,6 +63,9 @@ export function withdrawVoiceOffer(): void {
   chip = null;
 }
 
+/** Video id whose automatic voice check is still waiting for its player. */
+let autoPending: string | null = null;
+
 /** YouTube video id + kind from a URL (watch or Shorts), else null. */
 export function youTubeVideoId(href: string): string | null {
   try {
@@ -158,6 +161,10 @@ async function onYouTubeLocation(): Promise<void> {
   const wantChip = id !== null && voice().enabled && settings.surfaces.chip && pageAllowed();
   if (id === ytVideoId) {
     if (wantChip) ensureChip(false).remount();
+    // The player wasn't ready within the first wait (e.g. landing on
+    // /shorts, which redirects to a Short that loads late): start as soon
+    // as it is, on a later tick.
+    if (wantChip && !session && autoPending === id) void retryAutoStart(id);
     return;
   }
   ytVideoId = id;
@@ -166,17 +173,46 @@ async function onYouTubeLocation(): Promise<void> {
   if (!wantChip) {
     chip?.destroy();
     chip = null;
+    // Not "seen" yet: the page router can allow this video a moment later
+    // (on /shorts it first routes the landing page, then the Short), and it
+    // must then count as a new video so the automatic check starts.
+    ytVideoId = null;
     return;
   }
   ensureChip(false).setState(null, { settings: voice(), rate: rate() });
   if (voice().run !== "autoYouTube") return;
+  // Pending until it starts: a later tick retries (a momentary CPU-pressure
+  // spike while the page loads, or a player that loads late, used to cancel
+  // the automatic check for the whole video).
+  autoPending = id;
   const power = decidePowerAction(await readBatteryState(), await readPressureState(), settings.battery);
+  if (power.pauseAutoRun && power.reason !== "cpu-pressure") autoPending = null;
   if (power.pauseAutoRun) return;
   // Wait for YouTube to swap in the new video's player.
   for (let i = 0; i < 20 && ytVideoId === id; i++) {
     const v = youTubeVideo();
-    if (v && v.readyState > 0) return void startSession(v, false);
+    if (v && v.readyState > 0) {
+      autoPending = null;
+      return void startSession(v, false);
+    }
     await new Promise((r) => setTimeout(r, 500));
+  }
+}
+
+let retrying = false;
+async function retryAutoStart(id: string): Promise<void> {
+  if (retrying) return;
+  retrying = true;
+  try {
+    const power = decidePowerAction(await readBatteryState(), await readPressureState(), settings.battery);
+    if (power.pauseAutoRun || ytVideoId !== id || session) return;
+    const v = youTubeVideo();
+    if (v && v.readyState > 0) {
+      autoPending = null;
+      await startSession(v, false);
+    }
+  } finally {
+    retrying = false;
   }
 }
 

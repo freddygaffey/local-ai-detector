@@ -431,7 +431,7 @@ function reRenderPillDone(): void {
 
 // ---- Auto-run (battery-gated, fast mode) -----------------------------------
 
-async function maybeAutoRun(): Promise<void> {
+async function maybeAutoRun(attempt = 0): Promise<void> {
   try {
     // Tiers task (docs/plan.md "Two tiers"): "Run quick check automatically"
     // off means no automatic pass at all -- Deep still runs on click.
@@ -443,6 +443,9 @@ async function maybeAutoRun(): Promise<void> {
     const decision = decidePowerAction(battery, pressure, settings.battery);
     if (decision.pauseAutoRun) {
       chip?.setContent({ label: null });
+      // A CPU-pressure spike while the page loads is momentary: try again shortly.
+      const at = location.href;
+      if (decision.reason === "cpu-pressure" && attempt < 3) setTimeout(() => location.href === at && void maybeAutoRun(attempt + 1), 5000);
       return;
     }
     pill?.setAnalyzing({ phase: "download", loaded: 0, total: 0, message: "Starting…" });

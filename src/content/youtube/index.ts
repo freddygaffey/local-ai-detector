@@ -202,7 +202,7 @@ async function run(pass: "fast" | "full", allowOpen: boolean): Promise<void> {
   }
 }
 
-async function maybeAutoRun(): Promise<void> {
+async function maybeAutoRun(attempt = 0): Promise<void> {
   if (!video || !settings.surfaces.chip || !pageAllowed()) return;
   // Tiers task (docs/plan.md "Two tiers"): "Run quick check automatically"
   // off means no automatic pass here either -- the Deep ("full") pass still
@@ -211,7 +211,13 @@ async function maybeAutoRun(): Promise<void> {
   if (autoRunPolicyForSite(settings, location.hostname) !== "always") return;
   try {
     const [battery, pressure] = await Promise.all([readBatteryState(), readPressureState()]);
-    if (decidePowerAction(battery, pressure, settings.battery).pauseAutoRun) return;
+    const decision = decidePowerAction(battery, pressure, settings.battery);
+    if (decision.pauseAutoRun) {
+      // A CPU-pressure spike while the page loads is momentary: try again shortly.
+      const v = video.videoId;
+      if (decision.reason === "cpu-pressure" && attempt < 3) setTimeout(() => video?.videoId === v && void maybeAutoRun(attempt + 1), 5000);
+      return;
+    }
   } catch {
     // no battery info: go ahead
   }
