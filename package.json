@@ -24,16 +24,20 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@huggingface/transformers": "4.3.0",
-    "onnxruntime-web": "1.31.0-dev.20260914-8d85527a0",
-    "exifreader": "^4.46.0",
     "@contentauth/c2pa-web": "0.15.2",
-    "c2pa-text": "^3.0.0"
+    "@huggingface/transformers": "4.3.0",
+    "c2pa-text": "^3.0.0",
+    "exifreader": "^4.46.0",
+    "onnxruntime-web": "1.31.0-dev.20260914-8d85527a0"
   },
   "devDependencies": {
     "@types/chrome": "^0.3.0",
+    "happy-dom": "^20.14.5",
+    "playwright": "^1.63.0",
+    "puppeteer-core": "^25.12.0",
     "typescript": "^7.0.2",
     "vitest": "^5.0.2",
+    "web-ext": "^10.7.0",
     "wxt": "0.21.4"
   }
 }
