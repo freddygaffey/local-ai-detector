@@ -1,1 +1,6 @@
-wasm:lite: 456 texts, 0 errors, 1240 ms/1k words
+wasm:lite: 1867 texts, 0 errors, 1675 ms/1k words
+wasm:perplexity: 1867 texts, 0 errors, 3853 ms/1k words
+wasm:tmr: 1867 texts, 0 errors, 3752 ms/1k words
+wasm:fakespot: 1867 texts, 0 errors, 3713 ms/1k words
+wasm:modernbert: 1867 texts, 0 errors, 5049 ms/1k words
+wasm:binoculars: 1867 texts, 0 errors, 17712 ms/1k words
