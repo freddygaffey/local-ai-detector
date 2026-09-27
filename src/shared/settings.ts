@@ -67,6 +67,8 @@ export interface Settings {
    * uses"); the lite model is ~4x smaller and faster.
    */
   ensembleClassifier: EnsembleClassifier;
+  /** Use WebGPU when the browser offers it (with shader-f16); off forces WASM. */
+  useWebGPU: boolean;
 }
 
 export type EnsembleClassifier = "classifier" | "classifierLite";
@@ -83,6 +85,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autoCheckModelUpdates: false,
   modelOverrides: {},
   ensembleClassifier: "classifier",
+  useWebGPU: true,
 };
 
 const STORAGE_KEY = "settings";

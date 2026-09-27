@@ -224,6 +224,17 @@ describe("validateCustomModel / setCustomModel", () => {
     expect(v2.ok && v2.warnings.join(" ")).toMatch(/No licence/);
   });
 
+  it("takes the licence of the model an unlicensed ONNX conversion quantizes (tagged only)", async () => {
+    h.api.set("upstream/detector", apiModel("upstream/detector", NEW_SHA, { cardData: { license: "mit" } }));
+    h.api.set(REPO, apiModel(REPO, NEW_SHA, { cardData: {}, tags: ["base_model:quantized:upstream/detector"] }));
+    const v = await validateCustomModel("classifier", REPO, h.deps);
+    expect(v).toMatchObject({ ok: true, license: "mit", openLicense: true });
+    expect(v.ok && v.warnings.join(" ")).toMatch(/declares no licence.*upstream\/detector/);
+    // A fine-tune (base_model:finetune:…) does NOT inherit its base's licence.
+    h.api.set(REPO, apiModel(REPO, NEW_SHA, { cardData: {}, tags: ["base_model:finetune:upstream/detector"] }));
+    expect(await validateCustomModel("classifier", REPO, h.deps)).toMatchObject({ ok: true, license: null, openLicense: false });
+  });
+
   it("accepts a causal LM with a merged decoder for the perplexity slot", async () => {
     h.api.set(REPO, apiModel(REPO, NEW_SHA, {
       siblings: [

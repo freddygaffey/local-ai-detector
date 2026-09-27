@@ -130,6 +130,7 @@ async function runAnalyze(
           maxTokens: settings.maxTokens,
           models,
           ensembleClassifier: settings.ensembleClassifier,
+          allowWebGPU: settings.useWebGPU,
         },
       },
       relay,

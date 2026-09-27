@@ -12,6 +12,8 @@ export interface EngineConfig {
   maxTokens: number;
   /** Active {repo, revision} for each slot the mode needs. */
   models: Partial<Record<ModelSlot, ModelRef>>;
+  /** settings.useWebGPU: false forces WASM even when WebGPU is available. */
+  allowWebGPU?: boolean;
   /** Classifier slot the ensemble uses (default "classifier", TMR). */
   ensembleClassifier?: EnsembleClassifier;
   /** Page URL, if known (part of the result-cache key). */

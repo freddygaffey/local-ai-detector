@@ -36,6 +36,12 @@ export interface ModelSpec {
   modelFileName: string;
   /** dtype to use per device class. */
   dtypes: { wasm: DType; webgpuF16: DType };
+  /**
+   * Always run on WASM (q8), even when WebGPU is available. Set for the
+   * Binoculars pair: their q4f16 WebGPU run gave uniform logits (every score
+   * exactly 1.0) in Chrome 153 during T5 QA, and q8 is what was calibrated.
+   */
+  wasmOnly?: boolean;
   /** Approximate download size in bytes per dtype (onnx weights + tokenizer.json + configs). */
   sizes: Partial<Record<DType, number>>;
   /** Max sequence length the model accepts (tokens). */
@@ -107,7 +113,8 @@ export const DEFAULT_MODELS: Record<ModelSlot, ModelSpec> = {
     license: "apache-2.0",
     upstream: "HuggingFaceTB/SmolLM2-135M",
     modelFileName: "model",
-    dtypes: { wasm: "q8", webgpuF16: "q4f16" },
+    dtypes: { wasm: "q8", webgpuF16: "q8" },
+    wasmOnly: true,
     // model_quantized.onnx + .onnx_data = 1,252,724 + 136,717,568 B;
     // model_q4f16.onnx + .onnx_data = 276,492 + 117,461,632 B; tokenizer.json 2,053,526 B.
     sizes: {
@@ -127,7 +134,8 @@ export const DEFAULT_MODELS: Record<ModelSlot, ModelSpec> = {
     license: "apache-2.0",
     upstream: "HuggingFaceTB/SmolLM2-135M-Instruct",
     modelFileName: "model",
-    dtypes: { wasm: "q8", webgpuF16: "q4f16" },
+    dtypes: { wasm: "q8", webgpuF16: "q8" },
+    wasmOnly: true,
     // model_quantized.onnx 135,658,354 B; model_q4f16.onnx 117,266,133 B; tokenizer.json 3,522,656 B.
     sizes: {
       q8: 135_658_354 + 3_522_656 + 8 * KB,

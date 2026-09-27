@@ -146,10 +146,10 @@ await step("popup: consent screen, then 'Download & enable'", async (note) => {
     note("already consented in this profile (models cached from an earlier run)");
     return;
   }
-  await popup.waitForSelector("::-p-text(Download & enable)", { timeout: 5000 });
+  await popup.waitForSelector("button::-p-text(Download & enable)", { timeout: 5000 });
   await shot(popup, "popup-consent.png");
-  await popup.click("::-p-text(Download & enable)");
-  await popup.waitForSelector("::-p-text(Analyze page)", { timeout: 5000 });
+  await popup.click("button::-p-text(Download & enable)");
+  await popup.waitForSelector("button::-p-text(Analyze page)", { timeout: 5000 });
 });
 
 async function setMode(mode) {
@@ -163,28 +163,31 @@ async function analyzeViaPopup(mode, label) {
   await setMode(mode);
   await popup.evaluate(() => (window.__ev = []));
   const t0 = Date.now();
-  await popup.click("::-p-text(Analyze page)");
+  await popup.click("button::-p-text(Analyze page)");
+  // Wait for a result finished after this click (the previous run's "done"
+  // status is still there until the new run starts).
   const status = await waitFor(
     async () => {
       const s = await ext(popup, "getTabStatus", { tabId: newsTabId });
-      return s.state === "done" || s.state === "error" ? s : null;
+      if (s.state === "error") return s;
+      return s.state === "done" && s.finishedAt >= t0 && s.mode === mode ? s : null;
     },
     { timeout: 20 * 60_000, interval: 500, what: `${mode} analysis` },
   );
   const t1 = Date.now();
   if (status.state === "error") throw new Error(status.error);
   const ev = await popup.evaluate(() => window.__ev.filter((e) => e.s === "running"));
-  const first = (phase) => ev.find((e) => e.p === phase)?.t;
-  const dl = first("download");
-  const load = first("load");
-  const an = first("analyze");
-  const bytes = Math.max(0, ...ev.filter((e) => e.p === "download").map((e) => e.tot ?? 0));
+  const dl = ev.filter((e) => e.p === "download");
+  const firstLoad = ev.find((e) => e.p === "load")?.t;
+  const firstAnalyze = ev.find((e) => e.p === "analyze")?.t ?? t1;
+  const bytes = Math.max(0, ...dl.map((e) => e.tot ?? 0));
+  const loadStart = dl.length ? dl[dl.length - 1].t : (firstLoad ?? firstAnalyze);
   const timing = {
     totalMs: t1 - t0,
-    downloadMs: dl ? (load ?? an ?? t1) - dl : 0,
+    downloadMs: dl.length ? dl[dl.length - 1].t - dl[0].t : 0,
     downloadBytes: bytes,
-    loadMs: load ? (an ?? t1) - load : 0,
-    analyzeMs: an ? t1 - an : null,
+    loadMs: firstAnalyze - loadStart,
+    analyzeMs: t1 - firstAnalyze,
   };
   report.timings[label] = timing;
   const r = status.result;
@@ -192,6 +195,7 @@ async function analyzeViaPopup(mode, label) {
     overall: +r.overall.toFixed(3),
     sentences: r.sentences.length,
     flagged: r.sentences.filter((s) => s.score >= 0.5).length,
+    scores: r.sentences.map((s) => s.score),
     notes: r.notes,
     timing,
   };
@@ -203,8 +207,11 @@ for (const mode of MODES) {
   modeResults[mode] = await step(`analyze news page via popup — ${mode} (cold)`, async (note) => {
     const r = await analyzeViaPopup(mode, `${mode}-cold`);
     note(`overall ${r.overall}, ${r.flagged}/${r.sentences} flagged, total ${r.timing.totalMs} ms (download ${r.timing.downloadMs} ms / ${(r.timing.downloadBytes / 1e6).toFixed(0)} MB, load ${r.timing.loadMs} ms, analyze ${r.timing.analyzeMs} ms)`);
-    const n = await highlightCount(pages.news);
-    if (n < 1) throw new Error("no highlights rendered in the page");
+    // renderHighlights is sent right after the "done" status; give it a moment.
+    const n = await waitFor(() => highlightCount(pages.news), { timeout: 5000, what: "highlights" });
+    const distinct = new Set(r.scores.map((x) => x.toFixed(4))).size;
+    note(`${distinct} distinct sentence scores`);
+    if (distinct < 2 && r.sentences > 5) throw new Error(`degenerate scores: every sentence scored ${r.scores[0]}`);
     note(`${n} highlight ranges in page`);
     if (mode === "ensemble") await shot(popup, "popup-result.png");
     return r;
@@ -213,11 +220,17 @@ for (const mode of MODES) {
 report.facts.modeResults = modeResults;
 
 if (!QUICK) {
+  // Models are now loaded. Analyze a page not seen yet in this mode (the
+  // engine caches results per text), so this is load-free, compute-only time.
+  const blogTab = await tabIdOf(`${BASE}/blog.html`);
   for (const mode of MODES) {
-    await step(`analyze news page — ${mode} (warm, models loaded)`, async (note) => {
-      const r = await analyzeViaPopup(mode, `${mode}-warm`);
-      note(`overall ${r.overall}, total ${r.timing.totalMs} ms`);
-      return r;
+    await step(`analyze blog page — ${mode} (warm: models already loaded)`, async (note) => {
+      await setMode(mode);
+      const t0 = Date.now();
+      const r = await ext(popup, "analyzeTab", { tabId: blogTab, target: "page" });
+      const ms = Date.now() - t0;
+      report.timings[`${mode}-warm`] = { totalMs: ms, sentences: r.sentences.length };
+      note(`overall ${r.overall.toFixed(3)}, ${r.sentences.length} sentences, ${ms} ms`);
     });
   }
 }
@@ -335,6 +348,10 @@ await step("pill ✕ clears highlights, markers and badges", async (note) => {
 
 await step("pill 'Scan page' runs the same background path", async (note) => {
   await pages.blog.bringToFront();
+  // The blog already shows results from the warm runs: clear, then scan.
+  const clear = await piercedCenter(pages.blog, (tag, a) => tag === "button" && a["aria-label"] === "Clear all highlights");
+  if (clear.length) await pages.blog.mouse.click(clear[0].x, clear[0].y);
+  await sleep(300);
   const run = await piercedCenter(pages.blog, (tag, a) => tag === "button" && a["aria-label"] === "Scan this page for AI-written text");
   await pages.blog.mouse.click(run[0].x, run[0].y);
   const blogTab = await tabIdOf(`${BASE}/blog.html`);
@@ -418,6 +435,39 @@ await step("classifier vs lite on fixture pages (overall scores)", async (note) 
   await p.close();
 });
 
+await step("WebGPU vs WASM (settings.useWebGPU) on the same pages", async (note) => {
+  const out = {};
+  const p = await newTab(`${BASE}/spa.html?a=ai`);
+  const setGpu = (on) =>
+    popup.evaluate(async (on) => {
+      const s = (await chrome.storage.sync.get("settings")).settings;
+      await chrome.storage.sync.set({ settings: { ...s, useWebGPU: on } });
+    }, on);
+  for (const url of [`${BASE}/spa.html?a=ai`, `${BASE}/spa.html?a=human`, `${BASE}/news.html`]) {
+    await p.goto(url, { waitUntil: "load" });
+    await sleep(600);
+    const id = await tabIdOf(p.url());
+    const row = (out[url.replace(BASE + "/", "")] = {});
+    for (const mode of ["classifier", "classifierLite", "perplexity"]) {
+      await setMode(mode);
+      for (const gpu of [true, false]) {
+        await setGpu(gpu);
+        const t0 = Date.now();
+        const r = await ext(popup, "analyzeTab", { tabId: id, target: "page" });
+        row[`${mode}-${gpu ? "webgpu" : "wasm"}`] = { overall: +r.overall.toFixed(3), ms: Date.now() - t0 };
+      }
+    }
+    note(`${url.replace(BASE + "/", "")}: ${Object.entries(row).map(([k, v]) => `${k} ${v.overall}`).join(", ")}`);
+  }
+  const info = await ext(popup, "getEngineInfo", undefined);
+  note(`device after useWebGPU=false: ${info.runtime.device}`);
+  await setGpu(true);
+  await setMode("ensemble");
+  report.facts.deviceComparison = out;
+  await p.close();
+  if (info.runtime.device !== "wasm") throw new Error("useWebGPU=false did not switch to WASM");
+});
+
 // ---- options page ----
 const options = await newTab(`${EXT_ORIGIN}/options.html`, { width: 1000, height: 900 });
 await step("options: renders, engine line, cache sizes", async (note) => {
@@ -430,7 +480,7 @@ await step("options: renders, engine line, cache sizes", async (note) => {
 });
 
 await step("options: Check for updates", async (note) => {
-  await options.click("::-p-text(Check for updates)");
+  await options.click("button::-p-text(Check for updates)");
   await waitFor(async () => !(await options.$("::-p-text(Checking Hugging Face)")), { timeout: 60_000, what: "update check" });
   const errs = await options.$$eval(".model-error-note", (els) => els.map((e) => e.textContent));
   const upd = await options.$$eval(".model-update-note", (els) => els.map((e) => e.textContent));
@@ -459,7 +509,7 @@ await step("options: custom-model validation (open licence / no licence / missin
   // UI path for one of them, for the screenshot.
   const input = await options.$('input[placeholder^="org/model-name"]');
   await input.type("onnx-community/chatgpt-detector-roberta-ONNX");
-  const btns = await options.$$("::-p-text(Check licence)");
+  const btns = await options.$$("button::-p-text(Check licence)");
   await btns[0].click();
   await waitFor(async () => !(await options.$("::-p-text(Checking…)")), { what: "validation UI" });
   await sleep(300);

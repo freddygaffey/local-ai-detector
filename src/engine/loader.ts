@@ -96,7 +96,7 @@ async function doLoad(slot: ModelSlot, ref: ModelRef, onProgress?: FileProgress)
   const tokenizer = await AutoTokenizer.from_pretrained(ref.repo, common);
   const config = await AutoConfig.from_pretrained(ref.repo, { revision: ref.revision });
 
-  const primary = deviceAndDtype(spec.dtypes);
+  const primary = spec.wasmOnly ? { device: "wasm" as const, dtype: spec.dtypes.wasm } : deviceAndDtype(spec.dtypes);
   const attempts: { device: string; dtype: DType }[] = [primary];
   if (primary.device === "webgpu") attempts.push({ device: "wasm", dtype: spec.dtypes.wasm });
 

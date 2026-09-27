@@ -192,6 +192,11 @@ function renderDetectionSection(): HTMLElement {
       toggleControl(s.checkImages, (checked) => void updateSettings({ checkImages: checked })),
     ),
     fieldRow(
+      "Use the GPU (WebGPU) when available",
+      "Faster, and uses smaller fp16/4-bit weights. Turn off to run everything on the CPU (WASM, 8-bit weights, what the scores were calibrated on) — e.g. if your GPU driver misbehaves.",
+      toggleControl(s.useWebGPU, (checked) => void updateSettings({ useWebGPU: checked })),
+    ),
+    fieldRow(
       "Check for model updates automatically",
       "Off by default. When on, checks Hugging Face for newer pinned revisions on startup.",
       toggleControl(s.autoCheckModelUpdates, (checked) => void updateSettings({ autoCheckModelUpdates: checked })),

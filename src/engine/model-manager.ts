@@ -55,6 +55,8 @@ export interface RepoInfo {
   architectures: string[];
   modelType: string | null;
   vocabSize: number | null;
+  /** Repos this one is a quantized/ONNX conversion of (HF "base_model:quantized:<id>" tags). */
+  convertedFrom: string[];
 }
 
 /** HF repo ids: "owner/name" (letters, digits, - _ .). */
@@ -100,6 +102,10 @@ export async function fetchRepoInfo(repo: string, deps: Pick<ManagerDeps, "fetch
     architectures: j.config?.architectures ?? [],
     modelType: j.config?.model_type ?? null,
     vocabSize: typeof j.config?.vocab_size === "number" ? j.config.vocab_size : null,
+    convertedFrom: (j.tags ?? [])
+      .filter((t) => t.startsWith("base_model:quantized:"))
+      .map((t) => t.slice("base_model:quantized:".length))
+      .filter(isValidRepoId),
   };
 }
 
@@ -296,7 +302,24 @@ export async function validateCustomModel(
 
     const warnings: string[] = [];
     if (!arch.length) warnings.push("Couldn't read the model architecture from the Hub; it will be checked when it loads.");
-    const license = info.license;
+    let license = info.license;
+    // ONNX conversions (onnx-community/…, Xenova/…) usually declare no
+    // licence of their own. A quantized/format conversion carries the
+    // original weights' licence, so look that up (only for an unambiguous,
+    // tagged conversion; a fine-tune's licence is its author's call).
+    if (!license && info.convertedFrom.length === 1) {
+      try {
+        const upstream = await fetchRepoInfo(info.convertedFrom[0]!, deps);
+        if (upstream.license) {
+          license = upstream.license;
+          warnings.push(
+            `This repo declares no licence; "${license}" is the licence of the model it converts (${upstream.id}).`,
+          );
+        }
+      } catch {
+        // best effort: fall through to "no licence"
+      }
+    }
     const openLicense = isOpenLicense(license);
     if (!license) warnings.push("No licence declared. You may not have the right to use these weights.");
     else if (!openLicense) {

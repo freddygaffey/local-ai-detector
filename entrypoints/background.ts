@@ -29,6 +29,13 @@ export default defineBackground(() => {
   });
 
   startEngineRouter();
+
+  // E2E builds only (`--mode e2e`, never shipped): WebDriver BiDi refuses to
+  // navigate to moz-extension:// URLs, so the Firefox suite
+  // (scripts/e2e/firefox.mjs) gets its first extension page this way.
+  if (import.meta.env.MODE === "e2e" && import.meta.env.FIREFOX) {
+    browser.runtime.onInstalled.addListener(() => void browser.runtime.openOptionsPage());
+  }
   registerProvenanceBackground();
 
   void getSettings().then((settings) => {

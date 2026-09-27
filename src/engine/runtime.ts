@@ -173,7 +173,8 @@ async function doInit(opts: RuntimeOptions): Promise<RuntimeInfo> {
   // WebGPU only with shader-f16: without it the choice is fp32 (2-4x the
   // download) or q8 (int8 MatMulInteger isn't a WebGPU kernel and falls back
   // to CPU partitions), so WASM q8 is the better deal.
-  const device: DeviceKind = gpu.ok && gpu.f16 ? "webgpu" : "wasm";
+  gpuUsable = gpu.ok && gpu.f16;
+  const device: DeviceKind = gpuUsable ? "webgpu" : "wasm";
 
   return {
     device,
@@ -190,9 +191,26 @@ export function getRuntimeInfo(): RuntimeInfo | null {
   return info;
 }
 
+let gpuUsable = false; // WebGPU with shader-f16 detected at init
+let gpuFailed = false; // a WebGPU session failed since
+
 /** Downgrades to WASM after a WebGPU failure (session creation / run). */
 export function disableWebGPU(): void {
+  gpuFailed = true;
   if (info && info.device === "webgpu") info = { ...info, device: "wasm" };
+}
+
+/**
+ * Applies the user's "use the GPU" setting. Returns true if the device
+ * changed (the caller must then unload loaded sessions, which are bound to
+ * the old device).
+ */
+export function setWebGPUAllowed(allowed: boolean): boolean {
+  if (!info || info.isNode) return false;
+  const want: DeviceKind = allowed && gpuUsable && !gpuFailed ? "webgpu" : "wasm";
+  if (info.device === want) return false;
+  info = { ...info, device: want };
+  return true;
 }
 
 /** transformers.js {device, dtype} for a slot given the runtime. */

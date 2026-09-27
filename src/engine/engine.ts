@@ -12,7 +12,7 @@ import { analyzeBlocks } from "./detect";
 import { isRefCached, loadModel, unloadModels, type FileProgress, type LoadedModel } from "./loader";
 import { cachePrefix, DEFAULT_MODELS, refKey, sameRef, slotsForMode } from "./models";
 import type { CachedRepo, EngineConfig, HostOps } from "./protocol";
-import { getRuntimeInfo, initRuntime, modelCache, type RuntimeOptions } from "./runtime";
+import { getRuntimeInfo, initRuntime, modelCache, setWebGPUAllowed, type RuntimeOptions } from "./runtime";
 import { BLOCK_SEPARATOR, hashString } from "./text";
 
 type Progress = (p: ProgressEvent) => void;
@@ -133,6 +133,11 @@ export async function analyze(
   config: EngineConfig,
   onProgress?: Progress,
 ): Promise<AnalyzeResult> {
+  if (config.allowWebGPU !== undefined && setWebGPUAllowed(config.allowWebGPU)) {
+    // Sessions are bound to the device they were created on.
+    await unloadModels();
+    activeBySlot.clear();
+  }
   const key = resultKey(blocks, config);
   const hit = resultCache.get(key);
   if (hit) {
