@@ -36,6 +36,8 @@ export interface VoiceSessionOptions {
   model: VoiceModelId;
   sensitivity: VoiceSensitivity;
   score(pcmB64: string): Promise<VoiceResponse>;
+  /** True while the audio shouldn't be sampled (e.g. a YouTube ad is playing). */
+  skip?(): boolean;
   onUpdate(state: VoiceState): void;
 }
 
@@ -138,6 +140,10 @@ export class VoiceSession {
     const t = this.video.currentTime;
     const dt = t - this.lastTime;
     this.lastTime = t;
+    if (this.opts.skip?.()) {
+      if (this.recording) this.abortClip();
+      return;
+    }
     if (dt > 0 && dt < 1.5 && !this.video.seeking) this.watched += dt; // seeks/loops don't count
     if (!this.recording && !this.busy && this.watched >= this.nextDue && this.state.status === "listening") {
       if (noRoomForClip(this.schedState())) return;
@@ -155,6 +161,7 @@ export class VoiceSession {
 
   private onAudio(x: Float32Array): void {
     if (!this.recording || this.video.paused || this.video.seeking) return;
+    if (this.opts.skip?.()) return this.abortClip();
     const n = Math.min(x.length, CLIP_SAMPLES - this.filled);
     this.buf.set(x.subarray(0, n), this.filled);
     this.filled += n;

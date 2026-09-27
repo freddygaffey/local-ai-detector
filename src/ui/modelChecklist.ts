@@ -93,7 +93,7 @@ export function checklistRows(
 }
 
 /** Running total over checked rows only; null if any checked row's size is unknown (custom repo). */
-export function checklistTotalBytes(rows: ChecklistRow[]): number | null {
+export function checklistTotalBytes(rows: Pick<ChecklistRow, "checked" | "sizeBytes">[]): number | null {
   let total = 0;
   for (const r of rows) {
     if (!r.checked) continue;
@@ -134,18 +134,36 @@ export interface ChecklistOptions {
   onDownload?: () => void;
   downloadLabel?: string;
   busy?: boolean;
+  /** T11: non-Fusion rows (e.g. the voice-check models, src/voice/checklist.ts), rendered after the detector rows and counted in the total. */
+  extraRows?: ExtraChecklistRow[];
+}
+
+/** A checklist row that isn't a Fusion detector; it handles its own toggle. */
+export interface ExtraChecklistRow {
+  key: string;
+  label: string;
+  role: string;
+  sizeBytes: number | null;
+  checked: boolean;
+  cached: boolean;
+  onToggle(checked: boolean): void;
 }
 
 /** Renders the checklist: one row per detector, a running total, one button. */
 export function renderModelChecklist(opts: ChecklistOptions): HTMLElement {
   const { rows, onToggle, onDownload, downloadLabel, busy } = opts;
-  const rowEls = rows.map((row) => {
+  const extra = opts.extraRows ?? [];
+  const allRows = [
+    ...rows.map((row) => ({ ...row, key: row.id as string, onToggleRow: (c: boolean) => onToggle(row.id, c) })),
+    ...extra.map((row) => ({ ...row, locked: false, onToggleRow: row.onToggle })),
+  ];
+  const rowEls = allRows.map((row) => {
     const checkbox = h("input", {
       type: "checkbox",
       checked: row.checked,
       disabled: row.locked,
       "aria-label": row.label,
-      onchange: (e: Event) => onToggle(row.id, (e.target as HTMLInputElement).checked),
+      onchange: (e: Event) => row.onToggleRow((e.target as HTMLInputElement).checked),
     }) as HTMLInputElement;
     return h(
       "label",
@@ -160,7 +178,7 @@ export function renderModelChecklist(opts: ChecklistOptions): HTMLElement {
       h("span", { class: "model-checklist-size mono" }, row.sizeBytes === null ? "size unknown" : formatBytes(row.sizeBytes)),
     );
   });
-  const totalBytes = checklistTotalBytes(rows);
+  const totalBytes = checklistTotalBytes([...rows, ...extra] as Pick<ChecklistRow, "checked" | "sizeBytes">[]);
   const footer = h(
     "div",
     { class: "model-checklist-footer" },

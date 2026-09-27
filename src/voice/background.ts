@@ -21,10 +21,10 @@ import {
   type VoiceProgress,
   type VoiceRequest,
   type VoiceResponse,
+  VOICE_START_KIND,
 } from "./protocol";
 
 export const MENU_CHECK_VOICE = "lad-check-voice";
-export const VOICE_START_KIND = "lad-voice-start";
 
 let counter = 0;
 const tabForRequest = new Map<string, number>();

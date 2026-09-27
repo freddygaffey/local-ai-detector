@@ -10,6 +10,9 @@ import type { VoiceModelId } from "./aggregate";
 
 export type VoiceOp = "score" | "status";
 
+/** Background -> tab: the "Check voice" context-menu item was clicked. */
+export const VOICE_START_KIND = "lad-voice-start";
+
 export interface VoiceRequest {
   kind: "lad-voice";
   op: VoiceOp;

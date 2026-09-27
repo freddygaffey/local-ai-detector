@@ -1,0 +1,182 @@
+// Content-script side of the voice check (T11). Standalone: one call,
+// startVoiceContent(), from src/content/main.ts.
+//
+// - YouTube watch/Shorts: follows in-app navigation (yt-navigate-finish,
+//   popstate, a 1.5 s poll: same signals as T10's transcript check), shows
+//   the voice chip beside the transcript chip, and (Run: "Auto on YouTube")
+//   starts sampling the current video. Ads are skipped. A new video stops
+//   the old session and starts fresh.
+// - Any site: right-click a <video> -> "Check voice (experimental)" starts a
+//   session on that video with a fixed-corner chip.
+// Pause/seek handling and all sampling rules live in ./capture.ts.
+
+import { browser } from "wxt/browser";
+import { DEFAULT_SETTINGS, getSettings, watchSettings, type Settings } from "../shared/settings";
+import { decidePowerAction, readBatteryState, readPressureState } from "../power/battery";
+import { VoiceSession, type VoiceState } from "./capture";
+import { createVoiceChip, type VoiceChipApi } from "./ui";
+import { isVoiceProgress, VOICE_START_KIND, type VoiceRequest, type VoiceResponse } from "./protocol";
+import { sanitizeVoice } from "./settings";
+import { resolveVoiceRate } from "./rate";
+
+let settings: Settings = DEFAULT_SETTINGS;
+let session: VoiceSession | null = null;
+let chip: VoiceChipApi | null = null;
+let chipFixed = false;
+let ytVideoId: string | null = null;
+let lastContextVideo: HTMLVideoElement | null = null;
+
+const voice = () => sanitizeVoice(settings.voice);
+
+/** YouTube video id + kind from a URL (watch or Shorts), else null. */
+export function youTubeVideoId(href: string): string | null {
+  try {
+    const u = new URL(href);
+    if (!/(^|\.)youtube\.com$/.test(u.hostname) || /^(music|studio|tv)\./.test(u.hostname)) return null;
+    if (u.pathname === "/watch") return u.searchParams.get("v");
+    return u.pathname.match(/^\/shorts\/([\w-]{6,})/)?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function youTubeVideo(): HTMLVideoElement | null {
+  return (
+    document.querySelector<HTMLVideoElement>("ytd-reel-video-renderer[is-active] video") ??
+    document.querySelector<HTMLVideoElement>("#movie_player video.html5-main-video") ??
+    null
+  );
+}
+
+function adShowing(): boolean {
+  return !!document.querySelector("#movie_player.ad-showing, #movie_player.ad-interrupting");
+}
+
+function render(state: VoiceState | null): void {
+  chip?.setState(state, { settings: voice(), rate: resolveVoiceRate(settings as never) });
+}
+
+function ensureChip(fixedOnly: boolean): VoiceChipApi {
+  if (chip && chipFixed !== fixedOnly) {
+    chip.destroy();
+    chip = null;
+  }
+  chipFixed = fixedOnly;
+  chip ??= createVoiceChip(
+    {
+      onRun: () => {
+        const v = fixedOnly ? lastContextVideo : youTubeVideo();
+        if (v) void startSession(v, fixedOnly);
+      },
+      onSeek: (t) => {
+        if (session && Number.isFinite(t)) session.video.currentTime = Math.max(0, t);
+      },
+    },
+    { fixedOnly },
+  );
+  return chip;
+}
+
+function stopSession(): void {
+  session?.stop();
+  session = null;
+}
+
+async function startSession(video: HTMLVideoElement, fixedOnly: boolean): Promise<void> {
+  if (!voice().enabled) return;
+  stopSession();
+  const c = ensureChip(fixedOnly);
+  const power = decidePowerAction(await readBatteryState(), await readPressureState(), settings.battery);
+  const v = voice();
+  const s = new VoiceSession(video, {
+    rate: resolveVoiceRate(settings as never),
+    batterySaver: power.reason !== null,
+    model: v.model,
+    sensitivity: v.sensitivity,
+    skip: fixedOnly ? undefined : adShowing,
+    score: (pcmB64) =>
+      browser.runtime.sendMessage({ kind: "lad-voice", op: "score", model: v.model, pcmB64 } satisfies VoiceRequest) as Promise<VoiceResponse>,
+    onUpdate: (st) => {
+      if (session === s) render(st);
+    },
+  });
+  session = s;
+  c.setState(null, { settings: v, rate: resolveVoiceRate(settings as never) });
+  s.start();
+}
+
+async function onYouTubeLocation(): Promise<void> {
+  const id = youTubeVideoId(location.href);
+  const wantChip = id !== null && voice().enabled && settings.surfaces.chip;
+  if (id === ytVideoId) {
+    if (wantChip) ensureChip(false).remount();
+    return;
+  }
+  ytVideoId = id;
+  stopSession();
+  if (!wantChip) {
+    chip?.destroy();
+    chip = null;
+    return;
+  }
+  ensureChip(false).setState(null, { settings: voice(), rate: resolveVoiceRate(settings as never) });
+  if (voice().run !== "autoYouTube") return;
+  const power = decidePowerAction(await readBatteryState(), await readPressureState(), settings.battery);
+  if (power.pauseAutoRun) return;
+  // Wait for YouTube to swap in the new video's player.
+  for (let i = 0; i < 20 && ytVideoId === id; i++) {
+    const v = youTubeVideo();
+    if (v && v.readyState > 0) return void startSession(v, false);
+    await new Promise((r) => setTimeout(r, 500));
+  }
+}
+
+export function startVoiceContent(): void {
+  void getSettings()
+    .catch(() => DEFAULT_SETTINGS)
+    .then((s) => {
+      settings = s;
+      if (youTubeVideoId(location.href) !== null || /(^|\.)youtube\.com$/.test(location.hostname)) {
+        void onYouTubeLocation();
+        document.addEventListener("yt-navigate-finish", () => void onYouTubeLocation());
+        window.addEventListener("popstate", () => void onYouTubeLocation());
+        setInterval(() => void onYouTubeLocation(), 1500);
+      }
+    });
+  watchSettings((s) => {
+    const before = voice();
+    settings = s;
+    const after = voice();
+    if (!after.enabled) {
+      stopSession();
+      chip?.destroy();
+      chip = null;
+      ytVideoId = null; // re-evaluate if turned back on
+    } else if (before.model !== after.model || before.sensitivity !== after.sensitivity) {
+      // Scores from another model/operating point don't mix: start over.
+      if (session) void startSession(session.video, chipFixed);
+    }
+  });
+  document.addEventListener(
+    "contextmenu",
+    (e) => {
+      const t = e.target as Element | null;
+      lastContextVideo = t instanceof HTMLVideoElement ? t : (t?.closest?.("video") as HTMLVideoElement | null) ?? lastContextVideo;
+    },
+    { capture: true },
+  );
+  browser.runtime.onMessage.addListener((msg: unknown) => {
+    if (isVoiceProgress(msg)) {
+      session?.onDownload(msg.loaded, msg.total);
+      return undefined;
+    }
+    const m = msg as { kind?: string; srcUrl?: string };
+    if (m?.kind !== VOICE_START_KIND) return undefined;
+    const v =
+      lastContextVideo ??
+      [...document.querySelectorAll("video")].find((x) => m.srcUrl && (x.currentSrc === m.srcUrl || x.src === m.srcUrl)) ??
+      null;
+    if (v) void startSession(v, !(youTubeVideoId(location.href) !== null && v === youTubeVideo()));
+    return undefined;
+  });
+}

@@ -9,6 +9,7 @@
 // "probability, not proof" note, per-detector numbers, device and model
 // versions.
 
+import { voiceChecklistRows } from "@/src/voice/checklist";
 import "../../src/ui/styles.css";
 import "./popup.css";
 
@@ -246,6 +247,7 @@ function renderConsentChecklist(): HTMLElement {
       onDownload: () => void onConsent(),
       downloadLabel: "Download & enable",
       busy: ctx.checklistBusy,
+      extraRows: voiceChecklistRows(ctx.settings.voice, (voice) => void setSettings({ voice }).then((s) => ((ctx.settings = s), render()))),
     }),
   );
 }

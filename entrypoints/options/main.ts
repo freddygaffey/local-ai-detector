@@ -2,6 +2,8 @@
 // custom models with licence warnings, cache size/delete), provenance
 // explainer, and About (accuracy, privacy, licence, credits).
 
+import { voiceChecklistRows } from "@/src/voice/checklist";
+import { renderVoiceSection } from "@/src/voice/options";
 import "../../src/ui/styles.css";
 import "./options.css";
 
@@ -143,6 +145,7 @@ function render(): void {
         renderPresenceSection(),
         renderBatterySection(),
         renderSlopFilterSection(),
+        renderVoiceSection({ h: h as never, fieldRow, selectControl, toggleControl }, state.settings as never, (voice) => void updateSettings({ voice })),
         renderSiteMemorySection(),
         renderModelsSection(),
         renderProvenanceSection(),
@@ -161,6 +164,7 @@ function renderNav(): HTMLElement {
     h("a", { href: "#presence" }, "Presence"),
     h("a", { href: "#battery" }, "Battery"),
     h("a", { href: "#slop-filter" }, "Slop filter"),
+    h("a", { href: "#voice" }, "Voice"),
     h("a", { href: "#site-memory" }, "Site memory"),
     h("a", { href: "#models" }, "Models"),
     h("a", { href: "#provenance" }, "Provenance"),
@@ -623,6 +627,7 @@ function renderChecklistCard(): HTMLElement {
     onDownload: anyMissingChecked ? () => void doDownloadChecklist() : undefined,
     downloadLabel: "Download checked",
     busy: state.checklistBusy,
+    extraRows: voiceChecklistRows(state.settings.voice, (voice) => void updateSettings({ voice })),
   });
   if (state.checklistNote) checklist.append(h("p", { class: "model-error-note" }, state.checklistNote));
   return checklist;

@@ -40,6 +40,7 @@ import { formatSentenceTooltip, hideTooltip, showTooltip } from "./tooltip";
 import type { ActiveSentence, BlockRecord } from "./types";
 import { clearUnicodeMarkers, renderUnicodeMarkers } from "./unicodeMarkers";
 import { startYouTubeTranscripts } from "./youtube";
+import { startVoiceContent } from "../voice/content";
 
 const INJECT_FLAG = "__aiDetectorContentBooted";
 
@@ -189,6 +190,7 @@ async function boot(): Promise<void> {
 
   reconcileSurfaces();
   startYouTubeTranscripts();
+  startVoiceContent(); // T11 voice check (standalone; src/voice/content.ts)
   void maybeAutoRun();
   void maybeMarkSearchResults();
 }
