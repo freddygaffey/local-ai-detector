@@ -30,7 +30,7 @@ listing claim changes** (the built `.output/chrome-mv3/manifest.json` is the sou
   transcript check works (YouTube no longer serves caption files to plain requests). Talks only
   to youtube.com, uses no extension APIs, and restores the viewer's caption settings afterwards.
   No new permission or install warning (already covered by `<all_urls>`).
-- **commands:** analyze-page, analyze-selection, toggle-visibility
+- **commands:** analyze-page, analyze-selection, toggle-visibility (defaults Alt+Shift+A/S/V; Control+Shift+A/S/V on macOS)
 - **CSP:** `script-src 'self' 'wasm-unsafe-eval'; object-src 'self'` (WASM bundled, no remote code)
 
 ## Review risks to expect

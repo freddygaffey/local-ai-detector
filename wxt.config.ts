@@ -81,19 +81,20 @@ export default defineConfig({
       },
       // T9: keyboard shortcuts (docs/plan.md "More entry points"). All
       // user-rebindable (chrome://extensions/shortcuts, about:addons on
-      // Firefox); these are just sensible defaults, and Ctrl -> Command on
-      // macOS automatically.
+      // Firefox). Alt+Shift (Control+Shift on macOS): the old Ctrl+Shift
+      // defaults took over paste-as-plain-text (Cmd/Ctrl+Shift+V), Chrome's
+      // tab search (Cmd+Shift+A) and Firefox's add-ons page and screenshots.
       commands: {
         "analyze-page": {
-          suggested_key: { default: "Ctrl+Shift+A" },
+          suggested_key: { default: "Alt+Shift+A", mac: "MacCtrl+Shift+A" },
           description: "Analyze this page for AI writing",
         },
         "analyze-selection": {
-          suggested_key: { default: "Ctrl+Shift+S" },
+          suggested_key: { default: "Alt+Shift+S", mac: "MacCtrl+Shift+S" },
           description: "Analyze the selected text for AI writing",
         },
         "toggle-visibility": {
-          suggested_key: { default: "Ctrl+Shift+V" },
+          suggested_key: { default: "Alt+Shift+V", mac: "MacCtrl+Shift+V" },
           description: "Show/hide the AI detector on this page",
         },
       },
