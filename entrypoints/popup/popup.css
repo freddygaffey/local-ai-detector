@@ -224,6 +224,9 @@ body {
 }
 .btn-row {
   align-items: stretch;
+  /* Firefox's wider system-font metrics pushed "Never on this site" past the
+     360px popup (horizontal scrollbar); wrap it onto its own line instead. */
+  flex-wrap: wrap;
 }
 .btn-row > .btn {
   white-space: nowrap;

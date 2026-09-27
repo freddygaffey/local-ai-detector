@@ -100,8 +100,23 @@ function startCommands(): void {
   });
 }
 
+/** Firefox sidebar_action: same Presence behaviour as Chrome's side panel. With
+ * "Side panel", the toolbar icon has no popup and toggles the sidebar instead
+ * (sidebarAction.toggle() is allowed from action.onClicked, a user action). */
+function startFirefoxSidebar(): boolean {
+  const sidebar = (browser as unknown as { sidebarAction?: { toggle?: () => Promise<void> } }).sidebarAction;
+  if (!sidebar?.toggle || !browser.action?.setPopup) return false;
+  const apply = (s: { presence: string }) =>
+    void browser.action.setPopup({ popup: s.presence === "sidePanel" ? "" : browser.runtime.getURL("/popup.html") }).catch(() => {});
+  void getSettings().then(apply);
+  watchSettings(apply);
+  browser.action.onClicked.addListener(() => void sidebar.toggle!().catch(() => {}));
+  return true;
+}
+
 /** Chrome sidePanel: open on the toolbar-icon click when Presence is "Side panel"; a normal popup otherwise. */
 function startSidePanel(): void {
+  if (startFirefoxSidebar()) return;
   const sidePanel = (browser as unknown as { sidePanel?: { setPanelBehavior?: (opts: { openPanelOnActionClick: boolean }) => Promise<void> } })
     .sidePanel;
   if (!sidePanel?.setPanelBehavior) return;
