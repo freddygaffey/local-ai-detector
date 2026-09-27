@@ -600,8 +600,15 @@ function renderDetails(result: AnalyzeResult): HTMLElement {
   }
   const unicode = renderUnicodeRow(result);
   if (unicode) rows.push(unicode);
-  rows.push(renderImagesCard(result));
+  // Pasted / dropped text has no page, so no images to report.
+  if (!isPastedResult(result)) rows.push(renderImagesCard(result));
   return h("details", { class: "details-disclosure" }, h("summary", null, "Details"), ...rows);
+}
+
+const PASTE_BLOCK_ID = "paste-1";
+
+function isPastedResult(result: AnalyzeResult): boolean {
+  return result.sentences.length > 0 && result.sentences.every((s) => s.blockId === PASTE_BLOCK_ID);
 }
 
 function statRow(label: string, value: string, tone?: "warn"): HTMLElement {
@@ -821,7 +828,7 @@ async function analyzeArbitraryText(text: string): Promise<void> {
   render();
   try {
     const sentences = segmentSentences(text);
-    const blocks = [{ id: "paste-1", text, sentences }];
+    const blocks = [{ id: PASTE_BLOCK_ID, text, sentences }];
     const result = await sendMessage("analyze", { tabId: -1, mode: ctx.settings.mode, blocks });
     // The paste box wants NBSP counted as unusual (plain pasted text commonly
     // carries stray NBSPs from copy-paste); the page scan deliberately
