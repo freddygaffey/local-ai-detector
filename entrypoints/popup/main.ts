@@ -38,6 +38,7 @@ import { defaultsChecklistRows, modeDownloadStatus, renderModelChecklist, type C
 import { VOICE_MODELS, VOICE_MODEL_IDS } from "@/src/engine/voiceModels";
 import { isVoiceProgress, type VoiceRequest, type VoiceResponse } from "@/src/voice/protocol";
 import type { VoiceModelId } from "@/src/voice/aggregate";
+import { getSiteTally } from "@/src/content/siteMemory";
 import { describeVerdict, PAGE_TYPE_OVERRIDES, type PageTypeOverride, type PageVerdict } from "@/src/content/pageType";
 import type { FusionDetector } from "@/src/shared/settings";
 import { sanitizeFusion } from "@/src/shared/settings";
@@ -69,6 +70,8 @@ interface Ctx {
   voiceCached: Partial<Record<VoiceModelId, boolean>>;
   /** The content script's page-type verdict ("Page: video (YouTube)"), when it answers. */
   pageType: (PageVerdict & { host?: string }) | null;
+  /** Site memory (Options, off by default): this site's recent verdicts, once there are a few. */
+  siteTally: { high: number; total: number } | null;
 }
 
 const ctx: Ctx = {
@@ -90,6 +93,7 @@ const ctx: Ctx = {
   setup: null,
   voiceCached: {},
   pageType: null,
+  siteTally: null,
 };
 
 const root = document.getElementById("app") as HTMLDivElement;
@@ -118,8 +122,10 @@ async function main() {
       render();
     });
     sendTabMessage(tabId, "getPageType", undefined)
-      .then((v) => {
+      .then(async (v) => {
         ctx.pageType = v as PageVerdict & { host?: string };
+        const host = tabHostname() ?? ctx.pageType.host;
+        if (ctx.settings.siteMemoryEnabled && host) ctx.siteTally = await getSiteTally(host).catch(() => null);
         render();
       })
       .catch(() => {});
@@ -521,7 +527,15 @@ function renderPageTypeRow(): HTMLElement | null {
     },
     ...PAGE_TYPE_OVERRIDES.map((o) => h("option", { value: o, selected: o === current }, PAGE_OVERRIDE_LABEL[o])),
   );
-  return h("div", { class: "page-type-row" }, h("span", { class: "field-hint" }, describeVerdict(ctx.pageType)), select);
+  // Site memory: "This site: 3/10 AI" once a few pages here have been checked.
+  const tally = ctx.settings.siteMemoryEnabled && ctx.siteTally && ctx.siteTally.total >= 2 ? ctx.siteTally : null;
+  return h(
+    "div",
+    { class: "page-type-row" },
+    h("span", { class: "field-hint" }, describeVerdict(ctx.pageType)),
+    tally ? h("span", { class: "field-hint", title: `Last ${tally.total} pages checked on ${hostname}` }, `This site: ${tally.high}/${tally.total} AI`) : null,
+    select,
+  );
 }
 
 async function setPageTypeOverride(hostname: string, value: PageTypeOverride): Promise<void> {
