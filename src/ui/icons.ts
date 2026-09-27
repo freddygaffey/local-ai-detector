@@ -51,7 +51,10 @@ export function brandMark(): SVGSVGElement {
 export function gearIcon(): SVGSVGElement {
   return svg("0 0 24 24", [
     "M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm8.94 2.6-1.64-.28a7.3 7.3 0 0 0-.5-1.2l.97-1.34a1 1 0 0 0-.1-1.29l-1.2-1.2a1 1 0 0 0-1.3-.1l-1.33.97a7.3 7.3 0 0 0-1.2-.5L14.36 4a1 1 0 0 0-1-.86h-1.7a1 1 0 0 0-1 .86l-.28 1.66a7.3 7.3 0 0 0-1.2.5L7.85 5.19a1 1 0 0 0-1.3.1l-1.2 1.2a1 1 0 0 0-.1 1.29l.97 1.33a7.3 7.3 0 0 0-.5 1.2l-1.66.29a1 1 0 0 0-.86 1v1.7a1 1 0 0 0 .86 1l1.66.28c.12.42.29.82.5 1.2l-.97 1.34a1 1 0 0 0 .1 1.29l1.2 1.2a1 1 0 0 0 1.3.1l1.33-.97c.38.21.78.38 1.2.5l.29 1.66a1 1 0 0 0 1 .86h1.7a1 1 0 0 0 1-.86l.28-1.66c.42-.12.82-.29 1.2-.5l1.34.97a1 1 0 0 0 1.29-.1l1.2-1.2a1 1 0 0 0 .1-1.3l-.97-1.33c.21-.38.38-.78.5-1.2l1.66-.28a1 1 0 0 0 .86-1v-1.7a1 1 0 0 0-.86-1Z",
-  ]);
+  ], (el) => {
+    // evenodd so the inner circle is cut out as the cog's hole instead of filled solid.
+    el.querySelector("path")!.setAttribute("fill-rule", "evenodd");
+  });
 }
 
 export function closeIcon(): SVGSVGElement {
