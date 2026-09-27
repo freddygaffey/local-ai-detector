@@ -1,0 +1,1 @@
+wasm:lite: 456 texts, 0 errors, 1240 ms/1k words
