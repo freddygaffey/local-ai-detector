@@ -32,7 +32,7 @@ import type {
   ModelUpdateInfo,
 } from "@/src/shared/messages";
 import { browser } from "wxt/browser";
-import { clearChildren, h } from "@/src/ui/dom";
+import { h } from "@/src/ui/dom";
 import { formatBytes, shortSha } from "@/src/ui/format";
 import { EXPERIMENTAL_MODES, licenseLabel, MODEL_REGISTRY, MODE_LABEL } from "@/src/ui/modelInfo";
 import { brandMark, externalLinkIcon } from "@/src/ui/icons";
@@ -86,6 +86,11 @@ const state: State = {
 };
 
 const root = document.getElementById("app") as HTMLDivElement;
+// The Fusion and Tiers panels watch settings themselves, so they are mounted once
+// into persistent hosts that each render() re-inserts, instead of being torn down and
+// re-mounted (which made them pop in late and shift the page).
+const fusionHost = h("div", { class: "fusion-host" });
+const tiersHost = h("div", { class: "tiers-host" });
 let fusionUnmount: (() => void) | null = null;
 let tiersUnmount: (() => void) | null = null;
 
@@ -131,13 +136,20 @@ async function updateSettings(partial: Partial<Settings>): Promise<void> {
   render();
 }
 
+/** Identifies the focused control across re-renders (controls are recreated). */
+function focusKey(): string | null {
+  const el = document.activeElement as HTMLElement | null;
+  if (!el || !root.contains(el)) return null;
+  const row = el.closest<HTMLElement>("[data-k]");
+  return row?.dataset.k ?? null;
+}
+
 function render(): void {
-  fusionUnmount?.();
-  fusionUnmount = null;
-  tiersUnmount?.();
-  tiersUnmount = null;
-  clearChildren(root);
-  root.append(
+  const scrollY = window.scrollY;
+  const key = focusKey();
+  // Built off-DOM and swapped in one step, so the page never collapses to zero
+  // height mid-update (which is what made it jump under the cursor).
+  root.replaceChildren(
     h(
       "div",
       { class: "options-shell" },
@@ -158,6 +170,8 @@ function render(): void {
       ),
     ),
   );
+  window.scrollTo(0, scrollY);
+  if (key) root.querySelector<HTMLElement>(`[data-k="${CSS.escape(key)}"] input, [data-k="${CSS.escape(key)}"] select, [data-k="${CSS.escape(key)}"] button`)?.focus({ preventScroll: true });
 }
 
 function renderNav(): HTMLElement {
@@ -245,7 +259,7 @@ function renderDetectionSection(): HTMLElement {
       toggleControl(s.autoCheckModelUpdates, (checked) => void updateSettings({ autoCheckModelUpdates: checked })),
     ),
   );
-  const fusionHost = h("div", { class: "fusion-host" });
+  if (s.mode === "ensemble" && !fusionUnmount) fusionUnmount = mountFusionSettings(fusionHost);
   const fusionSection =
     s.mode === "ensemble"
       ? h("div", { class: "settings-list" }, h("div", { class: "card-subtitle" }, "Fusion detectors"), fusionHost)
@@ -256,17 +270,14 @@ function renderDetectionSection(): HTMLElement {
     h("h2", null, "Detection"),
     list,
     fusionSection,
-    (() => {
-      if (s.mode === "ensemble") queueMicrotask(() => (fusionUnmount = mountFusionSettings(fusionHost)));
-      return null;
-    })(),
   );
 }
 
 // ---- Tiers (docs/plan.md "Two tiers: Quick (default) and Deep (on demand)") ----
 
 function renderTiersSection(): HTMLElement {
-  const host = h("div", { class: "tiers-host" });
+  if (!tiersUnmount) tiersUnmount = mountTierSettings(tiersHost);
+  const host = tiersHost;
   return h(
     "section",
     { id: "tiers" },
@@ -277,17 +288,13 @@ function renderTiersSection(): HTMLElement {
       "Quick is the automatic pass; Deep is the ↻ button (popup, expanded chip, side panel) -- all detectors, on demand.",
     ),
     host,
-    (() => {
-      queueMicrotask(() => (tiersUnmount = mountTierSettings(host)));
-      return null;
-    })(),
   );
 }
 
 function fieldRow(label: string, hint: string, control: HTMLElement): HTMLElement {
   return h(
     "div",
-    { class: "field-row" },
+    { class: "field-row", "data-k": label },
     h("div", { class: "field-main" }, h("span", { class: "field-label" }, label), h("span", { class: "field-hint" }, hint)),
     h("div", { class: "control" }, control),
   );

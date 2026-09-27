@@ -34,14 +34,13 @@ export function mountTierSettings(el: HTMLElement): () => void {
       .lad-tiers .blurb { color: var(--ink-soft, #555); font-size: 0.9em; }
     </style>
     <fieldset class="quick"><legend>Quick detectors</legend></fieldset>
-    <fieldset class="deep"><legend>Deep detectors</legend></fieldset>
-    <label class="row auto"><input type="checkbox" /> <span>Run quick check automatically</span></label>`;
+    <fieldset class="deep"><legend>Deep detectors</legend></fieldset>`;
+  // Whether the quick check runs automatically is controlled in one place only:
+  // Presence → Auto-run. (A second checkbox here contradicted it.)
   el.append(root);
 
   const quickEl = root.querySelector<HTMLElement>(".quick")!;
   const deepEl = root.querySelector<HTMLElement>(".deep")!;
-  const autoRow = root.querySelector<HTMLLabelElement>(".auto")!;
-  const autoBox = autoRow.querySelector<HTMLInputElement>("input")!;
 
   let settings: Settings | null = null;
 
@@ -82,17 +81,11 @@ export function mountTierSettings(el: HTMLElement): () => void {
   const quickBoxes = boxesFor(quickEl, "quickDetectors");
   const deepBoxes = boxesFor(deepEl, "deepDetectors");
 
-  autoBox.addEventListener("change", () => {
-    if (!settings) return;
-    save({ ...settings.tiers, autoRunQuick: autoBox.checked });
-  });
-
   function render(): void {
     if (!settings) return;
     const t = settings.tiers;
     for (const [d, box] of quickBoxes) box.checked = t.quickDetectors.includes(d);
     for (const [d, box] of deepBoxes) box.checked = t.deepDetectors.includes(d);
-    autoBox.checked = t.autoRunQuick;
   }
 
   let alive = true;
