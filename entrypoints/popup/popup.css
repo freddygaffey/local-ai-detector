@@ -1,0 +1,239 @@
+/* Popup-specific layout. Tokens/components come from src/ui/styles.css. */
+
+html {
+  font-size: 14px;
+}
+
+body {
+  width: 360px;
+}
+
+.popup-root {
+  display: flex;
+  flex-direction: column;
+}
+
+.popup-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.7em 0.85em;
+  border-bottom: 1px solid var(--border);
+}
+.popup-header .brand-mark {
+  color: var(--accent);
+  flex: none;
+}
+.popup-header h1 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  flex: 1;
+}
+.icon-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--ink-soft);
+  padding: 0.3em;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  cursor: pointer;
+}
+.icon-btn:hover {
+  background: var(--surface-sunken);
+  color: var(--ink);
+}
+
+.popup-body {
+  padding: 0.9em 0.85em 1em;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9em;
+}
+
+/* ---- Consent screen ---- */
+.consent p {
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+.consent ul {
+  margin: 0;
+  padding-left: 1.1em;
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+.consent-size {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0.6em 0.75em;
+  background: var(--surface-sunken);
+  border-radius: var(--radius-md);
+}
+.consent-size .value {
+  font-size: 1.15em;
+}
+
+/* ---- Gauge / result view ---- */
+.gauge-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15em;
+  padding: 0.4em 0 0.1em;
+}
+.gauge-figure {
+  position: relative;
+  width: 190px;
+}
+.gauge-readout {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding-top: 1.4em;
+}
+.gauge-readout .value {
+  font-size: 1.9rem;
+  font-weight: 600;
+  line-height: 1;
+}
+.gauge-readout .value .unit {
+  font-size: 0.55em;
+  font-weight: 500;
+  margin-left: 0.1em;
+  color: var(--ink-faint);
+}
+.verdict-label {
+  font-weight: 600;
+  text-align: center;
+}
+.verdict-desc {
+  color: var(--ink-faint);
+  font-size: 0.85rem;
+  text-align: center;
+  line-height: 1.4;
+  max-width: 30ch;
+}
+
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5em;
+  font-size: 0.88rem;
+}
+.stat-row .num {
+  font-family: var(--font-mono);
+}
+
+.breakdown-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4em;
+}
+.breakdown-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  font-size: 0.85rem;
+}
+.breakdown-row .label {
+  flex: 1;
+  color: var(--ink-soft);
+}
+.breakdown-row .num {
+  font-family: var(--font-mono);
+  width: 3.2em;
+  text-align: right;
+}
+.breakdown-row .bar {
+  width: 60px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--surface-sunken);
+  overflow: hidden;
+}
+.breakdown-row .bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.section-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.quick-selects {
+  display: flex;
+  gap: 0.6em;
+}
+.quick-selects .field {
+  flex: 1;
+}
+.quick-selects select {
+  width: 100%;
+}
+
+.popup-footer {
+  padding: 0.6em 0.85em 0.8em;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.82rem;
+  color: var(--ink-faint);
+}
+
+/* ---- Progress / error / unsupported states ---- */
+.state-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.7em;
+  text-align: center;
+  padding: 1.6em 0.5em;
+}
+.state-panel .icon {
+  color: var(--ink-faint);
+}
+.state-panel.is-error .icon {
+  color: var(--band-ai);
+}
+.state-panel p {
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+.progress-panel {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+  padding: 0.5em 0;
+}
+.progress-panel .phase {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.progress-panel .detail {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6em;
+  font-size: 0.8rem;
+  color: var(--ink-faint);
+}
+.progress-panel .detail .message {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.progress-panel .detail .num {
+  flex: none;
+  font-family: var(--font-mono);
+}

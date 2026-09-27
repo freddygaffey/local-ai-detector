@@ -1,0 +1,252 @@
+/* Options-page layout. Tokens/components come from src/ui/styles.css. */
+
+html {
+  font-size: 16px;
+}
+
+body {
+  min-height: 100vh;
+}
+
+.options-shell {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  max-width: 920px;
+  margin: 0 auto;
+  min-height: 100vh;
+}
+
+.options-nav {
+  padding: 2.2em 1em 2em 0;
+  position: sticky;
+  top: 0;
+  align-self: start;
+}
+.options-nav .brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0 0.6em 1.1em;
+  color: var(--accent);
+}
+.options-nav .brand span {
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+.options-nav a {
+  display: block;
+  padding: 0.5em 0.6em;
+  border-radius: var(--radius-sm);
+  color: var(--ink-soft);
+  text-decoration: none;
+  font-size: 0.92rem;
+}
+.options-nav a:hover {
+  background: var(--surface-sunken);
+  color: var(--ink);
+}
+
+.options-main {
+  padding: 2.4em 1.6em 6em 1.6em;
+  max-width: 680px;
+}
+
+.options-main > section {
+  padding-top: 2.6em;
+  padding-bottom: 0.4em;
+}
+.options-main > section:first-of-type {
+  padding-top: 0;
+}
+
+section h2 {
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin-bottom: 0.3em;
+}
+section > .section-intro {
+  color: var(--ink-soft);
+  line-height: 1.55;
+  max-width: 62ch;
+  margin-bottom: 1.4em;
+}
+
+.settings-list {
+  display: flex;
+  flex-direction: column;
+}
+.settings-list > .field-row {
+  padding: 0.9em 0;
+  border-bottom: 1px solid var(--border);
+}
+.settings-list > .field-row:last-child {
+  border-bottom: none;
+}
+.field-row .field-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2em;
+  max-width: 44ch;
+}
+.field-row .control {
+  flex: none;
+}
+.number-input {
+  width: 6em;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  padding: 0.4em 0.6em;
+  font-family: var(--font-mono);
+}
+
+.cache-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 0.7em 0.9em;
+  background: var(--surface-sunken);
+  border-radius: var(--radius-md);
+  margin-bottom: 1em;
+}
+.cache-total .value {
+  font-size: 1.1em;
+}
+
+.model-actions {
+  display: flex;
+  gap: 0.4em;
+  flex-wrap: wrap;
+}
+.model-actions .btn {
+  padding: 0.35em 0.65em;
+  font-size: 0.85em;
+}
+.model-update-note {
+  font-size: 0.82em;
+  color: var(--accent);
+  margin-top: 0.3em;
+}
+.model-error-note {
+  font-size: 0.82em;
+  color: var(--danger);
+  margin-top: 0.3em;
+}
+
+.custom-model-form {
+  display: flex;
+  gap: 0.5em;
+  margin-top: 0.5em;
+}
+.custom-model-form .text-input {
+  flex: 1;
+}
+
+.license-warning {
+  display: flex;
+  gap: 0.5em;
+  align-items: flex-start;
+  padding: 0.7em 0.9em;
+  border-radius: var(--radius-md);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 0.88rem;
+  margin-top: 0.5em;
+}
+
+.provenance-grid {
+  display: grid;
+  gap: 0.8em;
+}
+.provenance-card {
+  padding: 0.9em 1em;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.provenance-card h3 {
+  font-size: 0.95rem;
+  margin-bottom: 0.3em;
+}
+.provenance-card p {
+  color: var(--ink-soft);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+.provenance-card ul {
+  margin: 0.4em 0 0;
+  padding-left: 1.2em;
+  color: var(--ink-soft);
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+.provenance-card a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3em;
+}
+
+.credits-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+}
+.credits-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1em;
+  font-size: 0.9rem;
+  padding: 0.5em 0;
+  border-bottom: 1px solid var(--border);
+}
+.credits-row:last-child {
+  border-bottom: none;
+}
+.credits-row .name {
+  color: var(--ink);
+}
+.credits-row .license {
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  white-space: nowrap;
+}
+
+.accuracy-box {
+  border-left: 3px solid var(--band-mixed);
+  background: var(--band-mixed-soft);
+  padding: 0.8em 1em;
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  margin-bottom: 1.2em;
+}
+.accuracy-box p {
+  color: var(--ink);
+  font-size: 0.9rem;
+  line-height: 1.55;
+  margin-bottom: 0.5em;
+}
+.accuracy-box p:last-child {
+  margin-bottom: 0;
+}
+
+.status-line {
+  font-size: 0.85rem;
+  color: var(--ink-faint);
+  margin-top: 0.5em;
+}
+
+@media (max-width: 720px) {
+  .options-shell {
+    grid-template-columns: 1fr;
+  }
+  .options-nav {
+    position: static;
+    display: flex;
+    flex-wrap: wrap;
+    padding: 1em 1.6em 0;
+  }
+  .options-nav a {
+    padding: 0.4em 0.6em;
+  }
+}

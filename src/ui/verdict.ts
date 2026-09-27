@@ -1,0 +1,78 @@
+// Score -> band -> wording. Kept pure and separate from rendering so the
+// mapping (and its careful, non-accusatory language — see
+// docs/feasibility.md §6) is unit-testable on its own.
+//
+// Wording deliberately avoids accusation: "likely" and "patterns", never
+// "is AI" / "plagiarism" / "cheating".
+
+import type { AnalyzeResult } from "../shared/messages";
+import type { Settings } from "../shared/settings";
+
+export type Band = "human" | "mixed" | "ai" | "insufficient";
+
+const HUMAN_MAX = 0.35;
+const AI_MIN = 0.65;
+
+/** Word count under which a result is too thin to score meaningfully. */
+export function countWords(text: string): number {
+  const trimmed = text.trim();
+  if (!trimmed) return 0;
+  return trimmed.split(/\s+/).length;
+}
+
+export interface BandInput {
+  overall: number;
+  /**
+   * Whether any sentence actually cleared the minWords threshold and got
+   * scored. When nothing did, the overall score isn't meaningful.
+   */
+  hasScoredSentences: boolean;
+}
+
+/** Maps an overall AI-likelihood score (plus enough context to know whether
+ * there was even enough text) to one of four bands. */
+export function scoreToBand(input: BandInput): Band {
+  if (!input.hasScoredSentences) return "insufficient";
+  if (input.overall < HUMAN_MAX) return "human";
+  if (input.overall >= AI_MIN) return "ai";
+  return "mixed";
+}
+
+export function bandFromResult(result: AnalyzeResult, _settings: Settings): Band {
+  return scoreToBand({
+    overall: result.overall,
+    hasScoredSentences: result.sentences.length > 0,
+  });
+}
+
+export const BAND_LABEL: Record<Band, string> = {
+  human: "Likely human-written patterns",
+  mixed: "Mixed signals",
+  ai: "Likely AI-generated patterns",
+  insufficient: "Too little text to assess",
+};
+
+export const BAND_DESCRIPTION: Record<Band, string> = {
+  human: "Most of this text reads like the detectors' human-written examples.",
+  mixed: "Parts of this text read like AI output, parts like human writing.",
+  ai: "Most of this text reads like the detectors' AI-generated examples.",
+  insufficient: "There isn't enough text here for the detectors to say anything reliable.",
+};
+
+/** CSS custom-property name carrying this band's colour (see src/ui/styles.css). */
+export function bandColorVar(band: Band): string {
+  switch (band) {
+    case "human":
+      return "var(--band-human)";
+    case "mixed":
+      return "var(--band-mixed)";
+    case "ai":
+      return "var(--band-ai)";
+    case "insufficient":
+      return "var(--ink-faint)";
+  }
+}
+
+export function bandClassName(band: Band): string {
+  return `band-${band}`;
+}
