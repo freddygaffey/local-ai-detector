@@ -7,7 +7,7 @@
 // and each block's mean sentence score and word count (segment-level stats).
 //
 //   node scripts/eval/transcripts/score-transcripts.mjs --set transcript-set.json \
-//        --mode fusion|lite --conditions punct,raw,pause --out scores-fusion.json \
+//        --mode fusion|lite|tmr --conditions punct,raw,pause --out scores-fusion.json \
 //        [--restored restored.json] [--cache <model cache dir>]
 //   node scripts/eval/transcripts/score-transcripts.mjs --set transcript-set.json --dump-normalised norm.json
 
@@ -46,11 +46,15 @@ let models;
 if (modeArg === "lite") {
   mode = "classifierLite";
   models = { classifierLite: await load("classifierLite") };
+} else if (modeArg === "tmr") {
+  // The Quick tier's default: Fusion machinery with TMR alone (as the live auto-run sends it).
+  mode = "ensemble";
+  models = { classifier: await load("classifier") };
 } else {
   mode = "ensemble";
   models = { classifierFakespot: await load("classifierFakespot"), classifier: await load("classifier") };
 }
-const fusion = { detectors: ["fakespot", "tmr"], method: "weighted" };
+const fusion = { detectors: modeArg === "tmr" ? ["tmr"] : ["fakespot", "tmr"], method: "weighted" };
 
 const prev = out && existsSync(out) ? JSON.parse(readFileSync(out, "utf8")) : {};
 const res = prev.scores ?? {};

@@ -44,6 +44,12 @@ export interface DisplayContext {
   device?: string;
   /** Words analysed; picks the short- or long-text curve. */
   words?: number;
+  /**
+   * "unit": the score is one item's paragraph-level score (a comment,
+   * review or post on a thread page: `SentenceScore.score` averaged over the
+   * item), which uses the paragraph operating points and has its own curve.
+   */
+  level?: "doc" | "unit";
 }
 
 function curveKey(ctx: DisplayContext): string {
@@ -75,7 +81,8 @@ function interp(curve: DisplayCurve, x: number): number {
  */
 export function toDisplayProbability(score: number, ctx: DisplayContext = {}): number {
   if (!Number.isFinite(score)) return Number.NaN;
-  const len = (ctx.words ?? SHORT_TEXT_WORDS) < SHORT_TEXT_WORDS ? "short" : "long";
+  const docLen = (ctx.words ?? SHORT_TEXT_WORDS) < SHORT_TEXT_WORDS ? "short" : "long";
+  const len = ctx.level === "unit" ? "unit" : docLen;
   // "mixed" = the WebGPU path with a WASM-only detector (ModernBERT, Binoculars): WebGPU curves.
   const dev = ctx.device === "wasm" || ctx.device === "cpu" ? "wasm" : "webgpu";
   const key = curveKey(ctx);
@@ -83,7 +90,24 @@ export function toDisplayProbability(score: number, ctx: DisplayContext = {}): n
     DISPLAY_CURVES[`${key}|${dev}|${len}`] ??
     DISPLAY_CURVES[`${key}|webgpu|${len}`] ??
     DISPLAY_CURVES[`${DISPLAY_FIT.defaultProfile}|${dev}|${len}`] ??
-    DISPLAY_CURVES[`pooled|${dev}|${len}`];
+    DISPLAY_CURVES[`pooled|${dev}|${len}`] ??
+    DISPLAY_CURVES[`pooled|${dev}|short`];
   if (!c) return score;
   return Math.min(0.99, Math.max(0.01, interp(c, score)));
+}
+
+// ---- Quick tier confirmation (QA pass, docs/calibration.md "Quick tier and false positives") ----
+
+/**
+ * A Quick result at or above this shown P(AI) is re-checked with the default
+ * Fusion set before anything is shown: the cheap pass alone put >= 50% on
+ * 16% of human web texts (Fusion: 12%, and 6% -> 3% of pages reach the
+ * chip), and on news it was the difference between "AI 77%" and "47%".
+ */
+export const QUICK_CONFIRM_AT = 0.5;
+
+/** Whether a Quick result should be confirmed: AI-leaning overall, or any item past the slop-filter threshold. */
+export function needsQuickConfirm(result: { probability?: number; sentences: { score: number }[] }): boolean {
+  if ((result.probability ?? 0) >= QUICK_CONFIRM_AT) return true;
+  return result.sentences.some((s) => s.score >= FILTER_THRESHOLD);
 }

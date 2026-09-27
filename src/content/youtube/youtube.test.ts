@@ -292,3 +292,17 @@ describe("parseSubtitleText", () => {
     ]);
   });
 });
+
+describe("ads", () => {
+  test("waits for an ad to finish before reading captions", async () => {
+    const { adShowing, waitForAdEnd } = await import("./acquire");
+    const doc = document.implementation.createHTMLDocument("");
+    doc.body.innerHTML = '<div id="movie_player" class="html5-video-player ad-showing"></div>';
+    expect(adShowing(doc)).toBe(true);
+    setTimeout(() => doc.getElementById("movie_player")!.classList.remove("ad-showing"), 30);
+    const t0 = Date.now();
+    await waitForAdEnd(doc, 2000, 10);
+    expect(adShowing(doc)).toBe(false);
+    expect(Date.now() - t0).toBeLessThan(1000);
+  });
+});

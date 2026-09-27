@@ -123,7 +123,7 @@ const SOURCE_LABELS: Record<ScoreSource, string> = {
 
 /** Score %, per-detector breakdown and a confidence note for a sentence. */
 export function formatSentenceTooltip(s: ActiveSentence): { title: string; lines: string[] } {
-  const pct = Math.round(s.score * 100);
+  const pct = Math.round((s.probability ?? s.score) * 100);
   const level = riskLevel(s.score);
   const title = `AI likelihood: ${pct}% (${level} confidence signal)`;
   const lines: string[] = [];

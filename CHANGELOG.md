@@ -6,6 +6,18 @@ not yet had a public store release; version numbers so far track
 
 ## [Unreleased]
 
+### Fixed (false positives on human pages)
+
+- The automatic Quick check now uses TMR instead of the lite model, and any page it reads as
+  50% or more is re-checked with Fusion before anything is shown (Options → "Confirm high
+  Quick scores with Fusion", on by default). The chip shows from 70% (was 35%). On the web eval
+  set, human texts shown ≥ 50% drop from 41% to 3%; AI texts shown ≥ 70% rise from 51% to 67%.
+  Examples: an r/AskHistorians thread 95% → 41%, Wikipedia 82% → 34%.
+- Transcript display curves are fitted on the path each caption type really takes (a human TED
+  talk read 53%, now 23%); YouTube ads no longer make a captioned video read "No transcript".
+- Per-comment labels, filter badges, search markers and sentence tooltips use the calibrated
+  per-item curve of the detectors that ran (they used the Fusion document curve, or the raw score).
+
 ### Added (page-type routing)
 
 - The extension now tells a text page from a thread, a video, a subtitle file, a

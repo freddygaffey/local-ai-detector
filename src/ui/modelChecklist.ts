@@ -95,7 +95,7 @@ export function checklistRows(
 /**
  * First-run checklist rows for the default setup (docs/plan.md "Two tiers"):
  * every text detector the defaults use -- the Quick tier's automatic pass
- * (the lite model) and the click-to-run Fusion set -- all ticked. A row
+ * (TMR by default) and the click-to-run Fusion set -- all ticked. A row
  * can't be unticked when it's the last detector of its tier. Deep-only
  * extras (ModernBERT, perplexity, Binoculars) are fetched when Deep first
  * runs, behind their own prompt.

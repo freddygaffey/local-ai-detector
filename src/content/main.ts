@@ -16,6 +16,7 @@ import { FLAGGED_THRESHOLD } from "./colors";
 import { countFlaggedSentences } from "../ui/breakdown";
 import { bandFromResult } from "../ui/verdict";
 import { displayScore, filterThreshold } from "../ui/probability";
+import { toDisplayProbability } from "../shared/thresholds";
 import { detectSearchResults, detectStructuredContent, isBlockTooShort, type AdapterBlock, type AdapterMatch } from "./adapters";
 import { extractVisibleBlocks, getRangeForOffsets, nextBlockId, proseBlocks, toWireBlocks } from "./extract";
 import { extractElementText } from "./adapters/dom";
@@ -461,6 +462,7 @@ async function maybeAutoRun(): Promise<void> {
         fusionOverride: quick.detectors,
         tier: "quick",
         preferCpu: decision.preferCpu,
+        confirmWith: settings.tiers.confirmQuick ? settings.fusion.detectors : undefined,
       });
     }
   } catch {
@@ -512,6 +514,7 @@ function applyResult(result: AnalyzeResult, style: HighlightStyle): void {
         sources: score.sources,
         wordCount: wordCount(text),
         muted: lowConfidence,
+        probability: itemProbability(result, score.score),
       });
     }
     if (shouldPaintOnPage()) {
@@ -580,7 +583,18 @@ interface BlockScoreItem {
   ownerEl: Element;
   score: number;
   tooShort: boolean;
+  probability: number;
   block: AdapterBlock;
+}
+
+/** One item's (comment, review, snippet) shown P(AI): its detector set's paragraph-level curve. */
+function itemProbability(result: Pick<AnalyzeResult, "detectors" | "fusion" | "device">, score: number): number {
+  return toDisplayProbability(score, {
+    detectors: result.detectors?.map((d) => d.id),
+    method: result.fusion?.method,
+    device: result.device,
+    level: "unit",
+  });
 }
 
 function perBlockScores(result: AnalyzeResult): BlockScoreItem[] {
@@ -595,7 +609,7 @@ function perBlockScores(result: AnalyzeResult): BlockScoreItem[] {
     const tooShort = isBlockTooShort(block.text, settings.minWords);
     const scores = byBlock.get(block.id) ?? [];
     const score = scores.length ? scores.reduce((n, s) => n + s.score, 0) / scores.length : 0;
-    return { ownerEl: block.owner, score, tooShort, block };
+    return { ownerEl: block.owner, score, tooShort, probability: itemProbability(result, score), block };
   });
 }
 
@@ -644,7 +658,9 @@ async function maybeMarkSearchResults(): Promise<void> {
     searchMatch = match;
     if (!match) return;
     const blocks = toWireBlocks(match.blocks as unknown as BlockRecord[]);
-    const result = await sendMessage("analyze", { tabId: -1, mode: settings.autoRunFastMode, blocks });
+    // The Quick tier's detectors (docs/plan.md "Two tiers"), like every other automatic pass.
+    const quick = fusionForTier("quick", settings.tiers);
+    const result = await sendMessage("analyze", { tabId: -1, mode: "ensemble", fusionOverride: quick.detectors, tier: "quick", blocks });
     const byBlock = new Map<string, SentenceScore[]>();
     for (const s of result.sentences) byBlock.set(s.blockId, [...(byBlock.get(s.blockId) ?? []), s]);
     const items = match.blocks.map((block) => {
@@ -652,7 +668,12 @@ async function maybeMarkSearchResults(): Promise<void> {
       const score = scores.length ? scores.reduce((n, s) => n + s.score, 0) / scores.length : 0;
       // Snippets are short by nature (~20-40 words): the page-level minimum
       // (50) would rule every one out, so they get their own, lower floor.
-      return { ownerEl: block.owner, score, tooShort: isBlockTooShort(block.text, Math.min(settings.minWords, SNIPPET_MIN_WORDS)) };
+      return {
+        ownerEl: block.owner,
+        score,
+        probability: itemProbability(result, score),
+        tooShort: isBlockTooShort(block.text, Math.min(settings.minWords, SNIPPET_MIN_WORDS)),
+      };
     });
     applySearchMarkers(items, filterThreshold());
   } catch {

@@ -69,15 +69,15 @@ describe("modeDownloadStatus", () => {
 });
 
 describe("defaultsChecklistRows (first-run checklist)", () => {
-  test("defaults list the Quick lite model plus the Fusion set, all ticked", async () => {
+  test("defaults list the Quick model (TMR, shared with Fusion) plus the Fusion set, all ticked", async () => {
     const { defaultsChecklistRows } = await import("./modelChecklist");
     const { DEFAULT_SETTINGS } = await import("../shared/settings");
     const rows = defaultsChecklistRows(DEFAULT_SETTINGS, "wasm", undefined);
-    expect(rows.map((r) => r.id).sort()).toEqual(["fakespot", "lite", "tmr"]);
+    expect(rows.map((r) => r.id).sort()).toEqual(["fakespot", "tmr"]);
     expect(rows.every((r) => r.checked)).toBe(true);
-    // The only Quick detector can't be unticked; Fusion rows can while two remain.
-    expect(rows.find((r) => r.id === "lite")).toMatchObject({ tier: "quick", locked: true });
-    expect(rows.find((r) => r.id === "tmr")).toMatchObject({ tier: "click", locked: false });
+    // The only Quick detector can't be unticked; other Fusion rows can while two remain.
+    expect(rows.find((r) => r.id === "tmr")).toMatchObject({ tier: "quick", locked: true });
+    expect(rows.find((r) => r.id === "fakespot")).toMatchObject({ tier: "click", locked: false });
   });
 
   test("no automatic Quick pass -> no lite row", async () => {

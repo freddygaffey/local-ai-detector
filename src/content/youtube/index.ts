@@ -17,6 +17,7 @@
 import { registerHandlers, sendMessage } from "../../shared/messages";
 import { autoRunPolicyForSite, DEFAULT_SETTINGS, getSettings, setSettings, watchSettings, type Settings } from "../../shared/settings";
 import { FLAGGED_THRESHOLD } from "../../shared/thresholds";
+import { QUICK_CONFIRM_AT } from "../../shared/thresholds";
 import { toTranscriptProbability, type TranscriptReport, type TranscriptSegment } from "../../shared/transcript";
 import { fusionForTier } from "../../engine/models";
 import { decidePowerAction, readBatteryState, readPressureState } from "../../power/battery";
@@ -136,7 +137,7 @@ async function run(pass: "fast" | "full", allowOpen: boolean): Promise<void> {
     const budget = pass === "full" ? settings.maxTokens : Math.max(300, Math.floor(settings.maxTokens * 0.7));
     const blocks = sampleBlocks(all, budget);
     const fusion = fusionForTier(tier, settings.tiers);
-    const result = await sendMessage("analyze", {
+    let result = await sendMessage("analyze", {
       tabId: -1,
       mode: "ensemble",
       fusionOverride: fusion.detectors,
@@ -144,6 +145,23 @@ async function run(pass: "fast" | "full", allowOpen: boolean): Promise<void> {
       blocks: toTextBlocks(blocks),
     });
     if (stale()) return;
+    // Quick tier: an AI-leaning transcript is re-checked with the Fusion set
+    // before it is shown (docs/calibration.md "Quick tier and false positives").
+    const confirmSet = settings.fusion.detectors;
+    const quickP = toTranscriptProbability(result.overall, { detectors: result.detectors?.map((d) => d.id), method: result.fusion?.method, words: result.words });
+    if (
+      tier === "quick" &&
+      settings.tiers.confirmQuick &&
+      (quickP ?? 0) >= QUICK_CONFIRM_AT &&
+      !(confirmSet.length === fusion.detectors.length && confirmSet.every((d) => fusion.detectors.includes(d)))
+    ) {
+      try {
+        result = await sendMessage("analyze", { tabId: -1, mode: "ensemble", fusionOverride: confirmSet, tier, blocks: toTextBlocks(blocks) });
+        if (stale()) return;
+      } catch {
+        // keep the Quick result
+      }
+    }
     const detectors = result.detectors?.map((d) => d.id);
     const method = result.fusion?.method;
     const byBlock = new Map<string, number[]>();

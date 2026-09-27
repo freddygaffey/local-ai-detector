@@ -113,7 +113,7 @@ Browsers don't expose OS low-power mode (macOS Low Power Mode / Windows battery 
 the available signals: Battery Status API (Chrome: charging, level; verify Firefox
 availability), and Compute Pressure API (Chrome, where available). Settings (defaults in
 brackets):
-- on battery: [normal] | use lite model | pause auto-run (manual only)
+- on battery: [normal] | Quick check only | pause auto-run (manual only)
 - below N% battery [20%]: pause analysis, with a "Paused to save battery, run anyway?" prompt
   in the pill and popup
 - pause under serious/critical CPU pressure [on]
@@ -203,8 +203,10 @@ the final package.
 and users can change it in settings.
 
 ## Two tiers: Quick (default) and Deep (on demand), a user decision
-- **Quick check** (default, automatic): the cheapest pass, lite model only (~0.35 s/page), voice at
-  the Light rate. It gives the general indicator (the chip / "AI 54%").
+- **Quick check** (default, automatic): a cheap pass, TMR alone on WebGPU (~0.4 s per 1,000 words;
+  was lite only until the QA pass found lite put ≥ 50% on 41% of human web texts, see
+  docs/calibration.md "Quick tier and false positives"), voice at the Light rate. It gives the
+  general indicator (the chip, shown from 70%).
 - **Deep check**: a ↻ button at the bottom of the popup, expanded chip and side panel. Tooltip
   "Deep check: all models, slower, more battery". It runs everything: the full Fusion set plus
   ModernBERT, Binoculars and perplexity; on YouTube also voice at Thorough and the whole

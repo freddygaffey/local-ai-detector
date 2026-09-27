@@ -19,6 +19,7 @@ import {
   type TabAnalysisStatus,
 } from "../shared/messages";
 import { getSettings, setSettings, type ModelSlot } from "../shared/settings";
+import { needsQuickConfirm } from "../shared/thresholds";
 import { badge } from "./badge-hook";
 import { getHostClient } from "./host-client";
 import {
@@ -266,6 +267,8 @@ export function runTabAnalysis(
   tier?: AnalyzeRequest["tier"],
   /** Tiers task: override `settings.fusion.detectors` for this run only (the tier's own set). */
   fusionOverride?: AnalyzeRequest["fusionOverride"],
+  /** Quick tier: re-check an AI-leaning result with this set before rendering it. */
+  confirmWith?: AnalyzeRequest["fusionOverride"],
 ): Promise<AnalyzeResult> {
   // Same run already going: share it. A different mode/tier (e.g. a Deep
   // click while the auto-run Quick pass is going) queues behind it instead.
@@ -292,10 +295,28 @@ export function runTabAnalysis(
       broadcastStatus(tabId, { state: "error", mode: settings.mode, error });
       throw err;
     }
-    const result = await runAnalyze(
+    let result = await runAnalyze(
       { tabId, mode: mode ?? settings.mode, blocks, preferCpu, tier, fusionOverride },
       { requestId, tabId },
     );
+    // Quick tier: the cheap pass only screens. An AI-leaning page is
+    // re-checked with the default Fusion set (docs/calibration.md "Quick tier
+    // and false positives"); if that can't run (models not downloaded, an
+    // error), the Quick result stands.
+    const sameSet = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((d) => b.includes(d));
+    if (confirmWith?.length && !sameSet(confirmWith, fusionOverride ?? []) && needsQuickConfirm(result)) {
+      try {
+        const confirmed = await runAnalyze(
+          { tabId, mode: "ensemble", blocks, preferCpu, tier, fusionOverride: confirmWith },
+          { requestId, tabId },
+        );
+        result = { ...confirmed, confirmed: true };
+        if (tabId >= 0) broadcastStatus(tabId, { state: "done", mode: "ensemble", result, finishedAt: Date.now() });
+      } catch (e) {
+        console.warn("[engine] quick confirmation skipped", e);
+        if (tabId >= 0) broadcastStatus(tabId, { state: "done", mode: mode ?? settings.mode, result, finishedAt: Date.now() });
+      }
+    }
     const fresh = await getSettings();
     await toTab(tabId, "renderHighlights", { result, style: fresh.highlightStyle }).catch((e) =>
       console.warn("[engine] renderHighlights failed", e),
@@ -354,7 +375,7 @@ export function startEngineRouter(): void {
     analyzeTab: (req, meta) => {
       const tabId = meta.senderTabId ?? req.tabId;
       if (typeof tabId !== "number" || tabId < 0) throw new Error("No tab to analyze.");
-      return runTabAnalysis(tabId, req.target, meta.requestId, req.mode, req.preferCpu, req.tier, req.fusionOverride);
+      return runTabAnalysis(tabId, req.target, meta.requestId, req.mode, req.preferCpu, req.tier, req.fusionOverride, req.confirmWith);
     },
     reportImageSummary: (req, meta) => {
       const tabId = meta.senderTabId;

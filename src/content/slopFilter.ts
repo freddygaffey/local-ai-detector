@@ -22,6 +22,16 @@ export interface SlopItem {
   score: number;
   /** Under settings.minWords -- never filtered, regardless of score. */
   tooShort: boolean;
+  /**
+   * The P(AI) to show for this item, from the detector set that scored it
+   * (`toDisplayProbability(score, { ..., level: "unit" })`). Falls back to
+   * the default curve when absent.
+   */
+  probability?: number;
+}
+
+function pctOf(item: Pick<SlopItem, "score" | "probability">): number {
+  return Math.round((item.probability ?? displayProbability(item.score)) * 100);
 }
 
 function ensureStyle(): void {
@@ -41,8 +51,8 @@ function ensureStyle(): void {
   document.head?.appendChild(style);
 }
 
-function badgeLabel(score: number): string {
-  return `AI ${Math.round(displayProbability(score) * 100)}% · Show`;
+function badgeLabel(item: SlopItem): string {
+  return `AI ${pctOf(item)}% · Show`;
 }
 
 function clearItem(el: Element): void {
@@ -59,7 +69,8 @@ function clearItem(el: Element): void {
 
 let idCounter = 0;
 
-function applyOne(el: Element, score: number, style: "dim" | "collapse"): void {
+function applyOne(item: SlopItem, style: "dim" | "collapse"): void {
+  const el = item.ownerEl;
   const key = `${++idCounter}`;
   if (el.getAttribute(MARK_ATTR)) clearItem(el);
   el.setAttribute(MARK_ATTR, key);
@@ -69,7 +80,7 @@ function applyOne(el: Element, score: number, style: "dim" | "collapse"): void {
   badge.setAttribute("data-for", key);
   badge.setAttribute("role", "button");
   badge.tabIndex = 0;
-  badge.textContent = badgeLabel(score);
+  badge.textContent = badgeLabel(item);
   const show = () => clearItem(el);
   badge.addEventListener("click", show);
   badge.addEventListener("keydown", (e) => {
@@ -101,7 +112,7 @@ export function applySlopFilter(items: SlopItem[], settings: SlopFilterSettings)
   for (const item of items) {
     const shouldFilter = !item.tooShort && item.score >= settings.threshold;
     if (shouldFilter) {
-      applyOne(item.ownerEl, item.score, settings.style);
+      applyOne(item, settings.style);
       applied.add(item.ownerEl);
     } else if (applied.has(item.ownerEl)) {
       clearItem(item.ownerEl);
@@ -127,7 +138,7 @@ export function applySearchMarkers(items: SlopItem[], threshold: number): void {
     if (shouldMark && !already) {
       const badge = document.createElement("span");
       badge.className = `${BADGE_CLASS} ${MARKER_CLASS}`;
-      badge.textContent = `AI ${Math.round(displayProbability(item.score) * 100)}%`;
+      badge.textContent = `AI ${pctOf(item)}%`;
       badge.style.cursor = "default";
       item.ownerEl.before(badge);
       markedResults.add(item.ownerEl);
@@ -169,7 +180,7 @@ export function renderItemLabels(items: SlopItem[]): void {
     const badge = document.createElement("span");
     badge.className = `${BADGE_CLASS} ${LABEL_CLASS}`;
     badge.style.cursor = "default";
-    badge.textContent = item.tooShort ? "Too short" : `AI ${Math.round(displayProbability(item.score) * 100)}%`;
+    badge.textContent = item.tooShort ? "Too short" : `AI ${pctOf(item)}%`;
     item.ownerEl.before(badge);
     labeledItems.add(item.ownerEl);
   }

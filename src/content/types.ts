@@ -42,6 +42,8 @@ export interface ActiveSentence extends SentenceKey {
   sources: Partial<Record<ScoreSource, number>>;
   wordCount: number;
   muted: boolean;
+  /** Shown P(AI) for this sentence's paragraph (the run's paragraph-level curve); absent = raw score. */
+  probability?: number;
 }
 
 export type PillPhase = "idle" | "analyzing" | "done" | "error";

@@ -461,11 +461,22 @@ export interface AnalyzeRequest {
 
 export interface AnalyzeResult {
   tier?: Tier;
+  /**
+   * Quick tier: the cheap pass scored this page high, so the default Fusion
+   * set re-checked it and this is the Fusion result (docs/calibration.md
+   * "Quick tier and false positives").
+   */
+  confirmed?: boolean;
 }
 
 export interface AnalyzeTabRequestT7 {
   tier?: Tier;
   fusionOverride?: FusionDetector[];
+  /**
+   * Quick tier: when the result would read AI-leaning (see
+   * `needsQuickConfirm`), re-check with these detectors before rendering.
+   */
+  confirmWith?: FusionDetector[];
 }
 
 // ---- Added by T9 (additive only; see docs/plan.md "Shared contract") ----

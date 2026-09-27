@@ -28,7 +28,7 @@ describe("fusionForTier", () => {
   });
 
   it("defaults: quick is lite only, deep is every detector", () => {
-    expect(fusionForTier("quick", DEFAULT_TIERS).detectors).toEqual(["lite"]);
+    expect(fusionForTier("quick", DEFAULT_TIERS).detectors).toEqual(["tmr"]);
     expect(fusionForTier("deep", DEFAULT_TIERS).detectors).toEqual(ALL_TIER_DETECTORS);
     expect(fusionForTier("deep", DEFAULT_TIERS).detectors).toHaveLength(6);
   });
@@ -41,14 +41,14 @@ describe("fusionForTier", () => {
 
 describe("sanitizeTiers", () => {
   it("passes through a valid value", () => {
-    const t: TierSettings = { quickDetectors: ["tmr"], deepDetectors: ["tmr", "perplexity"], autoRunQuick: false };
+    const t: TierSettings = { quickDetectors: ["tmr"], deepDetectors: ["tmr", "perplexity"], autoRunQuick: false, confirmQuick: true };
     expect(sanitizeTiers(t)).toEqual(t);
   });
 
   it("drops unknown detectors (a newer version synced in) and dedupes", () => {
     expect(
       sanitizeTiers({ quickDetectors: ["lite", "lite", "bogus" as FusionDetector], deepDetectors: ["tmr"], autoRunQuick: true }),
-    ).toEqual({ quickDetectors: ["lite"], deepDetectors: ["tmr"], autoRunQuick: true });
+    ).toEqual({ quickDetectors: ["lite"], deepDetectors: ["tmr"], autoRunQuick: true, confirmQuick: true });
   });
 
   it("never returns an empty detector list for either tier", () => {
@@ -75,12 +75,12 @@ describe("settings migration: tiers", () => {
   });
 
   it("a corrupted/foreign stored `tiers` value is sanitized rather than kept verbatim", () => {
-    const out = migrated({ tiers: { quickDetectors: ["nope" as FusionDetector], deepDetectors: [], autoRunQuick: false } });
-    expect(out.tiers).toEqual({ quickDetectors: DEFAULT_TIERS.quickDetectors, deepDetectors: DEFAULT_TIERS.deepDetectors, autoRunQuick: false });
+    const out = migrated({ tiers: { quickDetectors: ["nope" as FusionDetector], deepDetectors: [], autoRunQuick: false, confirmQuick: true } });
+    expect(out.tiers).toEqual({ quickDetectors: DEFAULT_TIERS.quickDetectors, deepDetectors: DEFAULT_TIERS.deepDetectors, autoRunQuick: false, confirmQuick: true });
   });
 
   it("a valid stored choice survives migration untouched", () => {
-    const custom: TierSettings = { quickDetectors: ["tmr", "lite"], deepDetectors: ["fakespot", "tmr"], autoRunQuick: false };
+    const custom: TierSettings = { quickDetectors: ["tmr", "lite"], deepDetectors: ["fakespot", "tmr"], autoRunQuick: false, confirmQuick: true };
     expect(migrated({ tiers: custom }).tiers).toEqual(custom);
   });
 });

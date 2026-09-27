@@ -34,6 +34,7 @@ export function mountTierSettings(el: HTMLElement): () => void {
       .lad-tiers .blurb { color: var(--ink-soft, #555); font-size: 0.9em; }
     </style>
     <fieldset class="quick"><legend>Quick detectors</legend></fieldset>
+    <label class="row"><input type="checkbox" class="confirm"><span>Confirm high Quick scores with Fusion</span></label>
     <fieldset class="deep"><legend>Deep detectors</legend></fieldset>`;
   // Whether the quick check runs automatically is controlled in one place only:
   // Presence → Auto-run. (A second checkbox here contradicted it.)
@@ -79,12 +80,17 @@ export function mountTierSettings(el: HTMLElement): () => void {
   }
 
   const quickBoxes = boxesFor(quickEl, "quickDetectors");
+  const confirmBox = root.querySelector<HTMLInputElement>("input.confirm")!;
+  confirmBox.addEventListener("change", () => {
+    if (settings) save({ ...settings.tiers, confirmQuick: confirmBox.checked });
+  });
   const deepBoxes = boxesFor(deepEl, "deepDetectors");
 
   function render(): void {
     if (!settings) return;
     const t = settings.tiers;
     for (const [d, box] of quickBoxes) box.checked = t.quickDetectors.includes(d);
+    confirmBox.checked = t.confirmQuick;
     for (const [d, box] of deepBoxes) box.checked = t.deepDetectors.includes(d);
   }
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { agreementOf, fuseScores } from "./scoring";
 import { detectorsForMode, estimateFusion, estimatedDownloadBytes, fusionFrom, slotsForMode } from "./models";
 import { DEFAULT_FUSION, DEFAULT_SETTINGS, migrateSettings, sanitizeFusion, type Settings } from "../shared/settings";
-import { FILTER_THRESHOLD, FLAGGED_THRESHOLD, MIN_WORDS_FOR_SCORE, toDisplayProbability } from "../shared/thresholds";
+import { FILTER_THRESHOLD, FLAGGED_THRESHOLD, MIN_WORDS_FOR_SCORE, needsQuickConfirm, QUICK_CONFIRM_AT, toDisplayProbability } from "../shared/thresholds";
 
 const s = (p: number, weight = 1) => ({ p, weight });
 
@@ -72,7 +72,7 @@ describe("settings migration", () => {
     const out = merged({ mode: "ensemble", useWebGPU: false });
     expect(out.useWebGPU).toBe(true);
     expect(out.fusion).toEqual(DEFAULT_FUSION);
-    expect(out.settingsVersion).toBe(2);
+    expect(out.settingsVersion).toBe(3);
   });
   it("keeps a v1 lite ensemble choice", () => {
     expect(merged({ ensembleClassifier: "classifierLite" }).fusion.detectors).toEqual(["lite", "perplexity"]);
@@ -81,6 +81,23 @@ describe("settings migration", () => {
     const out = merged({ settingsVersion: 2, useWebGPU: false, fusion: { detectors: ["tmr"], method: "max" } });
     expect(out.useWebGPU).toBe(false);
     expect(out.fusion).toEqual({ detectors: ["tmr"], method: "max" });
+  });
+  it("v2 settings on the old Quick defaults move to TMR and a 70% chip", () => {
+    const out = merged({ settingsVersion: 2, tiers: { quickDetectors: ["lite"], deepDetectors: ["tmr"], autoRunQuick: true, confirmQuick: true }, chipAutoHideThreshold: 0.35 });
+    expect(out.tiers.quickDetectors).toEqual(["tmr"]);
+    expect(out.tiers.deepDetectors).toEqual(["tmr"]);
+    expect(out.chipAutoHideThreshold).toBe(0.7);
+    expect(out.settingsVersion).toBe(3);
+  });
+  it("v2 settings keep a deliberate Quick set and chip threshold", () => {
+    const out = merged({ settingsVersion: 2, tiers: { quickDetectors: ["lite", "perplexity"], deepDetectors: ["tmr"], autoRunQuick: true, confirmQuick: true }, chipAutoHideThreshold: 0.5 });
+    expect(out.tiers.quickDetectors).toEqual(["lite", "perplexity"]);
+    expect(out.chipAutoHideThreshold).toBe(0.5);
+  });
+  it("v3 settings are left alone (lite chosen after the move stays)", () => {
+    const out = merged({ settingsVersion: 3, tiers: { quickDetectors: ["lite"], deepDetectors: ["tmr"], autoRunQuick: true, confirmQuick: true }, chipAutoHideThreshold: 0.35 });
+    expect(out.tiers.quickDetectors).toEqual(["lite"]);
+    expect(out.chipAutoHideThreshold).toBe(0.35);
   });
   it("sanitizes unknown detectors and methods", () => {
     expect(sanitizeFusion({ detectors: ["nope" as never, "tmr", "tmr"], method: "bogus" as never })).toEqual({
@@ -107,6 +124,22 @@ describe("display probability", () => {
     expect(toDisplayProbability(0.6, { detectors: ["nope"], method: "weighted", device: "wasm", words: 300 })).toBeGreaterThan(0);
     expect(Number.isFinite(def)).toBe(true);
     expect(toDisplayProbability(Number.NaN)).toBeNaN();
+  });
+  it("paragraph-level (unit) scores use their own curve, lower than the document curve at the flag point", () => {
+    // Regression: per-comment labels mapped a paragraph score at the 5%-FPR
+    // point through the document curve and showed ~90%.
+    const ctx = { detectors: ["tmr"], method: "weighted", device: "webgpu" } as const;
+    const unit = toDisplayProbability(FLAGGED_THRESHOLD, { ...ctx, level: "unit" });
+    const doc = toDisplayProbability(FLAGGED_THRESHOLD, { ...ctx, words: 300 });
+    expect(unit).toBeLessThan(doc);
+    // Unknown set: falls back to the default Fusion unit curve, still finite.
+    expect(Number.isFinite(toDisplayProbability(0.5, { detectors: ["nope"], level: "unit" }))).toBe(true);
+  });
+  it("confirms AI-leaning Quick results (page or any item) and nothing else", () => {
+    expect(needsQuickConfirm({ probability: QUICK_CONFIRM_AT, sentences: [] })).toBe(true);
+    expect(needsQuickConfirm({ probability: 0.3, sentences: [{ score: 0.1 }] })).toBe(false);
+    expect(needsQuickConfirm({ probability: 0.3, sentences: [{ score: FILTER_THRESHOLD }] })).toBe(true);
+    expect(needsQuickConfirm({ sentences: [] })).toBe(false);
   });
   it("exports the filter threshold and minimum words", () => {
     expect(FILTER_THRESHOLD).toBeGreaterThanOrEqual(FLAGGED_THRESHOLD);

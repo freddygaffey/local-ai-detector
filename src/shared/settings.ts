@@ -278,8 +278,12 @@ export interface Settings {
   voice: VoiceSettings;
 }
 
-/** Current `settingsVersion`. 2 = T7: Fusion replaces Ensemble, WebGPU on by default. */
-export const SETTINGS_VERSION = 2;
+/**
+ * Current `settingsVersion`. 2 = T7: Fusion replaces Ensemble, WebGPU on by
+ * default. 3 = Quick check uses TMR instead of lite, chip shows from 70%
+ * (docs/calibration.md "Quick tier and false positives").
+ */
+export const SETTINGS_VERSION = 3;
 
 /**
  * Default Fusion set, chosen on the T7 web eval set (docs/calibration.md):
@@ -302,12 +306,22 @@ export const DEFAULT_FUSION: FusionSettings = { detectors: ["fakespot", "tmr"], 
 export type Tier = "quick" | "deep";
 
 export interface TierSettings {
-  /** Detectors the automatic Quick pass uses. Default: the lite classifier only. */
+  /**
+   * Detectors the automatic Quick pass uses. Default: TMR alone (on the
+   * web eval set it shows >= 50% on 16% of human texts, against 41% for
+   * lite, at about twice lite's cost on WebGPU; docs/calibration.md).
+   */
   quickDetectors: FusionDetector[];
   /** Detectors an on-demand Deep run uses. Default: everything the registry has. */
   deepDetectors: FusionDetector[];
   /** "Run quick check automatically" -- off means no automatic pass at all (Deep still runs on click). */
   autoRunQuick: boolean;
+  /**
+   * Re-check an AI-leaning Quick result with the Fusion set (`fusion`)
+   * before showing it. Costs a Fusion run only on pages the Quick pass
+   * flags; cuts human pages shown as AI (docs/calibration.md).
+   */
+  confirmQuick: boolean;
 }
 
 export interface Settings {
@@ -317,10 +331,14 @@ export interface Settings {
 /** Deep's default: every detector the registry has (docs/plan.md: "Deep detectors (default: all)"). */
 export const ALL_TIER_DETECTORS: FusionDetector[] = ["fakespot", "tmr", "modernbert", "lite", "perplexity", "binoculars"];
 
+/** The chip shows only from this displayed P(AI) up ("chip only if high"). */
+export const CHIP_AUTO_HIDE_DEFAULT = 0.7;
+
 export const DEFAULT_TIERS: TierSettings = {
-  quickDetectors: ["lite"],
+  quickDetectors: ["tmr"],
   deepDetectors: [...ALL_TIER_DETECTORS],
   autoRunQuick: true,
+  confirmQuick: true,
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -348,7 +366,7 @@ export const DEFAULT_SETTINGS: Settings = {
   pageTypes: {},
   surfaces: { popup: true, badge: true, chip: true, highlights: false, sidePanel: false },
   chipCorner: "bottom-right",
-  chipAutoHideThreshold: 0.35,
+  chipAutoHideThreshold: CHIP_AUTO_HIDE_DEFAULT,
 
   battery: {
     onBatteryAction: "normal",
@@ -415,6 +433,15 @@ export function migrateSettings(merged: Settings, stored: Partial<Settings> | un
     out.useWebGPU = true;
     out.settingsVersion = SETTINGS_VERSION;
   }
+  if (stored && (stored.settingsVersion ?? 1) < 3) {
+    // v3: the old defaults (lite-only Quick check, chip from 35%) put a
+    // number on most human pages. Move anyone still on them to the new
+    // defaults; a deliberate choice is kept.
+    const q = stored.tiers?.quickDetectors;
+    if (!q || (q.length === 1 && q[0] === "lite")) out.tiers = { ...out.tiers, quickDetectors: [...DEFAULT_TIERS.quickDetectors] };
+    if (stored.chipAutoHideThreshold === undefined || stored.chipAutoHideThreshold === 0.35) out.chipAutoHideThreshold = CHIP_AUTO_HIDE_DEFAULT;
+    out.settingsVersion = SETTINGS_VERSION;
+  }
   return out;
 }
 
@@ -439,6 +466,7 @@ export function sanitizeTiers(t: Partial<TierSettings> | undefined): TierSetting
     quickDetectors: sanitizeTierDetectors(t?.quickDetectors, DEFAULT_TIERS.quickDetectors),
     deepDetectors: sanitizeTierDetectors(t?.deepDetectors, DEFAULT_TIERS.deepDetectors),
     autoRunQuick: t?.autoRunQuick ?? DEFAULT_TIERS.autoRunQuick,
+    confirmQuick: t?.confirmQuick ?? DEFAULT_TIERS.confirmQuick,
   };
 }
 

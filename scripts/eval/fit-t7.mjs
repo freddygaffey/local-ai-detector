@@ -182,6 +182,8 @@ const presets = {
   fast: { detectors: ["lite", "perplexity"], method: "weighted" },
   classic: { detectors: ["tmr", "perplexity"], method: "weighted" },
   everything: { detectors: ["tmr", "modernbert", "lite", "perplexity", "binoculars"], method: "weighted" },
+  // The Deep check's default (DEFAULT_TIERS.deepDetectors in src/shared/settings.ts).
+  deep: { detectors: ["fakespot", "tmr", "modernbert", "lite", "perplexity", "binoculars"], method: "weighted" },
 };
 const profileKey = (dets, method) => (dets.length === 1 ? dets[0] : `${[...dets].sort().join("+")}|${method}`);
 function fusedScore(dev, dets, method, id) {
@@ -258,6 +260,32 @@ for (const dev of devices) {
   for (const len of ["short", "long"]) {
     const k = pooledX[len].filter(([v]) => Number.isFinite(v));
     out.curves[`pooled|${dev}|${len}`] = displayCurve(k.map((x) => x[0]), k.map((x) => x[1]));
+  }
+}
+// Item-level ("unit") curves: what a single comment / review / post on a
+// thread page shows. The engine scores each item with the paragraph
+// operating points (CALIBRATION.unit), so it needs its own score -> P(AI)
+// mapping. Fitted on whole texts under 150 words (comments, reviews, posts,
+// answers are exactly that) with their statistic mapped through the unit
+// constants, i.e. the score an item of that text would get on a page.
+function unitRows(dev, dets, method, split) {
+  return items
+    .filter((r) => r.split === split && r.set !== "mage" && r.words < SHORT)
+    .map((r) => ({
+      id: r.id,
+      words: r.words,
+      genre: r.genre,
+      s: fuse(dets.map((d) => mapRaw(d, data[dev][d]?.doc.get(r.id), out.constants[dev][d], "unit")), dets.map((d) => out.weights[dev][d]), method),
+      y: r.label,
+    }))
+    .filter((r) => Number.isFinite(r.s));
+}
+for (const dev of devices) {
+  for (const [key, p] of profiles) {
+    if (!p.dets.every((d) => data[dev][d] && out.constants[dev][d])) continue;
+    const rs = unitRows(dev, p.dets, p.method, "fit");
+    if (rs.length < 50) continue;
+    out.curves[`${key}|${dev}|unit`] = displayCurve(rs.map((r) => r.s), rs.map((r) => r.y));
   }
 }
 const displayP = (dev, key, score, words) => {
@@ -355,6 +383,7 @@ const showList = [
   ...["logodds", "vote", "max"].map((m) => [`Default set, ${m}`, { dets: best.dets, method: m }]),
   ["Classic (tmr + perplexity)", { dets: ["tmr", "perplexity"], method: "weighted" }],
   ["Fast (lite + perplexity)", { dets: ["lite", "perplexity"], method: "weighted" }],
+  ["Deep (all six, weighted)", { dets: presets.deep.detectors, method: "weighted" }],
 ];
 for (const dev of devices) reportTable(`Browser, ${dev}`, showList, dev);
 
@@ -401,6 +430,40 @@ for (const dev of devices) {
   P(`${dev}: ECE ${fmt(m.ece, 3)}. Shown P(AI) → fraction really AI (n): ${m.reliability.map((b) => `${pct(b.meanP)} → ${pct(b.fracAI)} (${b.n})`).join(", ")}\n`);
 }
 
+P(`### Per-item labels (texts under 150 words on the paragraph scale, ${PRIMARY}, test half)\n`);
+P("What a per-comment label shows: human items shown ≥ 50% / ≥ 70% (all, and forum posts), AI items shown ≥ 70%, AUROC, ECE of the unit curve.\n");
+P("| Detector set | AUROC | human ≥ 50% | human ≥ 70% | forum human ≥ 50% | AI ≥ 70% | ECE |");
+P("|---|---|---|---|---|---|---|");
+for (const [key, p] of profiles) {
+  const c = out.curves[`${key}|${PRIMARY}|unit`];
+  if (!c) continue;
+  const rs = unitRows(PRIMARY, p.dets, p.method, "test");
+  const probs = rs.map((r) => interp(c, r.s));
+  const h = probs.filter((_, i) => rs[i].y === 0);
+  const a = probs.filter((_, i) => rs[i].y === 1);
+  const fr = (xs, t) => xs.filter((x) => x >= t).length / Math.max(1, xs.length);
+  const hf = probs.filter((_, i) => rs[i].y === 0 && rs[i].genre === "forum");
+  P(`| ${key} | ${fmt(auroc(rs.map((r) => r.s), rs.map((r) => r.y)))} | ${pct(fr(h, 0.5))} | ${pct(fr(h, 0.7))} | ${pct(fr(hf, 0.5))} | ${pct(fr(a, 0.7))} | ${fmt(ece(probs, rs.map((r) => r.y)).ece, 3)} |`);
+}
+P("");
+
+P(`### What the reader sees (whole texts, ${PRIMARY}, test half)\n`);
+P("Shown P(AI) per detector set: human texts shown ≥ 50% / ≥ 70% (per genre: forum, news, blog), AI texts shown ≥ 70%, median shown for human / AI.\n");
+P("| Detector set | human ≥ 50% | human ≥ 70% | forum / news / blog human ≥ 50% | AI ≥ 70% | median human / AI |");
+P("|---|---|---|---|---|---|");
+for (const [key, p] of profiles) {
+  if (!p.dets.every((d) => scores[PRIMARY][d])) continue;
+  const rs = items.filter((r) => r.split === "test" && r.set !== "mage");
+  const pr = (r) => displayP(PRIMARY, key, fusedScore(PRIMARY, p.dets, p.method, r.id), r.words);
+  const fr = (xs, t) => xs.filter((x) => x >= t).length / Math.max(1, xs.length);
+  const med = (xs) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
+  const h = rs.filter((r) => r.label === 0).map(pr).filter(Number.isFinite);
+  const a = rs.filter((r) => r.label === 1).map(pr).filter(Number.isFinite);
+  const g = ["forum", "news", "blog"].map((x) => pct(fr(rs.filter((r) => r.label === 0 && r.genre === x).map(pr).filter(Number.isFinite), 0.5)));
+  P(`| ${key} | ${pct(fr(h, 0.5))} | ${pct(fr(h, 0.7))} | ${g.join(" / ")} | ${pct(fr(a, 0.7))} | ${pct(med(h))} / ${pct(med(a))} |`);
+}
+P("");
+
 P("### Constants\n");
 P("```json\n" + JSON.stringify({ constants: out.constants, weights: out.weights, defaultFusion: out.defaultFusion, filterThreshold: out.filterThreshold, minWordsForScore: out.minWordsForScore }, null, 1) + "\n```\n");
 P("### Top detector sets (fit half, " + PRIMARY + ")\n");
@@ -418,7 +481,10 @@ if (args.includes("--emit")) {
   const ts = `// GENERATED by scripts/eval/fit-t7.mjs from the T7 browser calibration run
 // (docs/calibration.md, "Display probability"). Do not edit by hand.
 // Piecewise-linear isotonic curves: engine score -> P(AI) on web text with
-// a 50/50 human/AI mix, per detector set | device | length.
+// a 50/50 human/AI mix, per detector set | device | length ("short" / "long"
+// = whole texts under / over 150 words; "unit" = one paragraph scored with
+// the paragraph operating points, as per-item labels on thread pages are;
+// fitted on whole texts under 150 words).
 
 export interface DisplayCurve {
   x: number[];

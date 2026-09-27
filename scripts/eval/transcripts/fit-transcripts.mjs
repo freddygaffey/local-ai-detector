@@ -27,7 +27,7 @@ const runs = Object.fromEntries(
     .map(([k, f]) => [k, JSON.parse(readFileSync(f, "utf8")).scores]),
 );
 const shipUnpunct = opt("--ship-unpunct", "pause");
-const PROFILE = { fusion: "fakespot+tmr|weighted", lite: "lite" };
+const PROFILE = { fusion: "fakespot+tmr|weighted", lite: "lite", tmr: "tmr" };
 
 function auroc(pos, neg) {
   if (!pos.length || !neg.length) return NaN;
@@ -130,7 +130,7 @@ function ece(points, curve) {
 const md = [];
 const out = {};
 for (const [mode, run] of Object.entries(runs)) {
-  md.push(`#### ${mode === "fusion" ? "Default Fusion (Fakespot + TMR)" : "Lite (auto-run)"}\n`);
+  md.push(`#### ${{ fusion: "Default Fusion (Fakespot + TMR)", lite: "Lite", tmr: "TMR (Quick default)" }[mode] ?? mode}\n`);
   md.push("| Condition | AUROC all | vs speech | vs human prose | AI: own scripts / web AI flagged | flag FPR / TPR (≥ 0.5) | filter precision / recall (≥ 0.75) |");
   md.push("|---|---|---|---|---|---|---|");
   for (const cond of Object.keys(run)) {
@@ -151,12 +151,20 @@ for (const [mode, run] of Object.entries(runs)) {
   }
   md.push(`\n(test half: ${rows(run, Object.keys(run)[0], "test").length} texts)\n`);
 
-  // Display curve on the shipped path.
-  const pathConds = ["punct", shipUnpunct].filter((c) => run[c]);
+  // Display curve on the shipped path, one condition per item: punctuated
+  // captions are scored as "punct", unpunctuated ones as --ship-unpunct.
+  // The Quick detectors (lite, tmr) never score unpunctuated auto-captions
+  // (skipQuickPass), so their curves see punctuated items only. (Pooling
+  // both conditions for every item, as before, let lite's near-zero scores
+  // on unpunctuated AI text drag its low end up to ~40-60% AI.)
+  const quick = mode !== "fusion";
+  const isPunct = (it) => it.punctuated === true || it.punctuated === "True";
+  const pathConds = quick ? ["punct"] : ["punct", shipUnpunct].filter((c) => run[c]);
   const pointsFor = (split, len) => {
     const pts = [];
     for (const cond of pathConds) {
       for (const { it, r } of rows(run, cond, split)) {
+        if (cond === "punct" ? !isPunct(it) : isPunct(it)) continue;
         if (len === "long") {
           if ((r.words ?? 0) >= 150) pts.push({ x: r.overall, y: it.label });
         } else {
@@ -173,7 +181,7 @@ for (const [mode, run] of Object.entries(runs)) {
     const curve = fitCurve(fitPts);
     out[`${PROFILE[mode]}|${len}`] = curve;
     const { e, rel } = ece(testPts, curve);
-    md.push(`Display (${len}, path ${pathConds.join(" + ")}), test ECE **${f2(e)}** (${testPts.length} points): ${rel.join(", ")}\n`);
+    md.push(`Display (${len}, path ${quick ? "punct (punctuated captions only)" : "punct / " + shipUnpunct + " by caption type"}), test ECE **${f2(e)}** (${testPts.length} points): ${rel.join(", ")}\n`);
   }
 }
 

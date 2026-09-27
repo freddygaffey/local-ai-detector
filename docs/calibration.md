@@ -241,6 +241,85 @@ The WebGPU runs were done locally (Chrome 153, Apple Silicon). The WASM runs wer
 Ubuntu runners (4 vCPU, Chromium from Playwright). The eval set built in CI was identical to
 the local one (all 1,867 ids match).
 
+## Quick tier and false positives (QA pass, 2026-09-28)
+
+The release QA found the automatic Quick check putting high numbers on plainly human
+pages: a TED talk transcript at "AI 53%", an r/AskHistorians thread at 95%. Causes, fixes and
+before/after numbers.
+
+**Causes.**
+1. **The Quick model.** Lite (e5-small, AUROC 0.77) calibrated honestly still shows ≥ 50% on
+   41% of human web texts (news 60%, blog/how-to 78%), and the old chip threshold (35%) let it
+   show on 76% of human pages.
+2. **Transcript curves fitted on the wrong path.** The lite transcript curve pooled punctuated
+   *and* unpunctuated captions for every item, although the Quick pass never scores
+   unpunctuated auto-captions. Lite scores unpunctuated AI text near 0, so the bottom of the curve
+   sat at 36–60% "AI". A human TED talk (lite score ≈ 0.003) read 53%.
+3. **Per-item labels used the wrong curve.** Comments, reviews and search snippets are scored on
+   the paragraph scale but were mapped through the default Fusion *document* curve, whatever
+   detector ran. Sentence tooltips showed the raw engine score as a percentage.
+
+**Fixes.**
+- **Quick = TMR** (already downloaded for Fusion; ~0.4 s per 1,000 words on WebGPU, twice lite).
+  Lite stays selectable. Settings v3 moves anyone still on the old defaults.
+- **Confirm before showing.** A Quick result that reads ≥ 50% (or has any item past the
+  slop-filter threshold) is re-checked with the default Fusion set before anything is shown
+  (`tiers.confirmQuick`, on by default; Options → Quick detectors). This costs a Fusion run
+  (Fakespot is WASM-only: ~7 s per 1,000 words on an M-series Mac) on flagged pages only.
+- **Chip from 70%** (was 35%): "chip only if high".
+- **Transcript curves** refitted per caption type (punctuated → `punct`, unpunctuated → `raw`);
+  Quick curves see punctuated captions only. TMR transcript curve added.
+- **Per-item curves** (`…|unit`): fitted on whole texts under 150 words (what a comment or review
+  is) mapped with the paragraph operating points. Labels, filter badges, snippet markers and
+  sentence tooltips now use the curve of the detector set that ran.
+
+**Web eval set, test half, WebGPU** (shown P(AI); `fit-t7.mjs`, "What the reader sees"):
+
+| Quick pass | human ≥ 50% | human ≥ 70% (chip) | forum / news / blog human ≥ 50% | AI ≥ 70% | median human / AI |
+|---|---|---|---|---|---|
+| Before: lite | 41% | 11% | 35% / 60% / 78% | 51% | 45% / 72% |
+| TMR alone | 16% | 6% | 23% / 37% / 25% | 65% | 34% / 87% |
+| Fusion alone (for reference) | 12% | 6% | 10% / 16% / 23% | 74% | 26% / 96% |
+| **After: TMR, confirmed by Fusion at ≥ 50%** | **3%** | **2%** | 0% / 6% / 7% | 67% | 30% / 96% |
+
+The confirm step runs on 16% of human texts and 75% of AI texts. A text is shown ≥ 50% only
+when both TMR and Fusion say so, which is why the cascade beats either alone on false positives
+while keeping most of Fusion's recall.
+
+Per-item labels (texts under 150 words, paragraph scale): lite shows ≥ 50% on 46% of human
+items and ≥ 70% on 11%; TMR 8% / 3% (forum posts 24% / –); Fusion 11% / 8%, AI ≥ 70% 69%.
+
+**Transcripts** (test half, punctuated captions, whole transcripts, shown ≥ 50% / ≥ 70%):
+
+| | human speech | human prose read aloud | AI scripts + AI web text |
+|---|---|---|---|
+| Lite, old curve | 7% / 7% | 45% / 11% | 78% / 62% |
+| Lite, refitted | 7% / 3% | 24% / 6% | 63% / 45% |
+| TMR (Quick default) | 10% / 3% | 6% / 6% | 50% / 40% |
+| Fusion (confirm step, refitted) | 7% / 3% | 10% / 2% | 82% / 78% |
+
+TMR ranks transcripts worse than lite (AUROC 0.74 against 0.83, Node CPU) but is no worse at the
+high end, and anything ≥ 50% is confirmed by Fusion (AUROC 0.93).
+
+**Live check, real Chrome, default settings** (Quick pass as shown; "old" = lite, the previous default):
+
+| Page | Words | Old (lite) | New |
+|---|---|---|---|
+| TED talk transcript (Ken Robinson) | – | 53% | 23% (TMR) |
+| r/AskHistorians thread | 729 | 95% | 41% (TMR) |
+| Wikipedia "Hedgehog" | 2,529 | 82% | 34% (confirmed) |
+| BBC News article 1 | 1,182 | 52% (TMR alone: 77%) | 47% (confirmed) |
+| BBC News article 2 | 679 | 82% | 69% (confirmed; chip stays hidden) |
+| Slate Star Codex, 2014 essay | 2,959 | 86% | 20% (TMR) |
+| Fresh unedited AI story (written for this test) | 334 | 83% | 98% (confirmed) |
+| Fresh AI how-to answer | 291 | 88% | 98% (confirmed) |
+| Fresh AI product review | 259 | 84% | 98% (confirmed) |
+| Fresh AI forum post | 195 | 95% | 98% (confirmed) |
+
+Caveats: the eval set is the T7/T10 one (not re-collected), the live pages are a handful, and
+news and how-to text remain the weakest human genres (6–7% still read ≥ 50% after
+confirmation). Not tuned on the pages above: every constant comes from the fit half.
+
 ## Transcripts (T10, YouTube, 2026-09-27)
 
 The transcript chip ("Transcript: AI 84%") uses its own display mapping

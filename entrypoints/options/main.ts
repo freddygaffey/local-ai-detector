@@ -576,7 +576,7 @@ function renderBatterySection(): HTMLElement {
       selectControl(
         [
           { value: "normal", label: "Normal" },
-          { value: "lite", label: "Use lite model" },
+          { value: "lite", label: "Quick check only" },
           { value: "pause", label: "Pause auto-run" },
         ],
         b.onBatteryAction,
