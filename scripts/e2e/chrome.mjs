@@ -1035,6 +1035,14 @@ await step("network: only Hugging Face + GitHub release-asset hosts (and the loc
   if (bad.length) throw new Error(`unexpected hosts: ${bad.join(", ")}`);
 });
 
+// Definition of done (docs/daily-driver-tour.md): the extension's own contexts
+// (service worker, offscreen document, popup/options/side panel) log no errors.
+await step("no errors from the extension's own contexts", async (note) => {
+  const extErrors = consoleLog.filter((c) => c.ctx.startsWith("ext:") && (c.type === "error" || c.type === "pageerror"));
+  note(`${extErrors.length} extension error(s)`);
+  if (extErrors.length) throw new Error(extErrors.slice(0, 5).map((c) => `${c.ctx}: ${c.text}`).join(" | "));
+});
+
 srv.close();
 report.facts.consoleErrorCount = consoleLog.filter((c) => c.type === "error" || c.type === "pageerror").length;
 save(OUT);
