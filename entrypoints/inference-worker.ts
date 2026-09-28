@@ -1,6 +1,7 @@
-// Firefox inference host: a dedicated module Worker spawned by the
-// background event page (Firefox has no offscreen API, see
-// docs/feasibility.md §1). It speaks the same protocol as the Chrome
+// Inference host: a dedicated module Worker. Firefox spawns it from the
+// background event page (no offscreen API, docs/feasibility.md §1); Chrome
+// from the offscreen document (src/engine/offscreenRelay.ts), so inference
+// never blocks the popup's main thread. It speaks the same protocol as the Chrome
 // offscreen host (src/engine/protocol.ts) over postMessage. The event page
 // is unloaded when idle, so this worker and its sessions are disposable; the
 // background re-creates it and models come back from the cache in seconds.
@@ -12,12 +13,10 @@
 import { startWorkerHost } from "@/src/engine/host-server";
 
 export default defineUnlistedScript({
-  // Chrome uses the offscreen document instead.
-  include: ["firefox"],
   main() {
     startWorkerHost(self as unknown as Parameters<typeof startWorkerHost>[0], {
       ortBaseUrl: new URL("/ort/", self.location.href).href,
-      firefox: true,
+      firefox: import.meta.env.FIREFOX,
     });
   },
 });

@@ -16,7 +16,7 @@ import "./popup.css";
 import { browser } from "wxt/browser";
 import { getSettings, setSettings, watchSettings } from "@/src/shared/settings";
 import type { HighlightStyle, Mode, Settings } from "@/src/shared/settings";
-import { CONSENT_REQUIRED_ERROR, onAnalysisStatus, sendMessage, sendTabMessage } from "@/src/shared/messages";
+import { CONSENT_REQUIRED_ERROR, NO_SELECTION_ERROR, onAnalysisStatus, sendMessage, sendTabMessage } from "@/src/shared/messages";
 import type { AnalyzeResult, ProgressEvent, TabAnalysisStatus } from "@/src/shared/messages";
 import { clearChildren, h } from "@/src/ui/dom";
 import { derivePopupState, isCacheLoad, isUnsupportedUrl, progressPercent } from "@/src/ui/state";
@@ -25,7 +25,6 @@ import { offerShowOnPage } from "@/src/ui/optionsLogic";
 import { classifyProbe, classifyUrl, parseUnreadable, unreadableMessage, type UnreadableKind } from "@/src/shared/unreadable";
 import { BAND_LABEL, bandClassName, bandFromResult, DETAILS_NOTE } from "@/src/ui/verdict";
 import { displayScore, formatScoreOrDash } from "@/src/ui/probability";
-import { buildGaugeSvg, updateGauge } from "@/src/ui/gauge";
 import { formatBytes, formatPercent, pluralize } from "@/src/ui/format";
 import { aggregateSources, countFlaggedSentences, SOURCE_LABEL } from "@/src/ui/breakdown";
 import { EXPERIMENTAL_MODES, MODE_LABEL } from "@/src/ui/modelInfo";
@@ -42,6 +41,7 @@ import { isVoiceProgress, type VoiceRequest, type VoiceResponse } from "@/src/vo
 import type { VoiceModelId } from "@/src/voice/aggregate";
 import { getSiteTally } from "@/src/content/siteMemory";
 import { describeVerdict, PAGE_TYPE_OVERRIDES, type PageTypeOverride, type PageVerdict } from "@/src/content/pageType";
+import { collapsedSummary, hoverLines, type CardState } from "@/src/content/cardSummary";
 import type { FusionDetector } from "@/src/shared/settings";
 import { sanitizeFusion } from "@/src/shared/settings";
 import type { ModelSlot } from "@/src/shared/settings";
@@ -56,6 +56,8 @@ interface Ctx {
   error: string | null;
   lastTarget: "page" | "selection" | null;
   pasteOpen: boolean;
+  moreOpen: boolean;
+  detailsOpen: boolean;
   pasteBusy: boolean;
   pasteError: string | null;
   /** null until the content script answers (or fails to). Dims "Selection" only once we know it's empty. */
@@ -76,6 +78,8 @@ interface Ctx {
   siteTally: { high: number; total: number } | null;
   /** Probed: a PDF (even without ".pdf" in the URL) or a page we can't script. */
   unreadable: UnreadableKind | null;
+  /** What the corner card knows about this page (the content script's own state). */
+  card: CardState | null;
 }
 
 const ctx: Ctx = {
@@ -87,6 +91,8 @@ const ctx: Ctx = {
   error: null,
   lastTarget: null,
   pasteOpen: false,
+  moreOpen: false,
+  detailsOpen: false,
   pasteBusy: false,
   pasteError: null,
   hasSelection: null,
@@ -98,6 +104,7 @@ const ctx: Ctx = {
   voiceCached: {},
   pageType: null,
   siteTally: null,
+  card: null,
   unreadable: null,
 };
 
@@ -139,6 +146,18 @@ async function main() {
         render();
       })
       .catch((err: unknown) => probeUnreadable(tabId, err));
+    // Lead with what's already known about the page (the corner card's state),
+    // and keep it fresh while the popup is open (video voice/transcript update live).
+    const refreshCard = () =>
+      sendTabMessage(tabId, "getCardState", undefined)
+        .then((card) => {
+          const changed = JSON.stringify(card) !== JSON.stringify(ctx.card);
+          ctx.card = card;
+          if (changed) render();
+        })
+        .catch(() => {});
+    void refreshCard();
+    setInterval(refreshCard, 1500);
     sendTabMessage(tabId, "getSelectionInfo", undefined)
       .then((res) => {
         ctx.hasSelection = res.hasSelection;
@@ -258,16 +277,13 @@ function render(): void {
     case "loading":
     case "analyzing":
       root.append(renderProgress());
-      root.append(renderFooter());
       break;
     case "error":
       root.append(renderErrorView());
-      root.append(renderFooter());
       break;
     case "idle":
     case "done":
       root.append(renderMain());
-      root.append(renderFooter());
       break;
   }
 }
@@ -285,27 +301,6 @@ function renderHeader(): HTMLElement {
       { class: "icon-btn", type: "button", "aria-label": "Settings", title: "Settings", onclick: openOptions },
       gearIcon(),
     ),
-  );
-}
-
-function renderFooter(): HTMLElement {
-  return h(
-    "footer",
-    { class: "popup-footer" },
-    h("span", null, "Runs on this device."),
-    h(
-      "button",
-      {
-        class: `icon-btn${ctx.deepBusy ? " is-spinning" : ""}`,
-        type: "button",
-        "aria-label": "Deep check",
-        title: DEEP_CHECK_TOOLTIP,
-        disabled: ctx.deepBusy || ctx.tabId === null,
-        onclick: () => void onDeepCheck(),
-      },
-      "↻",
-    ),
-    h("button", { class: "btn btn-ghost", type: "button", onclick: openOptions }, "Settings"),
   );
 }
 
@@ -514,10 +509,40 @@ function onRetry(): void {
 
 // ---- Main (idle / done) ----
 
+/** True when the corner card has a result worth leading with. */
+function cardHasResult(c: CardState | null): c is CardState {
+  if (!c || c.off) return false;
+  const v = c.video;
+  return !!(c.article || c.thread || c.search || (v && (typeof v.transcript === "number" || typeof v.voice === "number" || v.voice === null || v.transcriptState)));
+}
+
+/** The page's current result as the corner card shows it: headline + one row per signal. */
+function renderCardSection(c: CardState): HTMLElement {
+  const summary = collapsedSummary(c);
+  const head = h(
+    "div",
+    { class: "card-now" },
+    ...summary.lines.map((l) => {
+      const el = h("div", { class: "card-now-line mono" }, l.text);
+      if (typeof l.score === "number") el.style.color = `hsl(${scoreHue(l.score).toFixed(0)}, 75%, 42%)`;
+      return el;
+    }),
+  );
+  const rows = h(
+    "dl",
+    { class: "card-now-rows" },
+    ...hoverLines(c).flatMap((r) => [h("dt", null, r.label), h("dd", { class: r.dim ? "dim" : undefined }, r.value)]),
+  );
+  return h("div", { class: "result card-now-wrap" }, head, rows);
+}
+
 function renderMain(): HTMLElement {
   const body = h("div", { class: "popup-body" });
-  body.append(renderResultSection());
-  const unreadable = ctx.unreadable ?? parseUnreadable(ctx.error) ?? classifyUrl(ctx.tabUrl);
+  // Video/thread/search pages, or any page the card has already checked while the
+  // background forgot (its worker sleeps): lead with the card's own state.
+  const useCard = cardHasResult(ctx.card) && (!ctx.result || ctx.card.pageType === "video" || ctx.card.pageType === "subtitles");
+  body.append(useCard ? renderCardSection(ctx.card as CardState) : renderResultSection());
+  const unreadable = ctx.unreadable ?? parseUnreadable(ctx.error) ?? (ctx.pageType ? null : classifyUrl(ctx.tabUrl));
   if (unreadable) {
     // A PDF's selected-text result: the page buttons can't work here.
     body.append(h("p", { class: "field-hint unreadable-line" }, unreadableMessage(unreadable)));
@@ -526,10 +551,16 @@ function renderMain(): HTMLElement {
   const deepPrompt = renderDeepPrompt();
   if (deepPrompt) body.append(deepPrompt);
   body.append(renderButtons());
-  body.append(renderPasteSection());
-  body.append(renderQuickSelects());
-  const page = renderPageTypeRow();
-  if (page) body.append(page);
+  const more = h(
+    "details",
+    { class: "more-disclosure", open: ctx.moreOpen || ctx.pasteOpen || undefined, ontoggle: (e: Event) => (ctx.moreOpen = (e.target as HTMLDetailsElement).open) },
+    h("summary", null, "More"),
+    renderQuickSelects(),
+    renderPageTypeRow(),
+    renderNeverOnSite(),
+    renderPasteSection(),
+  );
+  body.append(more);
   return body;
 }
 
@@ -593,23 +624,28 @@ function bandWord(result: AnalyzeResult | null): { band: ReturnType<typeof bandF
 function renderResultSection(): HTMLElement {
   const result = ctx.result;
   const { band, text, score } = bandWord(result);
-  const wrap = h("div", { class: "gauge-wrap" });
-  const figure = h("div", { class: "gauge-figure" });
-  const svg = buildGaugeSvg();
-  figure.append(svg);
-  const valueEl = h("div", { class: `value mono ${bandClassName(band)}` }, result ? text : "—");
+  const valueEl = h("span", { class: `score-value mono ${bandClassName(band)}` }, result ? text : "—");
   if (score !== null) valueEl.style.color = `hsl(${scoreHue(score).toFixed(0)}, 75%, 42%)`;
-  const readout = h("div", { class: "gauge-readout" }, valueEl);
-  figure.append(readout);
-  wrap.append(figure);
-  const verdictLabel = h("div", { class: `verdict-label ${bandClassName(band)}` }, result ? BAND_LABEL[band] : "No result");
-  if (isDeepResult(result)) verdictLabel.append(h("span", { class: "deep-tag" }, "Deep"));
-  wrap.append(verdictLabel);
-  queueMicrotask(() => updateGauge(svg, score ?? 0, bandClassName(band)));
+  const verdictLabel = h("span", { class: `verdict-label ${bandClassName(band)}` }, result ? BAND_LABEL[band] : "Not checked yet");
+  const wrap = h("div", { class: "score-line" }, valueEl, verdictLabel);
+  const tier = tierTag(result);
+  if (tier) wrap.append(tier);
 
   const container = h("div", { class: "result" }, wrap);
   if (result) container.append(renderDetails(result));
   return container;
+}
+
+/** Which pass the score is from: "Quick", "Deep check running…" (Quick shown meanwhile) or "Deep". */
+function tierTag(result: AnalyzeResult | null): HTMLElement | null {
+  if (!result?.tier) return null;
+  if (isDeepResult(result)) return h("span", { class: "tier-tag is-deep", title: "All detectors, whole text" }, "Deep");
+  const refining = result.refining || ctx.deepBusy;
+  return h(
+    "span",
+    { class: `tier-tag${refining ? " is-refining" : ""}`, title: "Quick check: one small model, part of the page" },
+    refining ? "Deep check running…" : "Quick",
+  );
 }
 
 function renderDetails(result: AnalyzeResult): HTMLElement {
@@ -649,7 +685,12 @@ function renderDetails(result: AnalyzeResult): HTMLElement {
   if (unicode) rows.push(unicode);
   // Pasted / dropped text has no page, so no images to report.
   if (!isPastedResult(result)) rows.push(renderImagesCard(result));
-  return h("details", { class: "details-disclosure" }, h("summary", null, "Details"), ...rows);
+  return h(
+    "details",
+    { class: "details-disclosure", open: ctx.detailsOpen || undefined, ontoggle: (e: Event) => (ctx.detailsOpen = (e.target as HTMLDetailsElement).open) },
+    h("summary", null, "Details"),
+    ...rows,
+  );
 }
 
 const PASTE_BLOCK_ID = "paste-1";
@@ -713,8 +754,14 @@ async function grantImageAccess(patterns: string[]): Promise<void> {
 
 function renderButtons(): HTMLElement {
   const selectionDimmed = ctx.hasSelection === false;
+  const known = !!ctx.result || cardHasResult(ctx.card);
+  const label = ctx.deepBusy ? "Checking…" : !known ? "Check page" : isDeepResult(ctx.result) ? "Check again" : "Deep check";
   const buttons = [
-    h("button", { class: "btn btn-primary", type: "button", onclick: () => void runAnalyze("page") }, "Analyze page"),
+    h(
+      "button",
+      { class: "btn btn-primary", type: "button", title: DEEP_CHECK_TOOLTIP, disabled: ctx.deepBusy || undefined, onclick: () => void onManualCheck("page") },
+      label,
+    ),
     h(
       "button",
       {
@@ -737,24 +784,23 @@ function renderButtons(): HTMLElement {
       closeIcon(),
     ),
   );
-  const row = h("div", { class: "btn-row" }, ...buttons);
+  return h("div", { class: "btn-row" }, ...buttons);
+}
+
+function renderNeverOnSite(): HTMLElement | null {
   const hostname = tabHostname();
-  if (hostname) {
-    const never = ctx.settings.siteRules[hostname] === "never";
-    row.append(
-      h(
-        "button",
-        {
-          class: "btn btn-ghost btn-small",
-          type: "button",
-          title: never ? `Auto-run is off on ${hostname}` : `Turn off auto-run on ${hostname}`,
-          onclick: () => void toggleNeverOnSite(hostname, never),
-        },
-        never ? "Off here ✓" : "Never on this site",
-      ),
-    );
-  }
-  return row;
+  if (!hostname) return null;
+  const never = ctx.settings.siteRules[hostname] === "never";
+  return h(
+    "button",
+    {
+      class: "btn btn-ghost btn-small",
+      type: "button",
+      title: never ? `Auto-run is off on ${hostname}` : `Turn off auto-run on ${hostname}`,
+      onclick: () => void toggleNeverOnSite(hostname, never),
+    },
+    never ? `Auto-run off on ${hostname} ✓` : `Never auto-run on ${hostname}`,
+  );
 }
 
 function tabHostname(): string | null {
@@ -941,35 +987,63 @@ async function onStyleChange(highlightStyle: HighlightStyle): Promise<void> {
 
 async function onSelectionClick(): Promise<void> {
   if (ctx.hasSelection === false) {
-    showToast("No text selected");
+    showToast(NO_SELECTION_ERROR);
     return; // leave the popup state untouched -- this isn't an error.
   }
-  await runAnalyze("selection");
+  await onManualCheck("selection");
 }
 
-async function runAnalyze(target: "page" | "selection"): Promise<void> {
+/**
+ * A check the user asked for: Quick first (shown as soon as it lands, tagged
+ * "deep check running"), then Deep over the top (router.runManualCheck). If
+ * the Deep models aren't downloaded and a Quick result is already on show,
+ * this is the Deep button: offer the download.
+ */
+async function onManualCheck(target: "page" | "selection"): Promise<void> {
+  if (target === "page" && ctx.result && !isDeepResult(ctx.result) && !deepDownloadStatus(ctx.settings, "wasm", ctx.cache).cached) {
+    return onDeepCheck();
+  }
+  await runAnalyze(target, true);
+}
+
+async function runAnalyze(target: "page" | "selection", manual = false): Promise<void> {
   const tabId = ctx.tabId;
   if (tabId === null) {
     ctx.error = "No active tab.";
     render();
     return;
   }
+  const previous = { lastTarget: ctx.lastTarget, result: ctx.result };
   ctx.lastTarget = target;
   ctx.error = null;
-  ctx.result = null;
-  ctx.progress = { phase: "download", loaded: 0, total: 0, message: "Starting…" };
+  // Page re-check: keep the current result on show; it's refined in place.
+  const keep = manual && target === "page" && !!ctx.result;
+  if (!keep) ctx.result = null;
+  ctx.deepBusy = manual;
+  ctx.progress = keep ? null : { phase: "download", loaded: 0, total: 0, message: "Starting…" };
   render();
   try {
-    const result = await sendMessage("analyzeTab", { tabId, target }, (progress) => {
+    const result = await sendMessage("analyzeTab", { tabId, target, manual }, (progress) => {
+      // Once a (Quick) result is on show, the Deep pass's progress stays out of the way.
+      if (ctx.result) return;
       ctx.progress = progress;
       render();
     });
     ctx.progress = null;
     const seen = ctx.result as AnalyzeResult | null;
     ctx.result = { ...result, images: seen?.images ?? result.images };
+    ctx.deepBusy = false;
     render();
   } catch (err) {
     ctx.progress = null;
+    ctx.deepBusy = false;
+    if (err instanceof Error && err.message === NO_SELECTION_ERROR) {
+      // Expected, not an error: put the popup back as it was and toast.
+      Object.assign(ctx, previous);
+      render();
+      showToast(NO_SELECTION_ERROR);
+      return;
+    }
     ctx.error = describeAnalyzeError(err);
     render();
   }

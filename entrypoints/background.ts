@@ -7,10 +7,10 @@
 // The engine router (src/engine/router.ts) handles `analyze`, `analyzeTab`
 // and the model management messages, and its own "Check selected text"
 // context menu; this file adds to that rather than duplicating it, reusing
-// its exported `runTabAnalysis` for the page/selection cases.
+// its exported `runManualCheck` (Quick, then Deep over it) for user-started checks.
 
 import { registerHandlers, sendTabMessage } from "@/src/shared/messages";
-import { logQuietly, runTabAnalysis, startEngineRouter, unloadIdleModels } from "@/src/engine/router";
+import { logQuietly, runManualCheck, startEngineRouter, unloadIdleModels } from "@/src/engine/router";
 import { getSettings, watchSettings, type Settings } from "@/src/shared/settings";
 import { sidePanelOnIconClick } from "@/src/ui/optionsLogic";
 import { clearBadge } from "@/src/ui/badge";
@@ -33,7 +33,7 @@ async function analyzeEditableInTab(tabId: number): Promise<void> {
   try {
     // Straight through the router: a service worker's own runtime.sendMessage
     // never reaches its own listeners ("No response for message analyze").
-    await runTabAnalysis(tabId, "editable", newRequestId(), undefined, undefined, undefined, undefined, undefined, true);
+    await runManualCheck(tabId, "editable", newRequestId(), true);
   } catch (err) {
     logQuietly("'Check text in this box'", err);
   }
@@ -88,7 +88,7 @@ function startExtraContextMenus(): void {
 /** "Analyze this page" from the menu: a PDF or protected page fails quietly. */
 async function analyzePageQuietly(tabId: number): Promise<void> {
   try {
-    await runTabAnalysis(tabId, "page", newRequestId(), undefined, undefined, undefined, undefined, undefined, true);
+    await runManualCheck(tabId, "page", newRequestId(), true);
   } catch (err) {
     logQuietly("'Analyze this page'", err);
   }
@@ -104,8 +104,8 @@ function startCommands(): void {
     void (async () => {
       const tabId = await activeTabId();
       if (tabId === undefined) return;
-      if (command === "analyze-page") await runTabAnalysis(tabId, "page", newRequestId(), undefined, undefined, undefined, undefined, undefined, true);
-      else if (command === "analyze-selection") await runTabAnalysis(tabId, "selection", newRequestId(), undefined, undefined, undefined, undefined, undefined, true);
+      if (command === "analyze-page") await runManualCheck(tabId, "page", newRequestId(), true);
+      else if (command === "analyze-selection") await runManualCheck(tabId, "selection", newRequestId(), true);
       else if (command === "toggle-visibility") await sendTabMessage(tabId, "toggleVisibility", undefined);
     })().catch((err) => logQuietly(`shortcut ${command}`, err));
   });

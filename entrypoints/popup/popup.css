@@ -5,7 +5,7 @@ html {
 }
 
 body {
-  width: 360px;
+  width: 300px;
 }
 
 .popup-root {
@@ -17,7 +17,7 @@ body {
   display: flex;
   align-items: center;
   gap: 0.5em;
-  padding: 0.7em 0.85em;
+  padding: 0.45em 0.6em 0.45em 0.75em;
   border-bottom: 1px solid var(--border);
 }
 .popup-header .brand-mark {
@@ -46,10 +46,10 @@ body {
 }
 
 .popup-body {
-  padding: 0.9em 0.85em 1em;
+  padding: 0.6em 0.75em 0.7em;
   display: flex;
   flex-direction: column;
-  gap: 0.9em;
+  gap: 0.55em;
 }
 
 /* ---- Consent screen ---- */
@@ -408,3 +408,61 @@ body {
   margin: 12px 0 4px;
   text-align: center;
 }
+
+/* The page's current result, as the corner card shows it (leads the popup). */
+.card-now-wrap { padding: 4px 2px 8px; }
+.card-now { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
+.card-now-line { font-size: 22px; font-weight: 700; line-height: 1.15; color: var(--ink); }
+.card-now-rows {
+  display: grid; grid-template-columns: auto 1fr; column-gap: 12px; row-gap: 3px;
+  margin: 0; font-size: 12px;
+}
+.card-now-rows dt { color: var(--ink-soft); }
+.card-now-rows dd { margin: 0; text-align: right; color: var(--ink); font-variant-numeric: tabular-nums; }
+.card-now-rows dd.dim { color: var(--ink-faint); }
+
+/* ---- Compact result line: "12%  Likely human" ---- */
+.score-line {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5em;
+}
+.score-line .score-value {
+  font-size: 1.6rem;
+  font-weight: 600;
+  line-height: 1.1;
+}
+.score-line .verdict-label {
+  text-align: left;
+}
+
+/* ---- "More": mode/style, page type, site rule, paste -- out of the way ---- */
+.more-disclosure > summary {
+  cursor: pointer;
+  font-size: 0.82rem;
+  color: var(--ink-faint);
+  list-style: none;
+}
+.more-disclosure > summary::before { content: "▸ "; }
+.more-disclosure[open] > summary::before { content: "▾ "; }
+.more-disclosure[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5em;
+}
+.card-now-line { font-size: 1.35rem; }
+.card-now-wrap { padding: 0; }
+
+.tier-tag {
+  margin-left: auto;
+  font-size: 0.75rem;
+  padding: 0.1em 0.5em;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+.tier-tag.is-deep { color: var(--accent); border-color: var(--accent); }
+.tier-tag.is-refining { animation: lad-tier-pulse 1.4s ease-in-out infinite; }
+@keyframes lad-tier-pulse { 50% { opacity: 0.5; } }
+@media (prefers-reduced-motion: reduce) { .tier-tag.is-refining { animation: none; } }

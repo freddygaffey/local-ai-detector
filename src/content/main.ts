@@ -198,6 +198,7 @@ async function boot(): Promise<void> {
     scanImages: () => scanImagesAndReport(),
     checkImageAtUrl: (req) => checkImageAtUrl(req.srcUrl),
     getSelectionInfo: () => ({ hasSelection: extractSelectionBlock(window) !== null }),
+    getCardState: () => JSON.parse(JSON.stringify(cardState())),
     showOnPage: () => {
       enablePageDisplayForSession();
       return { ok: true };

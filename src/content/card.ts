@@ -97,7 +97,7 @@ function css(): string {
     }
     .card, .hover, .panel {
       position: fixed;
-      z-index: 2147483000;
+      z-index: 2147483647;
       pointer-events: auto;
       background: var(--bg);
       border: 1px solid var(--line);
@@ -191,6 +191,45 @@ function css(): string {
   `;
 }
 
+/**
+ * How far to lift the card off the viewport edge so it doesn't sit on a site's
+ * own fixed corner widget (reCAPTCHA badge, chat bubble, cookie bar, "back to
+ * top"). Samples a few points where the card would go and lifts above any
+ * foreign fixed/sticky element found there. Full-screen overlays are ignored.
+ */
+function cornerObstacleOffset(host: Element, corner: Corner): number {
+  const [v, h] = corner.split("-") as ["top" | "bottom", "left" | "right"];
+  const W = window.innerWidth;
+  const H = window.innerHeight;
+  const xs = [MARGIN + 6, MARGIN + 36, MARGIN + 66].map((d) => (h === "right" ? W - d : d));
+  const ys = [MARGIN + 6, MARGIN + 26, MARGIN + 46].map((d) => (v === "bottom" ? H - d : d));
+  let lift = 0;
+  for (const x of xs) {
+    for (const y of ys) {
+      for (const el of document.elementsFromPoint(x, y)) {
+        if (el === host || host.contains(el) || el === document.documentElement || el === document.body) continue;
+        let node: Element | null = el;
+        let fixed: Element | null = null;
+        while (node && node !== document.body) {
+          const pos = getComputedStyle(node).position;
+          if (pos === "fixed" || pos === "sticky") {
+            fixed = node;
+            break;
+          }
+          node = node.parentElement;
+        }
+        if (!fixed) break; // normal page content under the card: fine
+        const r = fixed.getBoundingClientRect();
+        if (r.width > W * 0.6 && r.height > H * 0.6) break; // a full-screen overlay, not a corner widget
+        const need = v === "bottom" ? H - r.top - MARGIN + 8 : r.bottom - MARGIN + 8;
+        lift = Math.max(lift, Math.min(need, H * 0.4));
+        break;
+      }
+    }
+  }
+  return Math.max(0, Math.round(lift));
+}
+
 function place(el: HTMLElement, corner: Corner, offset = 0): void {
   el.style.left = el.style.right = el.style.top = el.style.bottom = "";
   const [v, h] = corner.split("-") as ["top" | "bottom", "left" | "right"];
@@ -224,7 +263,7 @@ export function createCard(initialCorner: Corner, cb: CardCallbacks): CardApi {
   const id = `aid-card-${++cardSeq}`;
   const host = document.createElement("ai-detector-card-host");
   // Never-defined custom element: some sites hide `:not(:defined)`, hence the inline !important.
-  host.style.cssText = "position:fixed; inset:0; width:0; height:0; pointer-events:none; visibility:visible !important; z-index:2147483000;";
+  host.style.cssText = "position:fixed; inset:0; width:0; height:0; pointer-events:none; visibility:visible !important; z-index:2147483647;";
   const shadow = host.attachShadow({ mode: "closed" });
   const style = document.createElement("style");
   style.textContent = css();
@@ -267,13 +306,27 @@ export function createCard(initialCorner: Corner, cb: CardCallbacks): CardApi {
   let lastSpoken = "";
   let userHidden = false;
 
-  const dockOffset = () => card.getBoundingClientRect().height + GAP;
+  let lift = 0;
+  const dockOffset = () => lift + card.getBoundingClientRect().height + GAP;
   function layout(): void {
-    place(card, corner);
+    lift = cornerObstacleOffset(host, corner);
+    place(card, corner, lift);
     const off = dockOffset();
     place(hover, corner, off);
     place(panel, corner, off);
   }
+  // Sites add corner widgets late (reCAPTCHA, chat, cookie bars): re-check now and then.
+  let checks = 0;
+  const recheck = window.setInterval(() => {
+    if (!host.isConnected) return window.clearInterval(recheck);
+    if (host.style.display === "none") return;
+    const next = cornerObstacleOffset(host, corner);
+    if (next !== lift) layout();
+    if (++checks > 30) {
+      window.clearInterval(recheck);
+      window.setInterval(() => host.isConnected && cornerObstacleOffset(host, corner) !== lift && layout(), 10000);
+    }
+  }, 2000);
 
   function renderCard(): void {
     const sum = collapsedSummary(state);

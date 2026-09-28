@@ -8,6 +8,7 @@
 import { browser } from "wxt/browser";
 import {
   CONSENT_REQUIRED_ERROR,
+  NO_SELECTION_ERROR,
   registerHandlers,
   sendProgress,
   sendTabMessage,
@@ -35,7 +36,7 @@ import {
   validateCustomModel,
   type ManagerDeps,
 } from "./model-manager";
-import { activeModelsForMode, estimatedDownloadBytes, slotsForMode, type FusionSpec } from "./models";
+import { activeModelsForMode, estimatedDownloadBytes, fusionForTier, slotsForMode, type FusionSpec } from "./models";
 import { decidePowerAction, readBatteryState } from "../power/battery";
 import type { Settings } from "../shared/settings";
 import type { EngineConfig } from "./protocol";
@@ -161,7 +162,9 @@ async function runAnalyze(
   const showBadge = badgeOn(settings);
   void maybeAutoCheck(managerDeps()).catch(() => {});
 
-  if (tabId >= 0) {
+  // A Deep pass refining a Quick result keeps that result on show while it runs.
+  const quietTab = tabId >= 0 && !req.keepResult;
+  if (quietTab) {
     broadcastStatus(tabId, { state: "running", mode });
     if (showBadge) badge.progress(tabId);
     else badge.clear(tabId);
@@ -172,7 +175,7 @@ async function runAnalyze(
     sendProgress(meta.requestId, progress);
     // Everyone else (the pill in the tab, a popup opened later) follows the
     // throttled tab status.
-    if (tabId >= 0) {
+    if (quietTab) {
       const now = Date.now();
       const final = progress.loaded >= progress.total;
       if (final || now - lastTabRelay > 250) {
@@ -302,10 +305,12 @@ export function runTabAnalysis(
   confirmWith?: AnalyzeRequest["fusionOverride"],
   /** A run the user asked for from outside the popup (context menu, shortcut): show it on the page. */
   reveal?: boolean,
+  /** Keep the tab's current result on show while this runs (Deep refining Quick). */
+  keepResult?: boolean,
 ): Promise<AnalyzeResult> {
   // Same run already going: share it. A different mode/tier (e.g. a Deep
   // click while the auto-run Quick pass is going) queues behind it instead.
-  const key = `${target}|${mode ?? ""}|${preferCpu ?? ""}|${tier ?? ""}`;
+  const key = `${target}|${mode ?? ""}|${preferCpu ?? ""}|${tier ?? ""}|${keepResult ?? ""}`;
   const running = inflight.get(tabId);
   if (running?.key === key) return running.run;
   const before = running?.run.catch(() => undefined);
@@ -317,22 +322,23 @@ export function runTabAnalysis(
     let itemBlocks: boolean | undefined;
     try {
       ({ blocks, items: itemBlocks } = await toTab(tabId, "extractText", { target }));
+      if (!blocks.length && target === "selection") throw new Error(NO_SELECTION_ERROR);
       if (!blocks.length) {
         throw new Error(
-          target === "selection"
-            ? "Select some text on the page first, then try again."
-            : target === "editable"
+          target === "editable"
               ? "This box is empty."
             : "Couldn't find any readable text on this page.",
         );
       }
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
-      broadcastStatus(tabId, { state: "error", mode: settings.mode, error });
+      // Nothing selected isn't a failure: leave the tab status alone so the
+      // card/popup keep the last result; callers show a toast.
+      if (error !== NO_SELECTION_ERROR) broadcastStatus(tabId, { state: "error", mode: settings.mode, error });
       throw err;
     }
     let result = await runAnalyze(
-      { tabId, mode: mode ?? settings.mode, blocks, preferCpu, tier, fusionOverride, itemBlocks },
+      { tabId, mode: mode ?? settings.mode, blocks, preferCpu, tier, fusionOverride, itemBlocks, keepResult },
       { requestId, tabId },
     );
     // Quick tier: the cheap pass only screens. An AI-leaning page is
@@ -365,12 +371,62 @@ export function runTabAnalysis(
   return run;
 }
 
+/** Whether every Deep-tier model is already downloaded (a manual check never downloads unasked). */
+async function deepReady(settings: Settings): Promise<boolean> {
+  const fusion = fusionForTier("deep", settings.tiers);
+  const models = activeModelsForMode("ensemble", settings.modelOverrides, fusion);
+  const items = slotsForMode("ensemble", fusion).map((slot) => ({ slot, ref: models[slot]! }));
+  try {
+    return (await getHostClient().call("isCached", { items })).every(Boolean);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A check the user asked for (popup, context menu, shortcut): Quick first,
+ * shown at once and marked `refining`, then Deep over the top of it when the
+ * Deep models are downloaded. A page that already has a Quick result goes
+ * straight to Deep. Without the Deep models the Quick result stands (the
+ * popup offers the download).
+ */
+export async function runManualCheck(
+  tabId: number,
+  target: "page" | "selection" | "editable",
+  requestId: string,
+  reveal?: boolean,
+): Promise<AnalyzeResult> {
+  const settings = await getSettings();
+  const quickSet = fusionForTier("quick", settings.tiers).detectors;
+  const deepSet = fusionForTier("deep", settings.tiers).detectors;
+  const ready = await deepReady(settings);
+  const shown = tabStatus.get(tabId);
+  const haveQuick = target === "page" && shown?.state === "done" && shown.result.tier === "quick";
+  let quick: AnalyzeResult | null = haveQuick ? shown.result : null;
+  if (!quick) {
+    quick = await runTabAnalysis(
+      tabId, target, requestId, "ensemble", undefined, "quick", quickSet,
+      settings.tiers.confirmQuick ? settings.fusion.detectors : undefined, reveal,
+    );
+    if (!ready) return quick;
+  }
+  if (!ready) return quick;
+  broadcastStatus(tabId, { state: "done", mode: "ensemble", result: { ...quick, refining: true }, finishedAt: Date.now() });
+  try {
+    return await runTabAnalysis(tabId, target, requestId, "ensemble", undefined, "deep", deepSet, undefined, reveal, true);
+  } catch (e) {
+    // The Quick result stands.
+    broadcastStatus(tabId, { state: "done", mode: "ensemble", result: quick, finishedAt: Date.now() });
+    throw e;
+  }
+}
+
 const MENU_ID = "lad-analyze-selection";
 
 async function onContextMenuSelection(tabId: number, selectionText?: string): Promise<void> {
   const requestId = `menu-${Date.now().toString(36)}`;
   try {
-    await runTabAnalysis(tabId, "selection", requestId, undefined, undefined, undefined, undefined, undefined, true);
+    await runManualCheck(tabId, "selection", requestId, true);
   } catch (e) {
     // A PDF (or other page we can't script): Chrome still hands us the selected
     // text, so check that here. The result reaches the side panel and the popup
@@ -431,6 +487,7 @@ export function startEngineRouter(): void {
     analyzeTab: (req, meta) => {
       const tabId = meta.senderTabId ?? req.tabId;
       if (typeof tabId !== "number" || tabId < 0) throw new Error("No tab to analyze.");
+      if (req.manual) return runManualCheck(tabId, req.target, meta.requestId);
       return runTabAnalysis(tabId, req.target, meta.requestId, req.mode, req.preferCpu, req.tier, req.fusionOverride, req.confirmWith);
     },
     reportImageSummary: (req, meta) => {

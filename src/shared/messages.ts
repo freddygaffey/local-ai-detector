@@ -205,6 +205,8 @@ export interface ClearHighlightsMessage {
  * set `consentedDownload`. The rest of the message is human-readable.
  */
 export const CONSENT_REQUIRED_ERROR = "consent-required";
+/** "Check selection" with nothing selected: an expected condition, shown as a toast, never an error screen. */
+export const NO_SELECTION_ERROR = "No text selected";
 
 /** Result of checking a user-entered Hugging Face repo for a model slot, without switching to it. */
 export type CustomModelValidation =
@@ -461,10 +463,14 @@ export interface AnalyzeRequest {
    * src/engine/models.ts. Ignored for the single-detector modes.
    */
   fusionOverride?: FusionDetector[];
+  /** While running, keep the tab's last result on show (a Deep pass refining a Quick one). */
+  keepResult?: boolean;
 }
 
 export interface AnalyzeResult {
   tier?: Tier;
+  /** A Quick result shown early while a Deep pass runs over the top of it (manual checks). */
+  refining?: boolean;
   /**
    * Quick tier: the cheap pass scored this page high, so the default Fusion
    * set re-checked it and this is the Fusion result (docs/calibration.md
@@ -481,6 +487,11 @@ export interface AnalyzeTabRequestT7 {
    * `needsQuickConfirm`), re-check with these detectors before rendering.
    */
   confirmWith?: FusionDetector[];
+  /**
+   * A check the user asked for: Quick first (shown at once, `refining`), then
+   * Deep over the top when its models are downloaded (router.runManualCheck).
+   */
+  manual?: boolean;
 }
 
 // ---- Added by T9 (additive only; see docs/plan.md "Shared contract") ----
@@ -557,6 +568,18 @@ export interface GetSelectionInfoMessage {
   response: { hasSelection: boolean };
 }
 
+/**
+ * Popup -> content script: everything the corner card knows about this page
+ * right now (article/thread/search result, video transcript + voice, images,
+ * hidden characters). The popup leads with this so it never shows "nothing
+ * yet" for a page that has already been checked. JSON-safe.
+ */
+export interface GetCardStateMessage {
+  type: "getCardState";
+  request: undefined;
+  response: import("../content/cardSummary").CardState;
+}
+
 // ---- Added by T10: YouTube transcripts (additive only) ----
 
 /**
@@ -605,6 +628,7 @@ export type RuntimeMessage =
   | ToggleVisibilityMessage
   | ScrollToSentenceMessage
   | GetSelectionInfoMessage
+  | GetCardStateMessage
   | AnalyzeTabMessage
   | ReportImageSummaryMessage
   | ScanImagesMessage

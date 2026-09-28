@@ -236,8 +236,12 @@ export function registerVoiceOffscreenHost(runtime: MinimalRuntime, ortBaseUrl: 
 }
 
 /** Firefox dedicated worker. Replies are {id, res}. */
-export function startVoiceWorkerHost(scope: { onmessage: ((e: MessageEvent) => void) | null; postMessage(m: unknown): void }, ortBaseUrl: string): void {
-  configureOrt(ortBaseUrl, true);
+export function startVoiceWorkerHost(
+  scope: { onmessage: ((e: MessageEvent) => void) | null; postMessage(m: unknown): void },
+  ortBaseUrl: string,
+  firefox = true,
+): void {
+  configureOrt(ortBaseUrl, firefox);
   scope.onmessage = (e) => {
     const msg = e.data;
     if (!isVoiceHostRequest(msg)) return;
