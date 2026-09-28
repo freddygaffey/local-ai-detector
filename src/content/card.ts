@@ -509,7 +509,12 @@ export function createCard(initialPos: CardPos, cb: CardCallbacks): CardApi {
         const all = document.createElement("span");
         all.textContent = total !== undefined ? `${state.article?.flagged ?? 0} flagged` : "";
         sec.append(head, of);
-        sec.append(button("Highlight by the combined score", "All", () => cb.onHighlightBy(null), { pressed: pstate.highlightBy === null, cls: "pick" }), all);
+        all.title = "Sentences the combined score flags: a weighted average of all the models, so one model alone rarely tips it";
+        sec.append(button("Highlight by the combined score (weighted average of the models)", "Combined", () => cb.onHighlightBy(null), { pressed: pstate.highlightBy === null, cls: "pick" }), all);
+        const anyV = document.createElement("span");
+        anyV.textContent = state.meta?.anyFlagged !== undefined ? `${state.meta.anyFlagged} flagged` : "";
+        anyV.title = "Sentences at least one model flags on its own";
+        sec.append(button("Highlight every sentence any one model flags", "Any model", () => cb.onHighlightBy("any"), { pressed: pstate.highlightBy === "any", cls: "pick" }), anyV);
       }
       for (const d of dets) {
         const v = document.createElement("span");

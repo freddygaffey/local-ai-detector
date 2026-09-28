@@ -490,7 +490,9 @@ function cardState(): CardState {
     pageType: page.type,
     pageReason: page.reason,
     off: page.off,
-    running: cardRunning || videoStatus.transcriptState === "running",
+    // A Deep check in flight counts as running: the card shows its progress bar and "checking".
+    running: cardRunning || deepBusy || videoStatus.transcriptState === "running",
+    deepRunning: deepBusy,
     progress: cardProgress,
     error: cardError,
     images: imageSummary,
@@ -530,6 +532,7 @@ function cardState(): CardState {
         device: d.device,
         flagged: r.sentences.filter((sc) => (sc.detectors?.[d.id] ?? -1) >= FLAG_THRESHOLD).length,
       })),
+      anyFlagged: r.sentences.filter((sc) => Object.values(sc.detectors ?? {}).some((v) => (v ?? -1) >= FLAG_THRESHOLD)).length,
       words: r.words,
     };
   }
@@ -775,9 +778,15 @@ function applyResult(result: AnalyzeResult, style: HighlightStyle): void {
     hideTooltip();
 
     activeSentences = [];
-    if (highlightBy && !result.detectors?.some((d) => d.id === highlightBy)) highlightBy = null;
-    const sentenceScore = (sc: AnalyzeResult["sentences"][number]): number =>
-      (highlightBy ? sc.detectors?.[highlightBy as keyof NonNullable<typeof sc.detectors>] : undefined) ?? sc.score;
+    if (highlightBy && highlightBy !== "any" && !result.detectors?.some((d) => d.id === highlightBy)) highlightBy = null;
+    // "any": the highest single-model score (a sentence any one model flags).
+    const sentenceScore = (sc: AnalyzeResult["sentences"][number]): number => {
+      if (highlightBy === "any") {
+        const vals = Object.values(sc.detectors ?? {}).filter((v): v is number => typeof v === "number");
+        return vals.length ? Math.max(...vals) : sc.score;
+      }
+      return (highlightBy ? sc.detectors?.[highlightBy as keyof NonNullable<typeof sc.detectors>] : undefined) ?? sc.score;
+    };
     const totalWords = result.sentences.reduce((n, sc) => {
       const b = blocksById.get(sc.blockId);
       const sp = b?.sentences[sc.index];

@@ -26,6 +26,8 @@ export interface CardMeta {
   /** Per-detector raw scores (0..1), in run order. */
   detectors?: { id?: string; label: string; overall: number; device?: string; flagged?: number }[];
   words?: number;
+  /** Sentences at least one detector flags on its own (the combined score may still be low). */
+  anyFlagged?: number;
 }
 
 export interface CardState {
@@ -54,6 +56,8 @@ export interface CardState {
   images?: ImageProvenanceSummary;
   hidden?: { count: number; message: boolean };
   meta?: CardMeta;
+  /** A Deep check (all models) is running over the result on show. */
+  deepRunning?: boolean;
   /** Automatic checks paused (popup ⏸) until this time, ms since epoch. */
   pausedUntil?: number;
 }
@@ -218,7 +222,10 @@ export function hoverLines(s: CardState): HoverLine[] {
   }
   for (const m of markers(s)) out.push({ label: markerTitle(m.code), value: m.label.replace(/^.*?: /, "") });
   if (s.error) out.push({ label: "Error", value: s.error });
-  if (s.running) out.push({ label: "Status", value: s.progress !== undefined ? `checking ${pct(s.progress)}` : "checking…" });
+  if (s.running) {
+    const what = s.deepRunning ? "Deep check running" : "checking";
+    out.push({ label: "Status", value: s.progress !== undefined ? `${what} ${pct(s.progress)}` : `${what}…` });
+  }
   if (s.pausedUntil) {
     const until = new Date(s.pausedUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     out.push({ label: "Auto", value: `paused until ${until} (click to check)`, dim: true });
