@@ -215,3 +215,33 @@ battery and because of the 364 MB of RAM for weights.
    `Voice: AI 72%` or `Voice: likely human`. Show `Voice: unclear` if there are fewer than 3
    speech windows or music dominates.
 5. **Pin and credit.** Pin the model revision. Credit lab260 (Apache-2.0) in THIRD_PARTY.md.
+
+## 5. Playback speed (measured 2026-09-28)
+
+Spectra-AASIST3 int8, audio captured the extension's way (`captureStream`,
+16 kHz, pitch preserved), AAC 128k, 60 single-voice streams (1,929 s human
+incl. 24 held-out LibriVox segments, 681 s Kokoro/Piper/`say`), one window
+per 4.04 s, speech-gated, Strict operating point.
+
+| Speed | EER | AUROC | Human windows flagged | Human videos flagged (trimmed mean) | AI videos flagged |
+|---|---|---|---|---|---|
+| 1× | 5.0% | 0.986 | 4.3% | 0/39 | 19/20 |
+| 1.25× | 3.2% | 0.989 | 7.2% | 0/38 | 20/20 |
+| 1.5× | 2.6% | 0.987 | 5.5% | 0/37 | 19/20 |
+| 2× | 4.9% | 0.971 | 12.5% | 0/37 | 19/19 |
+| 2.5× | 17.4% | 0.854 | 33.8% | 11/38 | 18/18 |
+| 3× | 43.1% | 0.593 | 68.4% | 24/37 | 20/20 |
+| 2× → undone to 1× (WSOLA) | 41.3% | 0.630 | 72.8% | 32/39 | 19/19 |
+| 3× → undone to 1× (WSOLA) | 41.3% | 0.599 | 91.0% | 37/37 | 20/20 |
+
+- Played audio is usable up to 2×. From 2.5× the browser's pitch-preserving
+  time-stretch reads as synthetic.
+- Stretching it back to 1× makes it worse (a second set of stretch
+  artefacts), so the extension never does that.
+- **Design:** on YouTube the clips come from the audio the player itself
+  downloads: a read-only page-world tap of its `videoplayback` responses
+  (UMP parts, `src/voice/ump.ts`; `src/content/youtube/audioTap.ts`),
+  decoded at original speed (`src/voice/sourceAudio.ts`). Independent of
+  playback speed; verified in real Chrome (TED talk: 4 clips, Voice 22%).
+  Other sites: the played audio, at 0.75–2× (`voiceRateOk`); outside that the
+  card says so.

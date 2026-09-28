@@ -38,6 +38,13 @@ export interface VoiceSessionOptions {
   score(pcmB64: string): Promise<VoiceResponse>;
   /** True while the audio shouldn't be sampled (e.g. a YouTube ad is playing). */
   skip?(): boolean;
+  /**
+   * Original-speed audio for a clip at this playback position (YouTube's own
+   * downloaded audio, ./sourceAudio.ts), or null to record what is playing.
+   */
+  source?(atS: number): Promise<Float32Array | null>;
+  /** Recording what is playing is allowed right now (the speed is one the detector handles). */
+  canRecord?(): boolean;
   onUpdate(state: VoiceState): void;
 }
 
@@ -147,10 +154,31 @@ export class VoiceSession {
     if (dt > 0 && dt < 1.5 && !this.video.seeking) this.watched += dt; // seeks/loops don't count
     if (!this.recording && !this.busy && this.watched >= this.nextDue && this.state.status === "listening") {
       if (noRoomForClip(this.schedState())) return;
-      this.recording = true;
-      this.filled = 0;
-      this.clipStartPos = t;
+      if (this.opts.source) return void this.fromSource(t);
+      this.startRecording(t);
     }
+  }
+
+  private startRecording(t: number): void {
+    if (this.opts.canRecord && !this.opts.canRecord()) return;
+    this.recording = true;
+    this.filled = 0;
+    this.clipStartPos = t;
+  }
+
+  /** A clip from the original audio (any playback speed); falls back to recording. */
+  private async fromSource(t: number): Promise<void> {
+    this.busy = true;
+    let x: Float32Array | null = null;
+    try {
+      x = (await this.opts.source?.(t)) ?? null;
+    } catch {
+      x = null;
+    }
+    this.busy = false;
+    if (this.state.status === "stopped") return; // a newer session took over while decoding
+    if (x) return this.finishClip(x, t);
+    this.startRecording(t);
   }
 
   private abortClip(): void {

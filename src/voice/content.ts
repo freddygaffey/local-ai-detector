@@ -14,6 +14,7 @@ import { browser } from "wxt/browser";
 import { DEFAULT_SETTINGS, getSettings, isPaused, setSettings, watchSettings, type Settings } from "../shared/settings";
 import { decidePowerAction, readBatteryState, readPressureState } from "../power/battery";
 import { publishVoiceStatus, voiceRateOk } from "../content/videoStatus";
+import { sourceAudioReady, sourceClip, startSourceAudio } from "./sourceAudio";
 import { VoiceSession, type VoiceState } from "./capture";
 import { createVoiceChip, type VoiceChipApi } from "./ui";
 import { isVoiceProgress, VOICE_START_KIND, type VoiceRequest, type VoiceResponse } from "./protocol";
@@ -101,7 +102,8 @@ let lastState: VoiceState | null = null;
 function render(state: VoiceState | null): void {
   lastState = state;
   chip?.setState(state, { settings: voice(), rate: rate() });
-  const speed = session?.video.playbackRate;
+  // Original audio from the tap: speed doesn't matter, so don't report it.
+  const speed = sourceAudioReady() ? undefined : session?.video.playbackRate;
   publishVoiceStatus(
     state || session ? { p: state?.agg.p ?? null, clips: state?.agg.clips ?? 0, speed } : null,
   );
@@ -146,6 +148,7 @@ function stopSession(): void {
 async function startSession(video: HTMLVideoElement, fixedOnly: boolean): Promise<void> {
   if (!voice().enabled) return;
   stopSession();
+  const onYouTube = /(^|\.)youtube\.com$/.test(location.hostname) && video === youTubeVideo();
   const c = ensureChip(fixedOnly);
   const power = decidePowerAction(await readBatteryState(), await readPressureState(), settings.battery);
   const v = voice();
@@ -154,9 +157,13 @@ async function startSession(video: HTMLVideoElement, fixedOnly: boolean): Promis
     batterySaver: power.reason !== null,
     model: v.model,
     sensitivity: v.sensitivity,
-    // Skip ads, and speeds the detector can't score as played (voiceRateOk:
-    // past 2x the browser's time-stretch reads as synthetic).
-    skip: () => (!fixedOnly && adShowing()) || !voiceRateOk(video.playbackRate),
+    // Skip ads. On YouTube, clips come from the original downloaded audio
+    // (any speed); recording what plays is the fallback, and only at speeds
+    // the detector handles (voiceRateOk: past 2x the browser's time-stretch
+    // reads as synthetic).
+    skip: () => !fixedOnly && adShowing(),
+    source: onYouTube ? (atS) => sourceClip(atS) : undefined,
+    canRecord: () => voiceRateOk(video.playbackRate),
     score: (pcmB64) =>
       browser.runtime.sendMessage({ kind: "lad-voice", op: "score", model: v.model, pcmB64 } satisfies VoiceRequest) as Promise<VoiceResponse>,
     onUpdate: (st) => {
@@ -246,6 +253,7 @@ export function startVoiceContent(): void {
     .then((s) => {
       settings = s;
       if (youTubeVideoId(location.href) !== null || /(^|\.)youtube\.com$/.test(location.hostname)) {
+        startSourceAudio();
         void onYouTubeLocation();
         document.addEventListener("yt-navigate-finish", () => void onYouTubeLocation());
         window.addEventListener("popstate", () => void onYouTubeLocation());
