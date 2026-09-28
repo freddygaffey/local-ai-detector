@@ -95,9 +95,14 @@ function adShowing(): boolean {
   return !!document.querySelector("#movie_player.ad-showing, #movie_player.ad-interrupting");
 }
 
+let lastState: VoiceState | null = null;
 function render(state: VoiceState | null): void {
+  lastState = state;
   chip?.setState(state, { settings: voice(), rate: rate() });
-  publishVoiceStatus(state ? { p: state.agg.p, clips: state.agg.clips } : null);
+  const speed = session?.video.playbackRate;
+  publishVoiceStatus(
+    state || session ? { p: state?.agg.p ?? null, clips: state?.agg.clips ?? 0, speed } : null,
+  );
 }
 
 function ensureChip(fixedOnly: boolean): VoiceChipApi {
@@ -158,7 +163,12 @@ async function startSession(video: HTMLVideoElement, fixedOnly: boolean): Promis
   });
   session = s;
   c.setState(null, { settings: v, rate: rate() });
+  // Voice pauses away from 1x; re-publish on speed changes so the card can say why.
+  video.addEventListener("ratechange", () => {
+    if (session === s) render(lastState);
+  });
   s.start();
+  render(null);
 }
 
 async function onYouTubeLocation(): Promise<void> {

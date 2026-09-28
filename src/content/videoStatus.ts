@@ -12,6 +12,8 @@ export interface VideoStatus {
   /** Voice P(AI); null = not enough clips yet. */
   voice?: number | null;
   voiceClips?: number;
+  /** Playback speed of the sampled video; voice only samples at ~1x. */
+  voiceSpeed?: number;
   /** YouTube's own "Altered or synthetic content" / "Made with AI" label. */
   disclosure?: string | null;
 }
@@ -36,9 +38,16 @@ export function publishTranscriptStatus(r: { state: string; probability?: number
   emit();
 }
 
-export function publishVoiceStatus(v: { p: number | null; clips: number } | null): void {
-  status = v ? { ...status, voice: v.p, voiceClips: v.clips } : { ...status, voice: undefined, voiceClips: undefined };
+export function publishVoiceStatus(v: { p: number | null; clips: number; speed?: number } | null): void {
+  status = v
+    ? { ...status, voice: v.p, voiceClips: v.clips, voiceSpeed: v.speed }
+    : { ...status, voice: undefined, voiceClips: undefined, voiceSpeed: undefined };
   emit();
+}
+
+/** True when voice sampling is paused because the video isn't playing at ~1x. */
+export function voicePausedForSpeed(s: VideoStatus): boolean {
+  return s.voice === null && typeof s.voiceSpeed === "number" && Math.abs(s.voiceSpeed - 1) > 0.05;
 }
 
 export function onVideoStatus(fn: (s: VideoStatus) => void): () => void {

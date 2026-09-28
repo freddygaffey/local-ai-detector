@@ -15,7 +15,7 @@ import type { PageType } from "./pageType";
 import type { Agreement, ImageProvenanceSummary } from "../shared/messages";
 import type { Tier } from "../shared/settings";
 import { BAND_LABEL, type Band } from "../ui/verdict";
-import type { VideoStatus } from "./videoStatus";
+import { voicePausedForSpeed, type VideoStatus } from "./videoStatus";
 
 export interface CardMeta {
   tier?: Tier;
@@ -117,7 +117,7 @@ function videoLines(v: VideoStatus | undefined, running: boolean): SummaryLine[]
   else if (v?.transcriptState === "none") lines.push({ text: "Script —" });
   else if (v?.transcriptState && v.transcriptState !== "idle") lines.push({ text: "Script …" });
   if (typeof v?.voice === "number") lines.push({ text: `Voice ${pct(v.voice)}`, score: v.voice });
-  else if (v?.voice === null) lines.push({ text: "Voice …" });
+  else if (v?.voice === null) lines.push({ text: v && voicePausedForSpeed(v) ? "Voice 1× only" : "Voice …" });
   if (!lines.length) lines.push({ text: running ? "Script …" : "Script —" });
   return lines;
 }
@@ -205,6 +205,8 @@ export function hoverLines(s: CardState): HoverLine[] {
     else out.push({ label: "Script", value: transcriptStateText(v.transcriptState) });
     if (s.pageType === "video") {
       if (typeof v.voice === "number") out.push({ label: "Voice", value: pct(v.voice), score: v.voice });
+      else if (v.voice === null && voicePausedForSpeed(v))
+        out.push({ label: "Voice", value: `paused at ${v.voiceSpeed}× (needs 1×)` });
       else if (v.voice === null) out.push({ label: "Voice", value: `sampling${v.voiceClips ? ` (${v.voiceClips} clips)` : ""}` });
       else out.push({ label: "Voice", value: "not checked" });
     }
