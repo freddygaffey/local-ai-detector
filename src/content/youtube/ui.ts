@@ -12,7 +12,10 @@ import { FLAGGED_THRESHOLD } from "../../shared/thresholds";
 import { scoreColor } from "../colors";
 
 export interface TranscriptChipCallbacks {
+  /** Quick check (the chip, before anything ran). */
   onRun(): void;
+  /** Deep check: the whole transcript, all models (the menu's button). */
+  onDeep(): void;
   onSeek(seconds: number): void;
   /** Model download not consented to yet ("consent" state): grants it and retries. */
   onConsent(): void;
@@ -57,6 +60,9 @@ const CSS = `
     background: none; border: 0; color: inherit; padding: 4px 6px; border-radius: 6px; }
   li button:hover, li button:focus-visible { background: var(--hover); outline: none; }
   .ts { font-variant-numeric: tabular-nums; color: var(--link); font-weight: 600; }
+  .bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 6px; }
+  .tab { border: 1px solid var(--line); background: var(--bg); color: var(--muted); border-radius: 999px; padding: 3px 10px; }
+  .tab.on { color: var(--fg); border-color: var(--fg); font-weight: 600; }
   .pct { font-variant-numeric: tabular-nums; font-weight: 600; }
   .snip { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .meta { margin-top: 6px; color: var(--muted); font-size: 11px; }
@@ -149,6 +155,8 @@ export function createTranscriptChip(cb: TranscriptChipCallbacks): TranscriptChi
   shadow.append(style, wrap);
 
   let report: TranscriptReport | null = null;
+  /** The menu's list: the AI-flagged parts only, or every part with its score. */
+  let view: "flagged" | "all" = "flagged";
 
   const place = () => {
     host.classList.toggle("dark", theme() === "dark");
@@ -187,14 +195,42 @@ export function createTranscriptChip(cb: TranscriptChipCallbacks): TranscriptChi
       return;
     }
     const flagged = report.segments.filter((s) => s.score >= FLAGGED_THRESHOLD);
-    if (flagged.length === 0) {
+    // Menu: Deep check, then which parts to list.
+    const bar = document.createElement("div");
+    bar.className = "bar";
+    const deep = document.createElement("button");
+    deep.type = "button";
+    deep.className = "action";
+    const full = report.pass === "full";
+    deep.textContent = full ? "Deep check again" : "Deep check (whole transcript, all models)";
+    deep.addEventListener("click", (e) => {
+      e.stopPropagation();
+      cb.onDeep();
+    });
+    const tab = (v: "flagged" | "all", text: string) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = `tab${view === v ? " on" : ""}`;
+      b.setAttribute("aria-pressed", String(view === v));
+      b.textContent = text;
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        view = v;
+        renderDetails();
+      });
+      return b;
+    };
+    bar.append(deep, tab("flagged", `AI parts (${flagged.length})`), tab("all", `Whole transcript (${report.segments.length})`));
+    details.append(bar);
+    const shown = view === "flagged" ? flagged : report.segments;
+    if (shown.length === 0) {
       const p = document.createElement("div");
       p.className = "empty";
-      p.textContent = "Nothing flagged.";
+      p.textContent = view === "flagged" ? "No part of the transcript is flagged as AI." : "No transcript text.";
       details.append(p);
     } else {
       const ul = document.createElement("ul");
-      for (const s of flagged) {
+      for (const s of shown) {
         const li = document.createElement("li");
         const b = document.createElement("button");
         b.type = "button";
@@ -205,6 +241,7 @@ export function createTranscriptChip(cb: TranscriptChipCallbacks): TranscriptChi
         const pct = document.createElement("span");
         pct.className = "pct";
         pct.textContent = s.probability !== undefined ? `AI ${Math.round(s.probability * 100)}%` : "—";
+        if (s.probability !== undefined) pct.style.color = scoreColor(s.probability, theme());
         const snip = document.createElement("span");
         snip.className = "snip";
         snip.textContent = s.snippet;
@@ -242,16 +279,12 @@ export function createTranscriptChip(cb: TranscriptChipCallbacks): TranscriptChi
     renderDetails();
   };
 
+  // Click: before a result, run the check; after, open or close the menu
+  // (Deep check is the menu's own button, never a side effect of opening it).
   chip.addEventListener("click", () => {
     if (!report) return cb.onRun();
     if (report.state === "idle" || report.state === "error") return cb.onRun();
-    if (report.state === "done") {
-      if (report.pass !== "full") {
-        details.hidden = false;
-        return cb.onRun();
-      }
-      details.hidden = !details.hidden;
-    }
+    if (report.state === "done") details.hidden = !details.hidden;
   });
 
   place();

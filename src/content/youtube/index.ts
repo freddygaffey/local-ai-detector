@@ -61,7 +61,8 @@ function wantChip(): boolean {
 function reconcileChip(): void {
   if (wantChip() && !chip) {
     chip = createTranscriptChip({
-      onRun: () => void run("full", true),
+      onRun: () => void run("fast", true),
+      onDeep: () => void run("full", true),
       onSeek: seek,
       onConsent: () => {
         // Same global consent the popup's "Download & enable" sets; grant it

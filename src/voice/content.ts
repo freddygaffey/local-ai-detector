@@ -121,6 +121,7 @@ function ensureChip(fixedOnly: boolean): VoiceChipApi {
         const v = fixedOnly ? lastContextVideo : youTubeVideo();
         if (v) void startSession(v, fixedOnly);
       },
+      onDeep: () => runDeepVoiceCheck(),
       onSeek: (t) => {
         if (session && Number.isFinite(t)) session.video.currentTime = Math.max(0, t);
       },

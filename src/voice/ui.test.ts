@@ -34,7 +34,7 @@ describe("voice chip: consent state", () => {
   test("shows an inline, already-visible download action sized from the model registry", () => {
     const capture = captureNextShadowRoot();
     const onConsent = vi.fn();
-    const chip = createVoiceChip({ onRun: () => {}, onSeek: () => {}, onConsent });
+    const chip = createVoiceChip({ onRun: () => {}, onDeep: () => {}, onSeek: () => {}, onConsent });
     const root = capture.get();
 
     chip.setState(consentState, { settings: DEFAULT_VOICE, rate: "normal" });

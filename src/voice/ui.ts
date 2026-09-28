@@ -15,6 +15,8 @@ import type { VoiceSettings } from "./settings";
 
 export interface VoiceChipCallbacks {
   onRun(): void;
+  /** Deep check: sample far more of the video (the menu's button). */
+  onDeep(): void;
   onSeek(seconds: number): void;
   /** Model download not consented to yet ("consent" state): grants it and retries. */
   onConsent(): void;
@@ -83,6 +85,14 @@ const CSS = `
   .axis { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; margin-top: 2px;
     font-variant-numeric: tabular-nums; }
   .meta { margin-top: 6px; color: var(--muted); font-size: 11px; }
+  .bar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+  .action:disabled { opacity: 0.6; cursor: default; }
+  .clips { list-style: none; margin: 6px 0 0; padding: 0; max-height: 160px; overflow: auto; }
+  .clips button { display: flex; gap: 10px; width: 100%; background: none; border: 0; color: inherit; padding: 3px 6px;
+    border-radius: 6px; font: inherit; cursor: pointer; text-align: left; }
+  .clips button:hover, .clips button:focus-visible { background: var(--track); outline: none; }
+  .ts { font-variant-numeric: tabular-nums; color: var(--link); font-weight: 600; }
+  .pct { font-variant-numeric: tabular-nums; font-weight: 600; }
   :host { --bg: #fff; --fg: #0f0f0f; --muted: #606060; --line: rgba(0,0,0,0.15); --track: rgba(0,0,0,0.06); --link: #065fd4; }
   :host(.dark) { --bg: #212121; --fg: #f1f1f1; --muted: #aaa; --line: rgba(255,255,255,0.2); --track: rgba(255,255,255,0.08); --link: #3ea6ff; }
 `;
@@ -144,6 +154,20 @@ export function createVoiceChip(cb: VoiceChipCallbacks, opts: { fixedOnly?: bool
       return;
     }
     const clips = state.clips;
+    const bar = document.createElement("div");
+    bar.className = "bar";
+    const deep = document.createElement("button");
+    deep.type = "button";
+    deep.className = "action";
+    const thorough = meta?.rate === "thorough" || meta?.rate === "continuous";
+    deep.textContent = thorough ? "Deep check running (more samples)" : "Deep check (sample more of the video)";
+    deep.disabled = thorough;
+    deep.addEventListener("click", (e) => {
+      e.stopPropagation();
+      cb.onDeep();
+    });
+    bar.append(deep);
+    details.append(bar);
     const dur = Number.isFinite(state.durationS) && state.durationS > 0 ? state.durationS : Math.max(1, ...clips.map((c) => c.atS + 4));
     const tl = document.createElement("div");
     tl.className = "tl";
@@ -172,7 +196,28 @@ export function createVoiceChip(cb: VoiceChipCallbacks, opts: { fixedOnly?: bool
       "experimental; misses some AI voices, esp. with music; probability, not proof",
     ].filter(Boolean);
     m.textContent = parts.join(" · ");
-    details.append(tl, axis, m);
+    // The sampled clips, listed: time and score; click to jump there.
+    const list = document.createElement("ul");
+    list.className = "clips";
+    for (const c of [...clips].sort((a, b) => a.atS - b.atS)) {
+      const li = document.createElement("li");
+      const b = document.createElement("button");
+      b.type = "button";
+      const t = document.createElement("span");
+      t.className = "ts";
+      t.textContent = formatClock(c.atS);
+      const p = document.createElement("span");
+      p.className = "pct";
+      p.textContent = `AI ${Math.round(c.p * 100)}%`;
+      p.style.color = scoreColor(c.p, theme());
+      b.append(t, p);
+      b.addEventListener("click", () => cb.onSeek(c.atS));
+      li.append(b);
+      list.append(li);
+    }
+    details.append(tl, axis);
+    if (clips.length) details.append(list);
+    details.append(m);
   };
 
   const render = () => {
