@@ -313,13 +313,12 @@ async function analyzeViaPopup(mode, label) {
   await setMode(mode);
   await popup.evaluate(() => (window.__ev = []));
   const t0 = Date.now();
-  await popup.click(".btn-row .btn-primary");
-  // "Deep check" with the Deep models not all downloaded offers the download first.
-  await sleep(300);
-  if (await popup.$(".deep-prompt .btn-primary")) await popup.click(".deep-prompt .btn-primary");
-  // Wait for a result finished after this click (the previous run's "done"
-  // status is still there until the new run starts). In Fusion mode a manual
-  // check shows Quick first (`refining`) and then Deep: wait for the last one.
+  // The mode comparison needs a plain run of exactly this mode: the popup's
+  // own button is now a manual check (Quick, then Deep with its ~900 MB of
+  // models on CPU), which the dedicated popup step below covers instead.
+  void ext(popup, "analyzeTab", { tabId: newsTabId, target: "page", mode }).catch(() => {});
+  // Wait for a result finished after this request (the previous run's "done"
+  // status is still there until the new run starts).
   const status = await waitFor(
     async () => {
       const s = await ext(popup, "getTabStatus", { tabId: newsTabId });
