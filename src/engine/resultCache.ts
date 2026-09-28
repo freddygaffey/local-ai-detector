@@ -15,6 +15,8 @@ interface Entry {
   key: string;
   at: number;
   result: AnalyzeResult;
+  /** Block ids the result was computed on, in order (ids are per-visit; see `remapBlocks`). */
+  blockIds?: string[];
 }
 
 let dbPromise: Promise<IDBDatabase> | null = null;
@@ -57,25 +59,36 @@ export function scoreSignature(parts: Record<string, unknown>): string {
   return JSON.stringify(parts, Object.keys(parts).sort());
 }
 
-export async function getCached(text: string, signature: string): Promise<AnalyzeResult | null> {
+/**
+ * The cached result for this text + setup, with its block ids moved onto
+ * `blockIds` (this visit's). Block ids are made fresh on every extraction;
+ * the key is the exact same text in the same block order, so position maps.
+ */
+export async function getCached(text: string, signature: string, blockIds: string[]): Promise<AnalyzeResult | null> {
   if (typeof indexedDB === "undefined") return null;
   try {
     const d = await db();
     const entry = (await done(d.transaction(STORE).objectStore(STORE).get(`${text}|${signature}`))) as Entry | undefined;
-    return entry?.result ?? null;
+    if (!entry?.blockIds || entry.blockIds.length !== blockIds.length) return null;
+    return remapBlocks(entry.result, entry.blockIds, blockIds);
   } catch {
     return null;
   }
 }
 
-export async function putCached(text: string, signature: string, result: AnalyzeResult): Promise<void> {
+export function remapBlocks(result: AnalyzeResult, from: string[], to: string[]): AnalyzeResult {
+  const map = new Map(from.map((id, i) => [id, to[i]!]));
+  return { ...result, sentences: result.sentences.map((s) => ({ ...s, blockId: map.get(s.blockId) ?? s.blockId })) };
+}
+
+export async function putCached(text: string, signature: string, result: AnalyzeResult, blockIds: string[]): Promise<void> {
   if (typeof indexedDB === "undefined") return;
   try {
     const d = await db();
     const { images: _images, refining: _refining, ...kept } = result;
     const tx = d.transaction(STORE, "readwrite");
     const store = tx.objectStore(STORE);
-    store.put({ key: `${text}|${signature}`, at: Date.now(), result: kept } satisfies Entry);
+    store.put({ key: `${text}|${signature}`, at: Date.now(), result: kept, blockIds } satisfies Entry);
     const count = await done(store.count());
     if (count > MAX_ENTRIES) {
       let drop = count - MAX_ENTRIES;

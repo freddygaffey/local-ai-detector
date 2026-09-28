@@ -355,7 +355,8 @@ export function runTabAnalysis(
     const deepSig = sig("ensemble", "deep", fusionForTier("deep", settings.tiers).detectors, undefined);
     const textHash = settings.rememberResults === false ? null : await textKey(blocks, itemBlocks).catch(() => null);
     if (textHash) {
-      const hit = (tier !== "deep" ? await getCached(textHash, deepSig) : null) ?? (await getCached(textHash, ownSig));
+      const ids = blocks.map((b) => b.id);
+      const hit = (tier !== "deep" ? await getCached(textHash, deepSig, ids) : null) ?? (await getCached(textHash, ownSig, ids));
       if (hit) {
         const result: AnalyzeResult = { ...hit, cached: true };
         if (tabId >= 0) {
@@ -390,7 +391,7 @@ export function runTabAnalysis(
         if (tabId >= 0) broadcastStatus(tabId, { state: "done", mode: mode ?? settings.mode, result, finishedAt: Date.now() });
       }
     }
-    if (textHash) void putCached(textHash, ownSig, result);
+    if (textHash) void putCached(textHash, ownSig, result, blocks.map((b) => b.id));
     const fresh = await getSettings();
     await toTab(tabId, "renderHighlights", { result, style: fresh.highlightStyle, reveal }).catch((e) =>
       console.warn("[engine] renderHighlights failed", e),
