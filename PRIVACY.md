@@ -112,9 +112,9 @@ narrowly as the platform allows:
   of their own: remote manifest fetching and OCSP checking are both
   explicitly disabled, so the C2PA check never has to leave your browser.
 
-### 3. The slop filter, search-result markers and site memory add no new network requests
+### 3. The slop filter, search-result markers, site memory and remembered results add no new network requests
 
-Three T9 features are entirely local, and don't change anything above:
+These features are entirely local, and don't change anything above:
 
 - **Slop filter** (Options → Slop filter, off by default): dims/collapses
   comments, posts and reviews scored by the same on-device engine as the
@@ -126,6 +126,15 @@ Three T9 features are entirely local, and don't change anything above:
   `storage.local`. It records **only** the hostname, a plain high/low flag,
   and a date — **never** page text, URLs, or scores. It's fully visible and
   clearable from Options, and stays on your device like everything else.
+- **Remembered results** (Options → Site memory → Remember results, on by
+  default): so an unchanged page isn't re-scored on every visit, the last
+  300 results are kept in IndexedDB on your device, keyed by a SHA-256
+  **hash** of the page's text plus the detector setup. Stored: the scores,
+  detector names and timings — **no page text and no URLs** (the one
+  exception: if a page hid a message in invisible Unicode tag characters,
+  the decoded message is part of the result). Clearable from Options.
+- **Corner-card positions**: where you dragged the card, per hostname
+  (`storage.local`, last 500 sites). Hostname and pixel offsets only.
 - **Chat/comment/thread adapters** and the **"Check text in this box"**
   context menu read text already on the page (or already typed into a box);
   neither one fetches anything.
@@ -154,6 +163,7 @@ fetches them automatically.
 - Cached model weights, once downloaded.
 - Image provenance results.
 - The site-memory tally (hostname + high/low flag + date only — no text or URLs), if turned on.
+- Remembered results (text hash + scores, no text or URLs) and corner-card positions (hostname + offsets).
 
 All of the above are stored using the browser's own `storage.sync`/
 `storage.local` and Cache/IndexedDB APIs — under your browser profile,
