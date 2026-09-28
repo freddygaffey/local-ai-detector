@@ -22,7 +22,7 @@ listing claim changes** (the built `.output/chrome-mv3/manifest.json` is the sou
 - **host_permissions (fetch only):** `https://huggingface.co/*`, `https://*.hf.co/*` (text models);
   `https://github.com/*`, `https://release-assets.githubusercontent.com/*` (voice model from the
   `models-v1` release, sha256-verified)
-- **optional_host_permissions:** `<all_urls>`, granted per site on click, for image provenance checks only
+- **optional_host_permissions:** `<all_urls>`, granted per site on click, for image provenance checks; if granted for all sites, also used to add the content script to already-open tabs after an update
 - **content_scripts:** `<all_urls>`, for the local Quick check and chip. Causes the install warning
   "Read and change all your data on all websites".
 - **content_scripts (page world):** `*://www.youtube.com/*`, `*://m.youtube.com/*`, `world: MAIN`,

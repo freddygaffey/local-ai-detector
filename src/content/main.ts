@@ -360,8 +360,11 @@ async function boot(): Promise<void> {
   startVoiceContent(); // T11 voice check (standalone; src/voice/content.ts)
   void maybeAutoRun();
   void maybeMarkSearchResults();
-  // Late-rendering pages (SPAs) can look empty at document_idle: look again once.
-  if (page.via === "fallback") setTimeout(() => reroute({ autoRun: true }), 2500);
+  // Late-rendering pages (SPAs) can look empty at document_idle: look again (twice).
+  if (page.via === "fallback") {
+    setTimeout(() => reroute({ autoRun: true }), 2500);
+    setTimeout(() => page.via === "fallback" && reroute({ autoRun: true }), 8000);
+  }
 }
 
 // ---- Presence surfaces (corner card / pill) ---------------------------------
@@ -402,9 +405,9 @@ function teardownPillIfUnwanted(): void {
 let cardHidden = false;
 
 function wantCard(): boolean {
-  if (!settings.surfaces.chip || page.off) return false;
-  // App pages run nothing automatically: no card until something was checked (popup, context menu).
-  return page.type !== "app" || lastResult !== null;
+  // On every page (bar "off" sites). App pages run nothing automatically: the
+  // card sits there idle (dim) and a click checks the page.
+  return settings.surfaces.chip && !page.off;
 }
 
 function reconcileSurfaces(): void {

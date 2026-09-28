@@ -61,6 +61,28 @@ async function checkImageInTab(tabId: number, srcUrl: string | undefined): Promi
   }
 }
 
+/**
+ * After an install/update/reload Chrome doesn't add content scripts to tabs
+ * that are already open, so they had no card until reloaded or the toolbar
+ * icon was clicked. With the optional all-sites permission granted, add it
+ * to every open web tab now (an old copy already there retires itself,
+ * src/content/lifecycle.ts). Without it, tabs catch up as they're reloaded.
+ */
+function injectIntoOpenTabs(): void {
+  browser.runtime.onInstalled?.addListener(async () => {
+    if (import.meta.env.FIREFOX) return; // Firefox injects into open tabs itself
+    try {
+      if (!(await browser.permissions.contains({ origins: ["<all_urls>"] }))) return;
+      for (const tab of await browser.tabs.query({ url: ["http://*/*", "https://*/*"] })) {
+        if (tab.id === undefined || tab.discarded) continue;
+        void browser.scripting.executeScript({ target: { tabId: tab.id }, files: ["/content-scripts/content.js"] }).catch(() => {});
+      }
+    } catch {
+      // best-effort
+    }
+  });
+}
+
 function startExtraContextMenus(): void {
   const menus = browser.contextMenus;
   if (!menus?.create || !menus.onClicked) return;
@@ -185,6 +207,7 @@ export default defineBackground(() => {
 
   startEngineRouter();
   startExtraContextMenus();
+  injectIntoOpenTabs();
   startCommands();
   startSidePanel();
   startIdleUnload();
