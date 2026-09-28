@@ -128,8 +128,14 @@ export function createVoiceChip(cb: VoiceChipCallbacks, opts: { fixedOnly?: bool
     if (a) {
       host.style.cssText = "visibility:visible !important;";
       if (a.nextElementSibling !== host) a.after(host);
+    } else if (!opts.fixedOnly) {
+      // A YouTube video with no title on screen (fullscreen, scrolled away):
+      // the corner card already shows "Voice N%"; a floating copy only
+      // repeats it on top of the player controls.
+      host.style.cssText = "display:none !important;";
     } else {
-      host.style.cssText = "position:fixed; left:12px; bottom:48px; z-index:2147482000; visibility:visible !important;";
+      // Other sites: the chip is where the voice result shows; keep it above a player's control bar.
+      host.style.cssText = "position:fixed; left:12px; bottom:112px; z-index:2147482000; visibility:visible !important;";
       if (host.parentElement !== document.body) document.body.appendChild(host);
     }
   };

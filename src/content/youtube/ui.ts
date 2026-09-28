@@ -165,8 +165,13 @@ export function createTranscriptChip(cb: TranscriptChipCallbacks): TranscriptChi
       host.style.cssText = "visibility:visible !important;";
       wrap.className = "";
       if (a.nextElementSibling !== host) a.after(host);
+    } else if (/(^|\.)youtube\.com$/.test(location.hostname)) {
+      // No title on screen (fullscreen, scrolled away): the corner card
+      // already shows "Script N%"; a floating copy only repeats it over the player.
+      host.style.cssText = "display:none !important;";
     } else {
-      host.style.cssText = "position:fixed; left:12px; bottom:12px; z-index:2147482000; visibility:visible !important;";
+      // Other sites' video/subtitle pages: keep it above a player's control bar.
+      host.style.cssText = "position:fixed; left:12px; bottom:76px; z-index:2147482000; visibility:visible !important;";
       wrap.className = "fixed";
       if (host.parentElement !== document.body) document.body.appendChild(host);
     }
