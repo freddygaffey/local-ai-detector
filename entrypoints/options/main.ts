@@ -27,6 +27,7 @@ import { sendMessage } from "@/src/shared/messages";
 import { mountFusionSettings } from "@/src/ui/fusionSettings";
 import { mountTierSettings } from "@/src/ui/tierSettings";
 import { clearSiteMemory } from "@/src/content/siteMemory";
+import { clearCached } from "@/src/engine/resultCache";
 import type {
   CustomModelValidation,
   EngineInfo,
@@ -642,6 +643,16 @@ function renderSiteMemorySection(): HTMLElement {
       "Clear history",
       "",
       h("button", { class: "btn btn-ghost btn-small", type: "button", onclick: () => void doClearSiteMemory() }, "Clear"),
+    ),
+    fieldRow(
+      "Remember results",
+      "Unchanged pages reuse their last result instead of re-running. Kept on this device (last 300).",
+      toggleControl(s.rememberResults, (checked) => void updateSettings({ rememberResults: checked })),
+    ),
+    fieldRow(
+      "Clear remembered results",
+      "",
+      h("button", { class: "btn btn-ghost btn-small", type: "button", onclick: () => void clearCached().then(() => showToast("Cleared")) }, "Clear"),
     ),
   );
   return h("section", { id: "site-memory" }, h("h2", null, "Site memory"), list);

@@ -21,6 +21,7 @@ import {
 } from "../shared/messages";
 import { getSettings, setSettings, type ModelSlot } from "../shared/settings";
 import { needsQuickConfirm } from "../shared/thresholds";
+import { getCached, putCached, scoreSignature, textKey } from "./resultCache";
 import { isUnscriptableError, kindForUrl, parseUnreadable, unreadableError } from "../shared/unreadable";
 import { badge } from "./badge-hook";
 import { getHostClient } from "./host-client";
@@ -337,6 +338,34 @@ export function runTabAnalysis(
       if (error !== NO_SELECTION_ERROR) broadcastStatus(tabId, { state: "error", mode: settings.mode, error });
       throw err;
     }
+    // Remembered result for this exact text and scoring setup (./resultCache.ts).
+    // A Deep result answers a Quick request too.
+    const sig = (m: string, t: string | undefined, detectors: readonly string[] | undefined, confirm: readonly string[] | undefined) =>
+      scoreSignature({
+        mode: m,
+        tier: t ?? "",
+        detectors: [...(detectors ?? settings.fusion.detectors)].sort(),
+        confirm: confirm ? [...confirm].sort() : [],
+        overrides: settings.modelOverrides ?? null,
+        maxTokens: t === "quick" ? Math.min(settings.maxTokens, settings.tiers.quickMaxTokens) : settings.maxTokens,
+      });
+    const ownSig = sig(mode ?? settings.mode, tier, fusionOverride, confirmWith);
+    const deepSig = sig("ensemble", "deep", fusionForTier("deep", settings.tiers).detectors, undefined);
+    const textHash = settings.rememberResults === false ? null : await textKey(blocks, itemBlocks).catch(() => null);
+    if (textHash) {
+      const hit = (tier !== "deep" ? await getCached(textHash, deepSig) : null) ?? (await getCached(textHash, ownSig));
+      if (hit) {
+        const result: AnalyzeResult = { ...hit, cached: true };
+        if (tabId >= 0) {
+          broadcastStatus(tabId, { state: "done", mode: mode ?? settings.mode, result, finishedAt: Date.now() });
+          if (badgeOn(settings) && result.probability !== undefined) badge.score(tabId, result.probability);
+        }
+        await toTab(tabId, "renderHighlights", { result, style: settings.highlightStyle, reveal }).catch((e) =>
+          console.warn("[engine] renderHighlights failed", e),
+        );
+        return result;
+      }
+    }
     let result = await runAnalyze(
       { tabId, mode: mode ?? settings.mode, blocks, preferCpu, tier, fusionOverride, itemBlocks, keepResult },
       { requestId, tabId },
@@ -359,6 +388,7 @@ export function runTabAnalysis(
         if (tabId >= 0) broadcastStatus(tabId, { state: "done", mode: mode ?? settings.mode, result, finishedAt: Date.now() });
       }
     }
+    if (textHash) void putCached(textHash, ownSig, result);
     const fresh = await getSettings();
     await toTab(tabId, "renderHighlights", { result, style: fresh.highlightStyle, reveal }).catch((e) =>
       console.warn("[engine] renderHighlights failed", e),
@@ -408,7 +438,7 @@ export async function runManualCheck(
       tabId, target, requestId, "ensemble", undefined, "quick", quickSet,
       settings.tiers.confirmQuick ? settings.fusion.detectors : undefined, reveal,
     );
-    if (!ready) return quick;
+    if (!ready || quick.tier === "deep") return quick;
   }
   if (!ready) return quick;
   broadcastStatus(tabId, { state: "done", mode: "ensemble", result: { ...quick, refining: true }, finishedAt: Date.now() });

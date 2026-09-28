@@ -639,12 +639,13 @@ function renderResultSection(): HTMLElement {
 /** Which pass the score is from: "Quick", "Deep check running…" (Quick shown meanwhile) or "Deep". */
 function tierTag(result: AnalyzeResult | null): HTMLElement | null {
   if (!result?.tier) return null;
-  if (isDeepResult(result)) return h("span", { class: "tier-tag is-deep", title: "All detectors, whole text" }, "Deep");
+  const saved = result.cached ? " Remembered from an earlier check of this unchanged text." : "";
+  if (isDeepResult(result)) return h("span", { class: "tier-tag is-deep", title: `All detectors, whole text.${saved}` }, result.cached ? "Deep · saved" : "Deep");
   const refining = result.refining || ctx.deepBusy;
   return h(
     "span",
-    { class: `tier-tag${refining ? " is-refining" : ""}`, title: "Quick check: one small model, part of the page" },
-    refining ? "Deep check running…" : "Quick",
+    { class: `tier-tag${refining ? " is-refining" : ""}`, title: `Quick check: one small model, part of the page.${saved}` },
+    refining ? "Deep check running…" : result.cached ? "Quick · saved" : "Quick",
   );
 }
 

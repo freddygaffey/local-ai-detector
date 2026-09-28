@@ -197,6 +197,8 @@ export interface Settings {
   slopFilter: SlopFilterSettings;
   /** Local-only per-domain score tally (docs/plan.md "Site memory"); no text is stored. */
   siteMemoryEnabled: boolean;
+  /** Reuse a page's result while its text is unchanged (src/engine/resultCache.ts); local only. */
+  rememberResults: boolean;
 }
 
 export const PRESENCE_PRESETS: Record<Presence, { autoRunPolicy: AutoRunPolicy; surfaces: ResultSurfaces }> = {
@@ -399,6 +401,7 @@ export const DEFAULT_SETTINGS: Settings = {
     searchMarkers: true,
   },
   siteMemoryEnabled: false,
+  rememberResults: true,
   voice: DEFAULT_VOICE,
   tiers: DEFAULT_TIERS,
 };

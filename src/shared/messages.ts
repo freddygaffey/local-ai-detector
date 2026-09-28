@@ -471,6 +471,8 @@ export interface AnalyzeResult {
   tier?: Tier;
   /** A Quick result shown early while a Deep pass runs over the top of it (manual checks). */
   refining?: boolean;
+  /** Served from the remembered-results cache (same text, same scoring setup). */
+  cached?: boolean;
   /**
    * Quick tier: the cheap pass scored this page high, so the default Fusion
    * set re-checked it and this is the Fusion result (docs/calibration.md
