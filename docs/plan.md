@@ -214,6 +214,18 @@ and users can change it in settings.
 - Configurable: the quick and deep detector sets, and whether the quick check runs automatically.
 - Build after T11 lands (the same popup and settings files).
 
+## Primary UI: the corner card (user decision, default configuration)
+The main interface everywhere is a **thumbnail-sized box in the bottom corner, always present** by
+default (it no longer hides below a threshold):
+- **Collapsed:** a compact stacked summary of the signals relevant to the page type: "AI 12%"
+  (article), "3 AI" (thread), "Script 23%" / "Voice 1%" (video), plus a small marker for image
+  provenance (CR / watermark / AI claim) and hidden characters. Coloured by the worst signal.
+- **Hover:** a small card with all essential information: the verdict per signal, page type,
+  detector agreement, Quick vs Deep.
+- **Click:** a supplementary panel: flagged items with ▲/▼, highlights toggle, the Deep check ↻,
+  per-detector numbers, a link to settings.
+Other presence modes remain as settings. Unobtrusive but always functional.
+
 ## Display rules (approved)
 - Every displayed % comes from `toDisplayProbability()`, a calibrated probability on web text.
 - Threads and comment pages show a count in the chip ("3 AI") plus per-item %. Articles show a
