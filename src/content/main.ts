@@ -29,6 +29,7 @@ import { startObserving } from "./observe";
 import { createCard, defaultCardPos, type CardApi } from "./card";
 import { getCardPosition, setCardPosition, watchCardPosition } from "./cardPositions";
 import { claimPage, extensionGone, isContextInvalidated, isRetired } from "./lifecycle";
+import { onShorts } from "./youtube/ui";
 import type { CardState } from "./cardSummary";
 import { onVideoStatus, type VideoStatus } from "./videoStatus";
 import type { ImageProvenanceSummary } from "../shared/messages";
@@ -542,7 +543,7 @@ function refreshCard(): void {
       deepBusy,
       highlightBy,
       canCheckText: page.type === "article" || page.type === "thread" || page.type === "app",
-      hasMediaChips: !!(document.querySelector("ai-detector-transcript") ?? document.querySelector("ai-detector-voice")),
+      hasMediaChips: !onShorts() && !!(document.querySelector("ai-detector-transcript") ?? document.querySelector("ai-detector-voice")),
     });
   } catch {
     // never break the page over the card
