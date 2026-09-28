@@ -124,9 +124,12 @@ await step("presence: force Inspector (highlights on), auto-run off, for the fix
   await setSettings({
     presence: "inspector",
     autoRunPolicy: "never",
+    // Heatmap: these steps count painted sentences; the default ("flagged",
+    // AI sentences only) paints none on the human-written fixtures.
+    highlightStyle: "heatmap",
     surfaces: { popup: true, badge: true, chip: false, highlights: true, sidePanel: false },
   });
-  note("presence -> inspector (surfaces.highlights: true), autoRun off");
+  note("presence -> inspector (surfaces.highlights: true), heatmap, autoRun off");
 });
 
 async function analyze(name, mode, label, target = "page") {
