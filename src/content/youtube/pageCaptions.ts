@@ -21,6 +21,16 @@
 
 export const CAPTIONS_REQUEST = "lad-yt-captions-request";
 export const CAPTIONS_RESPONSE = "lad-yt-captions-response";
+/** The video's full description (the page shows it truncated until "more"). */
+export const DESCRIPTION_REQUEST = "lad-yt-description-request";
+export const DESCRIPTION_RESPONSE = "lad-yt-description-response";
+
+export interface DescriptionResponse {
+  source: typeof DESCRIPTION_RESPONSE;
+  id: string;
+  videoId: string;
+  description: string | null;
+}
 
 export interface CaptionsRequest {
   source: typeof CAPTIONS_REQUEST;
@@ -46,7 +56,7 @@ interface Track {
 interface YtPlayer extends HTMLElement {
   getVideoData?(): { video_id?: string };
   getPlayerResponse?(): {
-    videoDetails?: { videoId?: string };
+    videoDetails?: { videoId?: string; shortDescription?: string };
     captions?: { playerCaptionsTracklistRenderer?: { captionTracks?: Track[] } };
   } | null;
   getOption?(module: string, option: string): unknown;
@@ -193,7 +203,14 @@ export function startPageCaptions(): void {
       if (!p) await sleep(200);
     }
     if (!p) return { status: "error", error: "player not ready" };
-    const tracks = p.getPlayerResponse?.()?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
+    // The track list can fill in after the player is ready (background tabs,
+    // ads, slow loads): look again for a few seconds before saying "none".
+    let tracks: Track[] = [];
+    for (let t = 0; t < 30; t++) {
+      tracks = p.getPlayerResponse?.()?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
+      if (tracks.length) break;
+      await sleep(200);
+    }
     const track = pickTrack(tracks);
     if (!track) return { status: "none" };
     const done = async (url: string): Promise<CaptionsResult | null> => {
@@ -212,6 +229,27 @@ export function startPageCaptions(): void {
     }
     return { status: "error", error: "captions didn't load" };
   };
+
+  // Description: straight from the player's own data, no request needed.
+  window.addEventListener("message", (e: MessageEvent) => {
+    const d = e.data as { source?: string; id?: unknown; videoId?: unknown } | null;
+    if (!d || d.source !== DESCRIPTION_REQUEST || typeof d.id !== "string" || typeof d.videoId !== "string") return;
+    const { id, videoId } = d as { id: string; videoId: string };
+    void (async () => {
+      let p: YtPlayer | null = null;
+      for (let t = 0; t < 25 && !p; t++) {
+        p = findPlayer(videoId);
+        if (!p) await sleep(200);
+      }
+      let description: string | null = null;
+      try {
+        description = p?.getPlayerResponse?.()?.videoDetails?.shortDescription ?? null;
+      } catch {
+        description = null;
+      }
+      window.postMessage({ source: DESCRIPTION_RESPONSE, id, videoId, description } satisfies DescriptionResponse, location.origin);
+    })();
+  });
 
   let queue: Promise<unknown> = Promise.resolve();
   window.addEventListener("message", (e: MessageEvent) => {

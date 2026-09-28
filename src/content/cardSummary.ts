@@ -216,6 +216,9 @@ export function hoverLines(s: CardState): HoverLine[] {
     const v = s.video ?? {};
     if (typeof v.transcript === "number") out.push({ label: "Script", value: pct(v.transcript), score: v.transcript });
     else out.push({ label: "Script", value: transcriptStateText(v.transcriptState) });
+    if (typeof v.description === "number") out.push({ label: "Description", value: pct(v.description), score: v.description });
+    else if (v.descriptionRunning) out.push({ label: "Description", value: "checking…", dim: true });
+    else if (v.description === null) out.push({ label: "Description", value: "too short", dim: true });
     if (s.pageType === "video") {
       if (typeof v.voice === "number") out.push({ label: "Voice", value: pct(v.voice), score: v.voice });
       else if (v.voice === null && voicePausedForSpeed(v))

@@ -16,6 +16,9 @@ export interface VideoStatus {
   voiceSpeed?: number;
   /** YouTube's own "Altered or synthetic content" / "Made with AI" label. */
   disclosure?: string | null;
+  /** Description P(AI); null = too short to judge; undefined = not checked (yet). */
+  description?: number | null;
+  descriptionRunning?: boolean;
 }
 
 let status: VideoStatus = {};
@@ -35,6 +38,11 @@ export function publishTranscriptStatus(r: { state: string; probability?: number
   status = r
     ? { ...status, transcript: r.probability, transcriptState: r.state, disclosure: r.disclosure }
     : { ...status, transcript: undefined, transcriptState: undefined, disclosure: null };
+  emit();
+}
+
+export function publishDescriptionStatus(d: { p?: number | null; running?: boolean } | null): void {
+  status = d ? { ...status, description: d.p, descriptionRunning: !!d.running } : { ...status, description: undefined, descriptionRunning: false };
   emit();
 }
 

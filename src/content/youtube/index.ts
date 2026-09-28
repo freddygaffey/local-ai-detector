@@ -17,7 +17,8 @@
 import { registerHandlers, sendMessage } from "../../shared/messages";
 import { autoRunPolicyForSite, DEFAULT_SETTINGS, getSettings, setSettings, watchSettings, type Settings } from "../../shared/settings";
 import { FLAGGED_THRESHOLD } from "../../shared/thresholds";
-import { publishTranscriptStatus } from "../videoStatus";
+import { publishDescriptionStatus, publishTranscriptStatus } from "../videoStatus";
+import { scoreDescription } from "./description";
 import { QUICK_CONFIRM_AT } from "../../shared/thresholds";
 import { toTranscriptProbability, type TranscriptReport, type TranscriptSegment } from "../../shared/transcript";
 import { fusionForTier } from "../../engine/models";
@@ -204,6 +205,20 @@ async function run(pass: "fast" | "full", allowOpen: boolean): Promise<void> {
   }
 }
 
+/** Scores the current video's description (YouTube watch pages and Shorts). */
+async function checkDescription(): Promise<void> {
+  const v = video;
+  if (!v || v.kind === "page") return;
+  publishDescriptionStatus({ running: true });
+  try {
+    const p = await scoreDescription(v.videoId, settings);
+    if (video?.videoId !== v.videoId) return;
+    publishDescriptionStatus(p === undefined ? null : { p });
+  } catch {
+    if (video?.videoId === v.videoId) publishDescriptionStatus(null);
+  }
+}
+
 async function maybeAutoRun(attempt = 0): Promise<void> {
   if (!video || !settings.surfaces.chip || !pageAllowed()) return;
   // Tiers task (docs/plan.md "Two tiers"): "Run quick check automatically"
@@ -223,6 +238,7 @@ async function maybeAutoRun(attempt = 0): Promise<void> {
   } catch {
     // no battery info: go ahead
   }
+  void checkDescription();
   // allowOpen: true -- opening the transcript panel is already invisible
   // (acquire.ts hides it with a style rule and restores scroll/focus), so the
   // automatic pass gets it too instead of only the clicked Deep pass.
@@ -237,6 +253,7 @@ async function maybeAutoRun(attempt = 0): Promise<void> {
  */
 export async function runDeepTranscriptCheck(): Promise<void> {
   if (!video || report?.state === "running") return;
+  void checkDescription();
   await run("full", true);
 }
 
@@ -251,6 +268,7 @@ function onLocationMaybeChanged(): void {
   video = next;
   runToken++;
   publish(next ? emptyReport(next) : null);
+  publishDescriptionStatus(null);
   reconcileChip();
   clearTimeout(navTimer);
   // Give YouTube a moment to render the new video's description and player.
