@@ -244,8 +244,10 @@ await step("presence: force Inspector for the fixture suite below (docs/plan.md 
   // on every page load would race the suite's own popup-driven mode changes
   // (the popup reactively shows a progress screen -- no mode <select> -- for
   // ANY analysis on its tab, including one autoRun started).
-  await setPresence("inspector", { autoRunPolicy: "never", ...(NO_GPU ? { useWebGPU: false } : {}) });
-  note(`presence -> inspector (surfaces.highlights: true), autoRun off, for this run${NO_GPU ? "; useWebGPU: false (--no-gpu)" : ""}`);
+  // Heatmap: these steps count painted sentences, and the shipped default
+  // ("flagged", AI sentences only) paints none on the human-written fixtures.
+  await setPresence("inspector", { autoRunPolicy: "never", highlightStyle: "heatmap", ...(NO_GPU ? { useWebGPU: false } : {}) });
+  note(`presence -> inspector (surfaces.highlights: true), heatmap, autoRun off, for this run${NO_GPU ? "; useWebGPU: false (--no-gpu)" : ""}`);
 });
 const pages = {};
 await step("open fixture pages (news, blog, spa, demo)", async (note) => {
