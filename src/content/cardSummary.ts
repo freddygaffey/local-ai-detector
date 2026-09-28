@@ -192,8 +192,12 @@ const TYPE_NAME: Record<PageType, string> = {
 };
 
 /** The hover card: every essential line, one fact each. */
-/** The verdict after the "N% AI" number (the number is always P(AI)). */
-const VERDICT = { human: "likely human", mixed: "mixed", ai: "likely AI" } as const;
+/**
+ * The verdict after the "N% AI" number (the number is always P(AI)). A low
+ * score is "no strong AI signal", not "human": about a third of AI text scores
+ * low (docs/calibration.md).
+ */
+const VERDICT = { human: "no strong AI signal", mixed: "some AI signal", ai: "likely AI" } as const;
 
 export function hoverLines(s: CardState): HoverLine[] {
   const out: HoverLine[] = [];

@@ -669,10 +669,14 @@ async function setPageTypeOverride(hostname: string, value: PageTypeOverride): P
   render();
 }
 
-/** The verdict next to the "N% AI" number. */
+/**
+ * The verdict next to the "N% AI" number. The detectors miss about a third of
+ * AI text (docs/calibration.md: 68% caught at the display threshold), so a
+ * low score means no strong signal, not "human".
+ */
 const VERDICT_WORDS: Record<ReturnType<typeof bandFromResult>, string> = {
-  human: "· likely human",
-  mixed: "· mixed",
+  human: "· no strong AI signal",
+  mixed: "· some AI signal",
   ai: "· likely AI",
   insufficient: "· too short to judge",
 };
