@@ -19,6 +19,7 @@ import { brandMark } from "@/src/ui/icons";
 import { mountToastHost, showToast } from "@/src/ui/toast";
 import { CONSENT_REQUIRED_ERROR } from "@/src/shared/messages";
 import { transcriptSection } from "@/src/ui/transcriptSection";
+import { parseUnreadable, unreadableMessage, type UnreadableKind } from "@/src/shared/unreadable";
 import { deepCheckRequestFields, deepDownloadStatus, isDeepResult, DEEP_CHECK_TOOLTIP } from "@/src/ui/deepCheck";
 
 interface Ctx {
@@ -31,9 +32,11 @@ interface Ctx {
   deepChecklistOpen: boolean;
   /** Sentence text for the flagged list, keyed "blockId#index" (fetched from the page). */
   texts: Map<string, string>;
+  /** A PDF or protected page: one quiet line instead of "Analyze page". */
+  unreadable: UnreadableKind | null;
 }
 
-const ctx: Ctx = { settings: await getSettings(), tabId: null, result: null, status: "idle", deepBusy: false, deepChecklistOpen: false, texts: new Map() };
+const ctx: Ctx = { settings: await getSettings(), tabId: null, result: null, status: "idle", deepBusy: false, deepChecklistOpen: false, texts: new Map(), unreadable: null };
 const root = document.getElementById("app") as HTMLDivElement;
 let unsubscribeStatus: (() => void) | null = null;
 
@@ -57,8 +60,17 @@ async function followActiveTab(): Promise<void> {
   ctx.tabId = tab?.id ?? null;
   ctx.result = null;
   ctx.status = "idle";
+  ctx.unreadable = null;
   if (ctx.tabId !== null) {
     const tabId = ctx.tabId;
+    sendTabMessage(tabId, "getPageType", undefined)
+      .then((v) => {
+        if (v.pdf && ctx.tabId === tabId) {
+          ctx.unreadable = "pdf";
+          render();
+        }
+      })
+      .catch(() => {});
     sendMessage("getTabStatus", { tabId })
       .then(applyStatus)
       .catch(() => {})
@@ -75,6 +87,7 @@ async function followActiveTab(): Promise<void> {
 
 function applyStatus(status: TabAnalysisStatus): void {
   ctx.status = status.state;
+  if (status.state === "error") ctx.unreadable = parseUnreadable(status.error) ?? ctx.unreadable;
   if (status.state === "done") {
     ctx.result = status.result;
     void loadTexts(status.result);
@@ -123,6 +136,10 @@ function renderBody(): HTMLElement {
   const body = h("div", { class: "sp-body" });
   if (ctx.status === "running") {
     body.append(renderEmpty("Analyzing…"));
+    return body;
+  }
+  if (!ctx.result && ctx.unreadable) {
+    body.append(renderEmpty(unreadableMessage(ctx.unreadable)));
     return body;
   }
   if (!ctx.result) {
@@ -203,7 +220,8 @@ async function runAnalyze(): Promise<void> {
   } catch (err) {
     ctx.status = "idle";
     const message = err instanceof Error ? err.message : String(err);
-    showToast(
+    ctx.unreadable = parseUnreadable(err);
+    if (!ctx.unreadable) showToast(
       message.startsWith(CONSENT_REQUIRED_ERROR) ? "Download models from the popup first" : "Couldn't analyze this page",
     );
   }
@@ -231,9 +249,11 @@ async function onDeepCheck(): Promise<void> {
     ctx.status = "done";
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    showToast(
-      message.startsWith(CONSENT_REQUIRED_ERROR) ? "Download models from the popup first" : "Couldn't run the deep check",
-    );
+    if (parseUnreadable(err)) ctx.unreadable = parseUnreadable(err);
+    else
+      showToast(
+        message.startsWith(CONSENT_REQUIRED_ERROR) ? "Download models from the popup first" : "Couldn't run the deep check",
+      );
   } finally {
     ctx.deepBusy = false;
     render();

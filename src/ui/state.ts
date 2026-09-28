@@ -2,6 +2,7 @@
 // framework-free so it's unit-testable without a real browser.
 
 import type { AnalyzeResult, ProgressEvent } from "../shared/messages";
+import { classifyUrl, parseUnreadable, type UnreadableKind } from "../shared/unreadable";
 
 export type PopupState =
   | "consent"
@@ -19,6 +20,8 @@ export interface PopupStateInput {
   progress: ProgressEvent | null;
   result: AnalyzeResult | null;
   error: string | null;
+  /** From probing the tab (a PDF served without ".pdf", a protected page). */
+  unreadable?: UnreadableKind | null;
 }
 
 /** Derives the popup's current state from settings + in-flight/last-known data.
@@ -26,8 +29,12 @@ export interface PopupStateInput {
  * testable decision instead of scattered flags. */
 export function derivePopupState(input: PopupStateInput): PopupState {
   if (!input.consentedDownload) return "consent";
-  if (isUnsupportedUrl(input.tabUrl)) return "unsupported";
-  if (input.error) return "error";
+  const unreadableError = !!input.error && parseUnreadable(input.error) !== null;
+  const unsupported = isUnsupportedUrl(input.tabUrl) || !!input.unreadable || unreadableError;
+  // A PDF can still get a result: "Check selected text" analyses the menu's own
+  // selection text in the background, so progress and results show as usual.
+  if (unsupported && !input.progress && !input.result) return "unsupported";
+  if (input.error && !unreadableError) return "error";
   if (input.progress) {
     if (input.progress.phase === "download") return "downloading";
     if (input.progress.phase === "load") return "loading";
@@ -37,43 +44,10 @@ export function derivePopupState(input: PopupStateInput): PopupState {
   return "idle";
 }
 
-const UNSUPPORTED_PROTOCOLS = new Set([
-  "chrome:",
-  "chrome-extension:",
-  "edge:",
-  "about:",
-  "moz-extension:",
-  "view-source:",
-  "devtools:",
-  "chrome-search:",
-  "chrome-error:",
-]);
-
-const UNSUPPORTED_HOSTS = [
-  /^chrome\.google\.com$/,
-  /^chromewebstore\.google\.com$/,
-  /^addons\.mozilla\.org$/,
-  /^microsoftedge\.microsoft\.com$/,
-];
-
 /** True for pages we can't (or shouldn't try to) inject a content script into:
  * browser-internal pages, extension store listings, and PDF viewers. */
 export function isUnsupportedUrl(url: string | null | undefined): boolean {
-  if (!url) return true;
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return true;
-  }
-  if (UNSUPPORTED_PROTOCOLS.has(parsed.protocol)) return true;
-  if (parsed.protocol === "file:" && parsed.pathname.toLowerCase().endsWith(".pdf")) return true;
-  if (UNSUPPORTED_HOSTS.some((re) => re.test(parsed.hostname))) return true;
-  // Chrome/Edge's built-in PDF viewer serves the file at its normal http(s)
-  // URL but as application/pdf; the URL itself is the only signal we have
-  // without asking the tab, so also catch plain ".pdf" paths.
-  if (/\.pdf($|[?#])/i.test(parsed.pathname)) return true;
-  return false;
+  return classifyUrl(url) !== null;
 }
 
 /**

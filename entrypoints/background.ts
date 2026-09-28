@@ -10,7 +10,7 @@
 // its exported `runTabAnalysis` for the page/selection cases.
 
 import { registerHandlers, sendTabMessage } from "@/src/shared/messages";
-import { runTabAnalysis, startEngineRouter, unloadIdleModels } from "@/src/engine/router";
+import { logQuietly, runTabAnalysis, startEngineRouter, unloadIdleModels } from "@/src/engine/router";
 import { getSettings, watchSettings } from "@/src/shared/settings";
 import { clearBadge } from "@/src/ui/badge";
 import { registerProvenanceBackground } from "@/src/provenance/background";
@@ -34,7 +34,7 @@ async function analyzeEditableInTab(tabId: number): Promise<void> {
     // never reaches its own listeners ("No response for message analyze").
     await runTabAnalysis(tabId, "editable", newRequestId(), undefined, undefined, undefined, undefined, undefined, true);
   } catch (err) {
-    console.warn("[Local AI Detector] 'Check text in this box' failed", err);
+    logQuietly("'Check text in this box'", err);
   }
 }
 
@@ -56,7 +56,7 @@ async function checkImageInTab(tabId: number, srcUrl: string | undefined): Promi
     if (pattern) await requestImagePermission([pattern]).catch(() => false);
     await sendTabMessage(tabId, "checkImageAtUrl", { srcUrl });
   } catch (err) {
-    console.warn("[Local AI Detector] image check failed", err);
+    logQuietly("image check", err);
   }
 }
 
@@ -78,10 +78,19 @@ function startExtraContextMenus(): void {
   });
   menus.onClicked.addListener((info, tab) => {
     if (tab?.id === undefined || tab.id < 0) return;
-    if (info.menuItemId === MENU_ANALYZE_PAGE) void runTabAnalysis(tab.id, "page", newRequestId(), undefined, undefined, undefined, undefined, undefined, true);
+    if (info.menuItemId === MENU_ANALYZE_PAGE) void analyzePageQuietly(tab.id);
     else if (info.menuItemId === MENU_CHECK_IMAGE) void checkImageInTab(tab.id, info.srcUrl);
     else if (info.menuItemId === MENU_CHECK_EDITABLE) void analyzeEditableInTab(tab.id);
   });
+}
+
+/** "Analyze this page" from the menu: a PDF or protected page fails quietly. */
+async function analyzePageQuietly(tabId: number): Promise<void> {
+  try {
+    await runTabAnalysis(tabId, "page", newRequestId(), undefined, undefined, undefined, undefined, undefined, true);
+  } catch (err) {
+    logQuietly("'Analyze this page'", err);
+  }
 }
 
 async function activeTabId(): Promise<number | undefined> {
@@ -96,8 +105,8 @@ function startCommands(): void {
       if (tabId === undefined) return;
       if (command === "analyze-page") await runTabAnalysis(tabId, "page", newRequestId(), undefined, undefined, undefined, undefined, undefined, true);
       else if (command === "analyze-selection") await runTabAnalysis(tabId, "selection", newRequestId(), undefined, undefined, undefined, undefined, undefined, true);
-      else if (command === "toggle-visibility") await sendTabMessage(tabId, "toggleVisibility", undefined).catch(() => {});
-    })();
+      else if (command === "toggle-visibility") await sendTabMessage(tabId, "toggleVisibility", undefined);
+    })().catch((err) => logQuietly(`shortcut ${command}`, err));
   });
 }
 

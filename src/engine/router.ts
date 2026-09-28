@@ -20,6 +20,7 @@ import {
 } from "../shared/messages";
 import { getSettings, setSettings, type ModelSlot } from "../shared/settings";
 import { needsQuickConfirm } from "../shared/thresholds";
+import { isUnscriptableError, kindForUrl, parseUnreadable, unreadableError } from "../shared/unreadable";
 import { badge } from "./badge-hook";
 import { getHostClient } from "./host-client";
 import {
@@ -259,16 +260,30 @@ async function toTab<T extends "extractText" | "renderHighlights">(
   try {
     return await sendTabMessage(tabId, type, payload);
   } catch (e) {
+    if (parseUnreadable(e)) throw e; // the content script says: a PDF
     if (!/Receiving end does not exist|Could not establish connection|No response for tab message/i.test(String(e))) throw e;
     try {
       await browser.scripting.executeScript({ target: { tabId }, files: [CONTENT_SCRIPT_FILE] });
-    } catch (injectErr) {
-      throw new Error(
-        `This page can't be read by the extension (${injectErr instanceof Error ? injectErr.message : String(injectErr)}).`,
-      );
+    } catch {
+      // PDF viewer, browser/store page, file: without access: nothing to inject into.
+      throw unreadableError(kindForUrl(await tabUrl(tabId)));
     }
     return sendTabMessage(tabId, type, payload);
   }
+}
+
+async function tabUrl(tabId: number): Promise<string | undefined> {
+  try {
+    return (await browser.tabs.get(tabId)).url;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Where a run from a menu or shortcut fails on an unreadable page: a debug line, never an error. */
+export function logQuietly(label: string, err: unknown): void {
+  if (isUnscriptableError(err)) console.debug(`[Local AI Detector] ${label}: page not readable`);
+  else console.warn(`[Local AI Detector] ${label} failed`, err);
 }
 
 export function runTabAnalysis(
@@ -352,12 +367,32 @@ export function runTabAnalysis(
 
 const MENU_ID = "lad-analyze-selection";
 
-async function onContextMenuSelection(tabId: number): Promise<void> {
+async function onContextMenuSelection(tabId: number, selectionText?: string): Promise<void> {
+  const requestId = `menu-${Date.now().toString(36)}`;
   try {
-    await runTabAnalysis(tabId, "selection", `menu-${Date.now().toString(36)}`, undefined, undefined, undefined, undefined, undefined, true);
+    await runTabAnalysis(tabId, "selection", requestId, undefined, undefined, undefined, undefined, undefined, true);
   } catch (e) {
-    console.warn("[engine] context-menu analysis failed", e);
+    // A PDF (or other page we can't script): Chrome still hands us the selected
+    // text, so check that here. The result reaches the side panel and the popup
+    // through the tab status, and the toolbar badge shows the %.
+    const text = selectionText?.trim();
+    if (text && isUnscriptableError(e)) {
+      try {
+        await analyzeSelectionText(tabId, text, requestId);
+      } catch (e2) {
+        logQuietly("selected-text check", e2);
+      }
+      return;
+    }
+    logQuietly("context-menu analysis", e);
   }
+}
+
+/** Analyses the context menu's own selectionText in the background (no page access needed). */
+export async function analyzeSelectionText(tabId: number, text: string, requestId: string): Promise<AnalyzeResult> {
+  const settings = await getSettings();
+  const block = { id: "selection-0", text, sentences: [] };
+  return runAnalyze({ tabId, mode: settings.mode, blocks: [block] }, { requestId, tabId });
 }
 
 /**
@@ -379,11 +414,11 @@ function startContextMenu(): void {
   });
   menus.onClicked.addListener((info, tab) => {
     if (info.menuItemId !== MENU_ID || tab?.id === undefined || tab.id < 0) return;
-    void onContextMenuSelection(tab.id);
+    void onContextMenuSelection(tab.id, info.selectionText);
   });
   // Automation can't click native context menus; the E2E suite
   // (scripts/e2e/) calls the same handler through this hook.
-  (globalThis as { __ladContextMenuSelection?: (tabId: number) => Promise<void> }).__ladContextMenuSelection =
+  (globalThis as { __ladContextMenuSelection?: (tabId: number, selectionText?: string) => Promise<void> }).__ladContextMenuSelection =
     onContextMenuSelection;
 }
 

@@ -402,3 +402,9 @@ body {
   font-size: 12px;
   padding: 2px 4px;
 }
+
+/* PDF / protected page: one quiet line, no error screen. */
+.unreadable-line {
+  margin: 12px 0 4px;
+  text-align: center;
+}

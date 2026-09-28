@@ -21,6 +21,7 @@ import type { AnalyzeResult, ProgressEvent, TabAnalysisStatus } from "@/src/shar
 import { clearChildren, h } from "@/src/ui/dom";
 import { derivePopupState, isCacheLoad, isUnsupportedUrl, progressPercent } from "@/src/ui/state";
 import type { PopupState } from "@/src/ui/state";
+import { classifyProbe, classifyUrl, parseUnreadable, unreadableMessage, type UnreadableKind } from "@/src/shared/unreadable";
 import { BAND_LABEL, bandClassName, bandFromResult, DETAILS_NOTE } from "@/src/ui/verdict";
 import { displayScore, formatScoreOrDash } from "@/src/ui/probability";
 import { buildGaugeSvg, updateGauge } from "@/src/ui/gauge";
@@ -72,6 +73,8 @@ interface Ctx {
   pageType: (PageVerdict & { host?: string }) | null;
   /** Site memory (Options, off by default): this site's recent verdicts, once there are a few. */
   siteTally: { high: number; total: number } | null;
+  /** Probed: a PDF (even without ".pdf" in the URL) or a page we can't script. */
+  unreadable: UnreadableKind | null;
 }
 
 const ctx: Ctx = {
@@ -94,6 +97,7 @@ const ctx: Ctx = {
   voiceCached: {},
   pageType: null,
   siteTally: null,
+  unreadable: null,
 };
 
 const root = document.getElementById("app") as HTMLDivElement;
@@ -123,12 +127,17 @@ async function main() {
     });
     sendTabMessage(tabId, "getPageType", undefined)
       .then(async (v) => {
+        if (v.pdf) {
+          ctx.unreadable = "pdf";
+          render();
+          return;
+        }
         ctx.pageType = v as PageVerdict & { host?: string };
         const host = tabHostname() ?? ctx.pageType.host;
         if (ctx.settings.siteMemoryEnabled && host) ctx.siteTally = await getSiteTally(host).catch(() => null);
         render();
       })
-      .catch(() => {});
+      .catch((err: unknown) => probeUnreadable(tabId, err));
     sendTabMessage(tabId, "getSelectionInfo", undefined)
       .then((res) => {
         ctx.hasSelection = res.hasSelection;
@@ -144,6 +153,25 @@ async function main() {
     ctx.settings = settings;
     render();
   });
+}
+
+/** No content script answered: try a one-line injection. A PDF viewer or protected
+ * page refuses it, so the popup shows one quiet line instead of an error later. Never throws. */
+async function probeUnreadable(tabId: number, err: unknown): Promise<void> {
+  let contentType: string | null = null;
+  let probeError: unknown = err;
+  try {
+    const [r] = await browser.scripting.executeScript({ target: { tabId }, func: () => document.contentType });
+    contentType = typeof r?.result === "string" ? r.result : null;
+    probeError = undefined;
+  } catch (e) {
+    probeError = e;
+  }
+  const kind = classifyProbe({ url: ctx.tabUrl, contentType, probeError });
+  if (kind && kind !== ctx.unreadable) {
+    ctx.unreadable = kind;
+    render();
+  }
 }
 
 async function refreshCache(): Promise<void> {
@@ -206,6 +234,7 @@ function currentState(): PopupState {
     progress: ctx.progress,
     result: ctx.result,
     error: ctx.error,
+    unreadable: ctx.unreadable,
   });
 }
 
@@ -410,11 +439,8 @@ async function onConsent(): Promise<void> {
 // ---- Unsupported page ----
 
 function renderUnsupported(): HTMLElement {
-  return h(
-    "div",
-    { class: "popup-body" },
-    h("div", { class: "state-panel" }, warnIcon(), h("p", null, "Can't read this page.")),
-  );
+  const kind = ctx.unreadable ?? parseUnreadable(ctx.error) ?? classifyUrl(ctx.tabUrl) ?? "restricted";
+  return h("div", { class: "popup-body" }, h("p", { class: "field-hint unreadable-line" }, unreadableMessage(kind)));
 }
 
 // ---- Progress ----
@@ -490,6 +516,12 @@ function onRetry(): void {
 function renderMain(): HTMLElement {
   const body = h("div", { class: "popup-body" });
   body.append(renderResultSection());
+  const unreadable = ctx.unreadable ?? parseUnreadable(ctx.error) ?? classifyUrl(ctx.tabUrl);
+  if (unreadable) {
+    // A PDF's selected-text result: the page buttons can't work here.
+    body.append(h("p", { class: "field-hint unreadable-line" }, unreadableMessage(unreadable)));
+    return body;
+  }
   const deepPrompt = renderDeepPrompt();
   if (deepPrompt) body.append(deepPrompt);
   body.append(renderButtons());

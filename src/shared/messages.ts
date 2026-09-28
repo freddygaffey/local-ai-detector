@@ -533,7 +533,7 @@ export interface ToggleVisibilityMessage {
 export interface GetPageTypeMessage {
   type: "getPageType";
   request: undefined;
-  response: { type: string; reason: string; via: string; off?: boolean; host?: string };
+  response: { type: string; reason: string; via: string; off?: boolean; host?: string; /** Chrome PDF viewer: nothing readable. */ pdf?: boolean };
 }
 
 /** Side panel -> content script: scroll to and briefly flash one sentence, without turning highlights on. */

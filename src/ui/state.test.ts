@@ -31,6 +31,16 @@ describe("isUnsupportedUrl", () => {
 describe("derivePopupState", () => {
   const base = { consentedDownload: true, tabUrl: "https://example.com", progress: null, result: null, error: null };
 
+  test("a probed PDF (no .pdf in the URL) is unsupported, not an error", () => {
+    expect(derivePopupState({ ...base, tabUrl: "https://arxiv.org/pdf/2401.12070", unreadable: "pdf" })).toBe("unsupported");
+    expect(derivePopupState({ ...base, error: "unreadable-page:pdf" })).toBe("unsupported");
+  });
+  test("a PDF's selected-text result still shows", () => {
+    const result = { probability: 0.9 } as never;
+    expect(derivePopupState({ ...base, unreadable: "pdf", result })).toBe("done");
+    expect(derivePopupState({ ...base, unreadable: "pdf", error: "unreadable-page:pdf", result })).toBe("done");
+  });
+
   test("no consent yet", () => {
     expect(derivePopupState({ ...base, consentedDownload: false })).toBe("consent");
   });

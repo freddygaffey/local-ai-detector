@@ -48,6 +48,7 @@ import { runDeepVoiceCheck, setVoiceGate, startVoiceContent } from "../voice/con
 import { classifyPage, resolvePageType, type PageVerdict } from "./pageType";
 import { startSubtitlesPage, startVideoPage, stopPageMedia } from "./pageMedia";
 import { pageTypeOverrideForSite } from "../shared/settings";
+import { bootPdfStub, isPdfDocument } from "./pdfStub";
 
 const INJECT_FLAG = "__aiDetectorContentBooted";
 
@@ -59,6 +60,7 @@ export function bootContentScript(): void {
   } catch {
     return;
   }
+  if (isPdfDocument()) return bootPdfStub();
   void boot().catch(() => {
     // Boot failure (e.g. no document.body yet) -- never throw out of a
     // content script entrypoint.
