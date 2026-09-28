@@ -212,7 +212,10 @@ const highlightNames = (page) => page.evaluate(() => [...CSS.highlights.keys()].
 const mergeSettings = (partial) =>
   swEval(async (partial) => {
     const cur = (await chrome.storage.sync.get("settings")).settings ?? {};
-    await chrome.storage.sync.set({ settings: { ...cur, ...partial } });
+    // Mark it current: an object without settingsVersion reads as a v1 install,
+    // and the migrations would rewrite what the suite just set (e.g. heatmap ->
+    // flagged). Keys it doesn't set come from today's defaults either way.
+    await chrome.storage.sync.set({ settings: { ...cur, ...partial, settingsVersion: 1000 } });
   }, partial);
 const getStoredSettings = () => swEval(async () => (await chrome.storage.sync.get("settings")).settings ?? null);
 
