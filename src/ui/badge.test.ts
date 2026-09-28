@@ -17,9 +17,9 @@ describe("badgeTextForProgress", () => {
 
 describe("badgeTextForScore", () => {
   test("formats as a bare integer percent", () => {
-    expect(badgeTextForScore(0.42)).toBe("42");
-    expect(badgeTextForScore(1)).toBe("100");
-    expect(badgeTextForScore(0)).toBe("0");
+    expect(badgeTextForScore(0.42)).toBe("42%");
+    expect(badgeTextForScore(1)).toBe("100%");
+    expect(badgeTextForScore(0)).toBe("0%");
   });
 });
 

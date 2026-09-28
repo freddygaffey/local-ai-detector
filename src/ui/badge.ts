@@ -25,9 +25,9 @@ export function badgeTextForProgress(pct: number | undefined, frame = 0): string
   return `${dot}${Math.max(0, Math.min(99, Math.round(pct)))}`;
 }
 
-/** Badge text for a finished score (0..1), e.g. "42". */
+/** Badge text for a finished score (0..1), e.g. "42%" (Chrome fits 4 characters, so "100%" too). */
 export function badgeTextForScore(score: number): string {
-  return String(toPercentInt(score));
+  return `${toPercentInt(score)}%`;
 }
 
 const COLOR_AI = "#b5482f";

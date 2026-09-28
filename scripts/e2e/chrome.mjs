@@ -294,10 +294,10 @@ await step("popup: consent screen, then 'Download & enable'", async (note) => {
   // before a real multi-hundred-MB download on a fresh profile finishes --
   // poll instead, like every other long wait in this file, so each round
   // trip is short and only the total budget is generous.
-  await waitFor(async () => popup.$$eval("button", (els) => els.some((b) => b.textContent?.includes("Analyze page"))), {
+  await waitFor(async () => popup.$$eval(".btn-row .btn-primary", (els) => els.some((b) => /Check page|Deep check|Check again/.test(b.textContent ?? ""))), {
     timeout: 20 * 60_000,
     interval: 1000,
-    what: "'Analyze page' after the first-run download",
+    what: "the check button after the first-run download",
   });
 });
 
@@ -313,14 +313,18 @@ async function analyzeViaPopup(mode, label) {
   await setMode(mode);
   await popup.evaluate(() => (window.__ev = []));
   const t0 = Date.now();
-  await clickButtonByText(popup, "Analyze page");
+  await popup.click(".btn-row .btn-primary");
+  // "Deep check" with the Deep models not all downloaded offers the download first.
+  await sleep(300);
+  if (await popup.$(".deep-prompt .btn-primary")) await popup.click(".deep-prompt .btn-primary");
   // Wait for a result finished after this click (the previous run's "done"
-  // status is still there until the new run starts).
+  // status is still there until the new run starts). In Fusion mode a manual
+  // check shows Quick first (`refining`) and then Deep: wait for the last one.
   const status = await waitFor(
     async () => {
       const s = await ext(popup, "getTabStatus", { tabId: newsTabId });
       if (s.state === "error") return s;
-      return s.state === "done" && s.finishedAt >= t0 && s.mode === mode ? s : null;
+      return s.state === "done" && s.finishedAt >= t0 && s.mode === mode && !s.result.refining ? s : null;
     },
     { timeout: 20 * 60_000, interval: 500, what: `${mode} analysis` },
   );
@@ -777,7 +781,7 @@ await step("toasts: 'Analyze selection' dims with no selection, toasts instead o
   // until Puppeteer's protocolTimeout). A fresh page behaves like a real
   // popup actually does -- a new one each time it's opened.
   let spaPopup = await newTab(`${EXT_ORIGIN}/popup.html?tabId=${spaTabId}`, { width: 380, height: 620 });
-  await spaPopup.waitForSelector("button::-p-text(Analyze page)");
+  await spaPopup.waitForSelector(".btn-row .btn-primary");
   await sleep(400); // popup's getSelectionInfo round-trip to the content script
   const dimmed = await spaPopup.$eval("button::-p-text(Selection)", (b) => ({ ariaDisabled: b.getAttribute("aria-disabled"), title: b.title }));
   note(`Selection button: aria-disabled=${dimmed.ariaDisabled}, title="${dimmed.title}"`);
@@ -801,7 +805,7 @@ await step("toasts: 'Analyze selection' dims with no selection, toasts instead o
     getSelection().addRange(r);
   });
   spaPopup = await newTab(`${EXT_ORIGIN}/popup.html?tabId=${spaTabId}`, { width: 380, height: 620 });
-  await spaPopup.waitForSelector("button::-p-text(Analyze page)");
+  await spaPopup.waitForSelector(".btn-row .btn-primary");
   await sleep(400);
   const enabled = await spaPopup.$eval("button::-p-text(Selection)", (b) => b.getAttribute("aria-disabled"));
   note(`after a real selection: aria-disabled=${enabled}`);
@@ -910,6 +914,79 @@ await step("corner card: always present, hover card, click panel, highlights tog
   await sleep(300);
   const stillOpen = (await piercedCenter(pages.news, (tag, a) => a.role === "dialog" && a["aria-label"] === "Detector details")).length > 0;
   if (stillOpen) throw new Error("close should hide the card panel");
+  await setPresence("inspector");
+  await pages.news.reload({ waitUntil: "load" });
+  await sleep(800);
+});
+
+await step("corner card: drag persists per site; click a highlight for details; pause stops auto-run", async (note) => {
+  await setPresence("statusChip");
+  await mergeSettings({ chipAutoHideThreshold: 0, pausedUntil: 0, cardDefaultPosition: null });
+  await swEval(() => chrome.storage.local.remove("cardPositions"));
+  await pages.news.reload({ waitUntil: "load" });
+  const isCard = (tag, a) => a["aria-label"]?.startsWith("AI detection");
+  await waitFor(async () => /\d+%|\d+ AI/.test((await piercedTexts(pages.news, isCard)).join(" ")), { timeout: 30_000, what: "card score" });
+  const [before] = await piercedCenter(pages.news, isCard);
+
+  // Drag: a press that travels moves the card and doesn't open the panel.
+  await pages.news.mouse.move(before.x, before.y);
+  await pages.news.mouse.down();
+  await pages.news.mouse.move(before.x - 150, before.y - 120, { steps: 8 });
+  await pages.news.mouse.up();
+  await sleep(400);
+  const [moved] = await piercedCenter(pages.news, isCard);
+  note(`card centre ${Math.round(before.x)},${Math.round(before.y)} -> ${Math.round(moved.x)},${Math.round(moved.y)}`);
+  if (Math.abs(moved.x - (before.x - 150)) > 6 || Math.abs(moved.y - (before.y - 120)) > 6) throw new Error("dragging should move the card with the pointer");
+  const panelOpen = (await piercedCenter(pages.news, (tag, a) => a.role === "dialog" && a["aria-label"] === "Detector details")).length > 0;
+  if (panelOpen) throw new Error("a drag must not open the card panel");
+  const stored = await swEval(async () => (await chrome.storage.local.get("cardPositions")).cardPositions ?? {});
+  note(`stored positions: ${JSON.stringify(stored)}`);
+  if (Object.keys(stored).length !== 1) throw new Error("the dragged position should be saved for this site");
+  await pages.news.reload({ waitUntil: "load" });
+  const [after] = await waitFor(async () => {
+    const c = await piercedCenter(pages.news, isCard);
+    return c.length && Math.abs(c[0].x - moved.x) < 6 && Math.abs(c[0].y - moved.y) < 6 ? c : null;
+  }, { timeout: 10_000, what: "card back at its dragged spot after reload" });
+  note(`after reload: ${Math.round(after.x)},${Math.round(after.y)}`);
+
+  // Click (not hover) on a highlighted sentence opens its details.
+  await waitFor(async () => /\d+%|\d+ AI/.test((await piercedTexts(pages.news, isCard)).join(" ")), { timeout: 30_000, what: "card score after reload" });
+  await pages.news.mouse.click(after.x, after.y);
+  await sleep(300);
+  const [toggle] = await piercedCenter(pages.news, (tag, a) => a["aria-label"] === "Highlights on this page");
+  await pages.news.mouse.click(toggle.x, toggle.y);
+  await sleep(400);
+  const [close] = await piercedCenter(pages.news, (tag, a) => a["aria-label"] === "Close");
+  await pages.news.mouse.click(close.x, close.y);
+  const pt = await pages.news.evaluate(() => {
+    for (const k of CSS.highlights.keys()) {
+      if (!k.startsWith("ai-detector-hl")) continue;
+      for (const r of CSS.highlights.get(k)) {
+        const b = r.getClientRects()[0];
+        if (b && b.width > 20 && b.top > 0 && b.bottom < innerHeight) return { x: b.left + 8, y: b.top + b.height / 2 };
+      }
+    }
+    return null;
+  });
+  if (!pt) throw new Error("no painted sentence in view to click");
+  const sentenceTip = async () => (await piercedTexts(pages.news, (tag, a) => a.role === "tooltip")).some((t) => /AI likelihood/.test(t));
+  await pages.news.mouse.move(pt.x, pt.y);
+  await sleep(300);
+  if (await sentenceTip()) throw new Error("hovering a sentence must not open its details (click only)");
+  await pages.news.mouse.click(pt.x, pt.y);
+  await waitFor(sentenceTip, { timeout: 3000, what: "sentence details on click" });
+  await pages.news.keyboard.press("Escape");
+  note("hover: nothing; click: details; Esc closes");
+
+  // Pause: no automatic check while paused.
+  await mergeSettings({ pausedUntil: Date.now() + 3_600_000 });
+  await pages.news.reload({ waitUntil: "load" });
+  await sleep(6000);
+  const pausedLabel = (await piercedTexts(pages.news, isCard)).join(" ");
+  note(`card while paused: "${pausedLabel}"`);
+  if (/\d+%/.test(pausedLabel)) throw new Error("a paused extension should not run the automatic check");
+  await mergeSettings({ pausedUntil: 0 });
+  await swEval(() => chrome.storage.local.remove("cardPositions"));
   await setPresence("inspector");
   await pages.news.reload({ waitUntil: "load" });
   await sleep(800);

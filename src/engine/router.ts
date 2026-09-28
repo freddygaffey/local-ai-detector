@@ -429,6 +429,8 @@ export async function runManualCheck(
   reveal?: boolean,
 ): Promise<AnalyzeResult> {
   const settings = await getSettings();
+  // A specific detector picked in Mode: run just that (Quick/Deep are Fusion tiers).
+  if (settings.mode !== "ensemble") return runTabAnalysis(tabId, target, requestId, settings.mode, undefined, undefined, undefined, undefined, reveal);
   const quickSet = fusionForTier("quick", settings.tiers).detectors;
   const deepSet = fusionForTier("deep", settings.tiers).detectors;
   const ready = await deepReady(settings);
