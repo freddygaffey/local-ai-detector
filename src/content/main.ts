@@ -28,6 +28,7 @@ import { orderFlagged, stepIndex, type FlaggedKey } from "./navigation";
 import { startObserving } from "./observe";
 import { createCard, defaultCardPos, type CardApi } from "./card";
 import { getCardPosition, setCardPosition, watchCardPosition } from "./cardPositions";
+import { claimPage, extensionGone, isContextInvalidated, isRetired } from "./lifecycle";
 import type { CardState } from "./cardSummary";
 import { onVideoStatus, type VideoStatus } from "./videoStatus";
 import type { ImageProvenanceSummary } from "../shared/messages";
@@ -37,7 +38,7 @@ import { applySearchMarkers, applySlopFilter, clearSearchMarkers, clearSlopFilte
 import { recordSiteScore } from "./siteMemory";
 import { readBatteryState, readPressureState, decidePowerAction } from "../power/battery";
 import { segmentSentences, wordCount } from "./segment";
-import { formatSentenceTooltip, hideTooltip, showTooltip } from "./tooltip";
+import { destroyTooltip, formatSentenceTooltip, hideTooltip, showTooltip } from "./tooltip";
 import type { ActiveSentence, BlockRecord } from "./types";
 import { clearUnicodeMarkers, renderUnicodeMarkers } from "./unicodeMarkers";
 import { runDeepTranscriptCheck, setTranscriptGate, startYouTubeTranscripts } from "./youtube";
@@ -167,7 +168,31 @@ function reroute(opts: { autoRun: boolean }): void {
   if (page.type === "search") void maybeMarkSearchResults();
 }
 
+/** Removes everything this instance drew (a newer instance took over the page). */
+function retireFromPage(): void {
+  doClearVisualsOnly();
+  destroyTooltip();
+  cardUnsub?.();
+  cardUnsub = null;
+  card?.destroy();
+  card = null;
+  pill?.destroy();
+  pill = null;
+  for (const el of document.querySelectorAll("ai-detector-voice, ai-detector-transcript")) el.remove();
+}
+
+/** Orphaned by an extension reload with no successor yet: say so on the card instead of erroring. */
+function noteIfOrphaned(): void {
+  if (isRetired() || !extensionGone() || !card) return;
+  cardError = ORPHANED;
+  refreshCard();
+}
+const ORPHANED = "Extension was updated. Reload this page to use it.";
+
 async function boot(): Promise<void> {
+  claimPage(retireFromPage);
+  document.addEventListener("visibilitychange", noteIfOrphaned);
+  window.addEventListener("focus", noteIfOrphaned);
   settings = await getSettings().catch(() => DEFAULT_SETTINGS);
   currentStyle = settings.highlightStyle;
   hostname = safeHostname();
@@ -383,10 +408,12 @@ function wantCard(): boolean {
 }
 
 function reconcileSurfaces(): void {
+  if (isRetired()) return;
   try {
     if (wantCard() && !card) {
       card = createCard(defaultCardPos(settings.chipCorner), {
         onOpen: () => {
+          noteIfOrphaned();
           // Nothing checked yet (auto-run off, paused, or an app page): the click is the request.
           if (!lastResult && !cardRunning && (pageTextRoute() || page.type === "app")) void runFullAnalysis();
         },
@@ -405,7 +432,7 @@ function reconcileSurfaces(): void {
             runDeepVoiceCheck();
           }
         },
-        onCheckPage: () => void runFullAnalysis(),
+        onCheckPage: () => (extensionGone() ? location.reload() : void runFullAnalysis()),
         onSettings: () => void sendMessage("openOptions", undefined).catch(() => {}),
         onMoved: (pos) => {
           sitePosition = pos;
@@ -620,7 +647,7 @@ async function runFullAnalysis(): Promise<void> {
     setCardRunning(true);
     await sendMessage("analyzeTab", { target: "page" });
   } catch (err) {
-    const msg = (err instanceof Error ? err.message : String(err)).replace(/^consent-required:\s*/, "");
+    const msg = isContextInvalidated(err) ? ORPHANED : (err instanceof Error ? err.message : String(err)).replace(/^consent-required:\s*/, "");
     pill?.setError(msg);
     cardError = msg;
     setCardRunning(false);
@@ -644,7 +671,7 @@ async function runDeepCheck(): Promise<void> {
     const deep = fusionForTier("deep", settings.tiers);
     await sendMessage("analyzeTab", { target: "page", mode: "ensemble", fusionOverride: deep.detectors, tier: "deep" });
   } catch (err) {
-    const msg = (err instanceof Error ? err.message : String(err)).replace(/^consent-required:\s*/, "");
+    const msg = isContextInvalidated(err) ? ORPHANED : (err instanceof Error ? err.message : String(err)).replace(/^consent-required:\s*/, "");
     pill?.setError(msg);
     cardError = msg;
   } finally {
@@ -671,6 +698,7 @@ function reRenderPillDone(): void {
 // ---- Auto-run (battery-gated, fast mode) -----------------------------------
 
 async function maybeAutoRun(attempt = 0): Promise<void> {
+  if (isRetired() || extensionGone()) return;
   try {
     // Tiers task (docs/plan.md "Two tiers"): "Run quick check automatically"
     // off means no automatic pass at all -- Deep still runs on click.
@@ -728,6 +756,7 @@ function shouldPaintOnPage(): boolean {
 }
 
 function applyResult(result: AnalyzeResult, style: HighlightStyle): void {
+  if (isRetired()) return;
   try {
     currentStyle = style;
     lastResult = result;
@@ -1071,6 +1100,7 @@ function showSelectionResult(result: AnalyzeResult): void {
 }
 
 function onHighlightClick(e: MouseEvent): void {
+  if (isRetired()) return;
   try {
     if (!hoverIndex || e.button !== 0) return;
     // Links, buttons and form fields keep their own click; a drag-select isn't a click on a sentence.
