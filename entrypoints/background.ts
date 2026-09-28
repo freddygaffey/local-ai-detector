@@ -11,7 +11,8 @@
 
 import { registerHandlers, sendTabMessage } from "@/src/shared/messages";
 import { logQuietly, runTabAnalysis, startEngineRouter, unloadIdleModels } from "@/src/engine/router";
-import { getSettings, watchSettings } from "@/src/shared/settings";
+import { getSettings, watchSettings, type Settings } from "@/src/shared/settings";
+import { sidePanelOnIconClick } from "@/src/ui/optionsLogic";
 import { clearBadge } from "@/src/ui/badge";
 import { registerProvenanceBackground } from "@/src/provenance/background";
 import { originPattern, requestImagePermission } from "@/src/provenance/permissions";
@@ -116,23 +117,23 @@ function startCommands(): void {
 function startFirefoxSidebar(): boolean {
   const sidebar = (browser as unknown as { sidebarAction?: { toggle?: () => Promise<void> } }).sidebarAction;
   if (!sidebar?.toggle || !browser.action?.setPopup) return false;
-  const apply = (s: { presence: string }) =>
-    void browser.action.setPopup({ popup: s.presence === "sidePanel" ? "" : browser.runtime.getURL("/popup.html") }).catch(() => {});
+  const apply = (s: Settings) =>
+    void browser.action.setPopup({ popup: sidePanelOnIconClick(s) ? "" : browser.runtime.getURL("/popup.html") }).catch(() => {});
   void getSettings().then(apply);
   watchSettings(apply);
   browser.action.onClicked.addListener(() => void sidebar.toggle!().catch(() => {}));
   return true;
 }
 
-/** Chrome sidePanel: open on the toolbar-icon click when Presence is "Side panel"; a normal popup otherwise. */
+/** Chrome sidePanel: open on the toolbar-icon click when the Side panel surface is on; a normal popup otherwise. */
 function startSidePanel(): void {
   if (startFirefoxSidebar()) return;
   const sidePanel = (browser as unknown as { sidePanel?: { setPanelBehavior?: (opts: { openPanelOnActionClick: boolean }) => Promise<void> } })
     .sidePanel;
   if (!sidePanel?.setPanelBehavior) return;
-  void getSettings().then((s) => sidePanel.setPanelBehavior!({ openPanelOnActionClick: s.presence === "sidePanel" }).catch(() => {}));
+  void getSettings().then((s) => sidePanel.setPanelBehavior!({ openPanelOnActionClick: sidePanelOnIconClick(s) }).catch(() => {}));
   watchSettings((s) => {
-    void sidePanel.setPanelBehavior!({ openPanelOnActionClick: s.presence === "sidePanel" }).catch(() => {});
+    void sidePanel.setPanelBehavior!({ openPanelOnActionClick: sidePanelOnIconClick(s) }).catch(() => {});
   });
 }
 

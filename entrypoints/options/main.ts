@@ -7,7 +7,7 @@ import { renderVoiceSection } from "@/src/voice/options";
 import "../../src/ui/styles.css";
 import "./options.css";
 
-import { getSettings, setSettings } from "@/src/shared/settings";
+import { getSettings, setSettings, watchSettings } from "@/src/shared/settings";
 import { PAGE_TYPE_OVERRIDES, type PageTypeOverride } from "@/src/content/pageType";
 import type {
   AutoRunPolicy,
@@ -21,7 +21,8 @@ import type {
   Settings,
   SlopFilterSite,
 } from "@/src/shared/settings";
-import { isPresenceCustom, presenceDefaults } from "@/src/shared/settings";
+import { presenceDefaults } from "@/src/shared/settings";
+import { AUTO_RUN_CHOICES, normalizeHost, presenceSelectValue } from "@/src/ui/optionsLogic";
 import { sendMessage } from "@/src/shared/messages";
 import { mountFusionSettings } from "@/src/ui/fusionSettings";
 import { mountTierSettings } from "@/src/ui/tierSettings";
@@ -102,6 +103,12 @@ let tiersUnmount: (() => void) | null = null;
 async function main() {
   mountToastHost();
   render();
+  // Follow changes made elsewhere (popup, another options tab), so the page never
+  // shows, or writes back, stale nested values (surfaces, battery, slop filter).
+  watchSettings((settings) => {
+    state.settings = settings;
+    render();
+  });
   void refreshCache();
   void refreshEngineInfo();
   void refreshPermission();
@@ -154,8 +161,7 @@ function render(): void {
   const key = focusKey();
   // Built off-DOM and swapped in one step, so the page never collapses to zero
   // height mid-update (which is what made it jump under the cursor).
-  root.replaceChildren(
-    h(
+  const shell = h(
       "div",
       { class: "options-shell" },
       renderNav(),
@@ -163,7 +169,6 @@ function render(): void {
         "main",
         { class: "options-main" },
         renderDetectionSection(),
-        renderTiersSection(),
         renderPresenceSection(),
         renderBatterySection(),
         renderSlopFilterSection(),
@@ -173,8 +178,14 @@ function render(): void {
         renderProvenanceSection(),
         renderAboutSection(),
       ),
-    ),
-  );
+    );
+  // Row keys are labels, and several sections share one ("On"): prefix the
+  // section so focus is restored to the right control after a re-render.
+  for (const row of shell.querySelectorAll<HTMLElement>("section [data-k]")) {
+    const section = row.closest("section")?.id;
+    if (section && !row.dataset.k!.startsWith(`${section}/`)) row.dataset.k = `${section}/${row.dataset.k}`;
+  }
+  root.replaceChildren(shell);
   window.scrollTo(0, scrollY);
   if (key) root.querySelector<HTMLElement>(`[data-k="${CSS.escape(key)}"] input, [data-k="${CSS.escape(key)}"] select, [data-k="${CSS.escape(key)}"] button`)?.focus({ preventScroll: true });
 }
@@ -185,7 +196,6 @@ function renderNav(): HTMLElement {
     { class: "options-nav" },
     h("div", { class: "brand" }, brandMark(), h("span", null, "Local AI Detector")),
     h("a", { href: "#detection" }, "Detection"),
-    h("a", { href: "#tiers" }, "Tiers"),
     h("a", { href: "#presence" }, "Presence"),
     h("a", { href: "#battery" }, "Battery"),
     h("a", { href: "#slop-filter" }, "Slop filter"),
@@ -206,7 +216,7 @@ function renderDetectionSection(): HTMLElement {
     { class: "settings-list" },
     fieldRow(
       "Mode",
-      "Fusion combines detectors for the steadiest read.",
+      "For checks you start.",
       selectControl(
         (Object.keys(MODE_LABEL) as Mode[]).map((mode) => {
           const hint = modeDownloadHint(mode);
@@ -233,66 +243,33 @@ function renderDetectionSection(): HTMLElement {
         (value) => void updateSettings({ highlightStyle: value as HighlightStyle }),
       ),
     ),
-    fieldRow(
-      "Minimum words per chunk",
-      "Shorter chunks aren't scored.",
-      numberControl(s.minWords, 0, 500, (value) => void updateSettings({ minWords: value })),
-    ),
-    fieldRow(
-      "Max tokens per page",
-      "Caps how much of a long page is analysed.",
-      numberControl(s.maxTokens, 256, 32000, (value) => void updateSettings({ maxTokens: value })),
-    ),
-    fieldRow(
-      "Hidden-Unicode summary",
-      "Not AI evidence by itself.",
-      toggleControl(s.showUnicode, (checked) => void updateSettings({ showUnicode: checked })),
-    ),
-    fieldRow(
-      "Check images for provenance",
-      "C2PA / metadata / watermark signals.",
-      toggleControl(s.checkImages, (checked) => void updateSettings({ checkImages: checked })),
-    ),
-    fieldRow(
-      "Use GPU (WebGPU) — faster",
-      "On by default. Binoculars stays on CPU.",
-      toggleControl(s.useWebGPU, (checked) => void updateSettings({ useWebGPU: checked })),
-    ),
-    fieldRow(
-      "Auto-check model updates",
-      "Checks Hugging Face on startup.",
-      toggleControl(s.autoCheckModelUpdates, (checked) => void updateSettings({ autoCheckModelUpdates: checked })),
-    ),
+    fieldRow("Min words per chunk", "Shorter chunks aren't scored.", numberControl(s.minWords, 0, 500, (value) => void updateSettings({ minWords: value }))),
+    fieldRow("Max tokens per page", "Deep and on-click checks.", numberControl(s.maxTokens, 256, 32000, (value) => void updateSettings({ maxTokens: value }))),
+    fieldRow("Hidden-Unicode summary", "", toggleControl(s.showUnicode, (checked) => void updateSettings({ showUnicode: checked }))),
+    fieldRow("Image provenance", "C2PA, metadata, watermarks.", toggleControl(s.checkImages, (checked) => void updateSettings({ checkImages: checked }))),
+    fieldRow("Use GPU (WebGPU)", "", toggleControl(s.useWebGPU, (checked) => void updateSettings({ useWebGPU: checked }))),
   );
-  if (s.mode === "ensemble" && !fusionUnmount) fusionUnmount = mountFusionSettings(fusionHost);
-  const fusionSection =
-    s.mode === "ensemble"
-      ? h("div", { class: "settings-list" }, h("div", { class: "card-subtitle" }, "Fusion detectors"), fusionHost)
-      : null;
+  // Mounted once and re-inserted, so they don't pop in late and shift the page.
+  if (!fusionUnmount) fusionUnmount = mountFusionSettings(fusionHost);
+  if (!tiersUnmount) tiersUnmount = mountTierSettings(tiersHost);
   return h(
     "section",
     { id: "detection" },
     h("h2", null, "Detection"),
     list,
-    fusionSection,
-  );
-}
-
-// ---- Tiers (docs/plan.md "Two tiers: Quick (default) and Deep (on demand)") ----
-
-function renderTiersSection(): HTMLElement {
-  if (!tiersUnmount) tiersUnmount = mountTierSettings(tiersHost);
-  const host = tiersHost;
-  return h(
-    "section",
-    { id: "tiers" },
-    h("h2", null, "Tiers"),
     h(
-      "p",
-      { class: "section-intro" },
-      "Quick is the automatic pass; Deep is the ↻ button (popup, expanded chip, side panel) -- all detectors, on demand.",
+      "div",
+      { class: "settings-list" },
+      h("div", { class: "card-subtitle" }, "Fusion detectors"),
+      h("p", { class: "field-hint" }, "Used by Fusion mode and to confirm Quick results."),
+      fusionHost,
     ),
-    host,
+    h(
+      "div",
+      { class: "settings-list", id: "tiers" },
+      h("div", { class: "card-subtitle" }, "Quick (automatic) and Deep (↻)"),
+      tiersHost,
+    ),
   );
 }
 
@@ -360,24 +337,27 @@ const PRESENCE_LABEL: Record<Presence, string> = {
   sidePanel: "Side panel",
 };
 
-const SURFACE_LABEL: Record<keyof ResultSurfaces, string> = {
-  popup: "Popup",
-  badge: "Toolbar badge",
-  chip: "Corner chip",
-  highlights: "Page highlights",
-  sidePanel: "Side panel",
+const SURFACE_LABEL: Partial<Record<keyof ResultSurfaces, [string, string]>> = {
+  badge: ["Toolbar badge", ""],
+  chip: ["Corner card", ""],
+  highlights: ["Page highlights", "Plus the on-page pill."],
+  sidePanel: ["Side panel", "Toolbar icon opens it instead of the popup."],
 };
 
-const POLICY_LABEL: Record<AutoRunPolicy, string> = { always: "Always", never: "Never", ask: "Ask" };
+const POLICY_LABEL: Record<AutoRunPolicy, string> = { always: "Always", never: "Never", ask: "Never" };
 
 function renderPresenceSection(): HTMLElement {
   const s = state.settings;
-  const custom = isPresenceCustom(s);
+  const value = presenceSelectValue(s);
   const presetSelect = selectControl(
-    (Object.keys(PRESENCE_LABEL) as Presence[]).map((p) => ({ value: p, label: PRESENCE_LABEL[p] })),
-    s.presence,
-    (value) => {
-      const preset = value as Presence;
+    [
+      ...(Object.keys(PRESENCE_LABEL) as Presence[]).map((p) => ({ value: p, label: PRESENCE_LABEL[p] })),
+      ...(value === "custom" ? [{ value: "custom", label: "Custom" }] : []),
+    ],
+    value,
+    (v) => {
+      if (v === "custom") return;
+      const preset = v as Presence;
       const d = presenceDefaults(preset);
       void updateSettings({ presence: preset, autoRunPolicy: d.autoRunPolicy, surfaces: { ...d.surfaces } });
     },
@@ -386,35 +366,35 @@ function renderPresenceSection(): HTMLElement {
   const list = h(
     "div",
     { class: "settings-list" },
-    fieldRow("Preset", custom ? "Custom (edited below)" : "", presetSelect),
+    fieldRow("Preset", "Sets the options below.", presetSelect),
     fieldRow(
       "Auto-run",
-      "Fast pass on page load; full mode still runs on click.",
+      "Quick check on page load.",
       selectControl(
-        (Object.keys(POLICY_LABEL) as AutoRunPolicy[]).map((p) => ({ value: p, label: POLICY_LABEL[p] })),
+        AUTO_RUN_CHOICES.map((p) => ({ value: p, label: POLICY_LABEL[p] })),
         s.autoRunPolicy,
-        (value) => void updateSettings({ autoRunPolicy: value as AutoRunPolicy }),
+        (v) => void updateSettings({ autoRunPolicy: v as AutoRunPolicy }),
       ),
     ),
     ...(Object.keys(SURFACE_LABEL) as (keyof ResultSurfaces)[]).map((key) =>
       fieldRow(
-        SURFACE_LABEL[key],
-        "",
+        SURFACE_LABEL[key]![0],
+        SURFACE_LABEL[key]![1],
         toggleControl(s.surfaces[key], (checked) => void updateSettings({ surfaces: { ...s.surfaces, [key]: checked } })),
       ),
     ),
     fieldRow(
-      "Chip corner",
+      "Card corner",
       "",
       selectControl(
-        (["top-left", "top-right", "bottom-left", "bottom-right"] as Corner[]).map((c) => ({ value: c, label: c })),
+        (["top-left", "top-right", "bottom-left", "bottom-right"] as Corner[]).map((c) => ({ value: c, label: c.replace("-", " ") })),
         s.chipCorner,
-        (value) => void updateSettings({ chipCorner: value as Corner }),
+        (v) => void updateSettings({ chipCorner: v as Corner }),
       ),
     ),
     fieldRow(
-      "Chip auto-hide below",
-      "Hidden below this score; hover the corner to peek.",
+      "Card shrinks below (%)",
+      "0 = always full size.",
       numberControl(Math.round(s.chipAutoHideThreshold * 100), 0, 100, (v) => void updateSettings({ chipAutoHideThreshold: v / 100 })),
     ),
   );
@@ -428,7 +408,6 @@ function renderPresenceSection(): HTMLElement {
     h(
       "p",
       { class: "field-hint", style: "margin-top:0.6em" },
-      "Keyboard shortcuts (analyze page/selection, toggle visibility): ",
       h(
         "a",
         {
@@ -438,9 +417,8 @@ function renderPresenceSection(): HTMLElement {
             void browser.tabs.create({ url: "chrome://extensions/shortcuts" }).catch(() => {});
           },
         },
-        "browser shortcut settings",
+        "Keyboard shortcuts",
       ),
-      ".",
     ),
   );
 }
@@ -472,7 +450,7 @@ function renderSiteRules(): HTMLElement {
       },
     }),
     selectControl(
-      (Object.keys(POLICY_LABEL) as AutoRunPolicy[]).map((p) => ({ value: p, label: POLICY_LABEL[p] })),
+      AUTO_RUN_CHOICES.map((p) => ({ value: p, label: POLICY_LABEL[p] })),
       state.newSiteRulePolicy,
       (v) => {
         state.newSiteRulePolicy = v as AutoRunPolicy;
@@ -480,7 +458,7 @@ function renderSiteRules(): HTMLElement {
     ),
     h("button", { class: "btn btn-small", type: "button", onclick: () => void addSiteRule() }, "Add"),
   );
-  return h("div", { class: "settings-list", style: "margin-top:0.8em" }, h("div", { class: "card-subtitle" }, "Per-site rules"), ...rows, addRow);
+  return h("div", { class: "settings-list", style: "margin-top:0.8em" }, h("div", { class: "card-subtitle" }, "Auto-run per site"), ...rows, addRow);
 }
 
 const PAGE_TYPE_LABEL: Record<PageTypeOverride, string> = {
@@ -529,14 +507,14 @@ function renderPageTypeRules(): HTMLElement {
     "div",
     { class: "settings-list", style: "margin-top:0.8em" },
     h("div", { class: "card-subtitle" }, "Page type per site"),
-    h("p", { class: "field-hint" }, "Detected automatically (article, thread, video, subtitles, search, app). Set one here to override it."),
+    h("p", { class: "field-hint" }, "Detected automatically; an entry here overrides it."),
     ...rows,
     addRow,
   );
 }
 
 async function addPageTypeRule(): Promise<void> {
-  const host = state.newPageTypeHost.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+  const host = normalizeHost(state.newPageTypeHost);
   if (!host) return;
   await updateSettings({ pageTypes: { ...state.settings.pageTypes, [host]: state.newPageType } });
   state.newPageTypeHost = "";
@@ -549,7 +527,7 @@ async function removePageTypeRule(host: string): Promise<void> {
 }
 
 async function addSiteRule(): Promise<void> {
-  const host = state.newSiteRuleHost.trim().toLowerCase();
+  const host = normalizeHost(state.newSiteRuleHost);
   if (!host) return;
   await updateSettings({ siteRules: { ...state.settings.siteRules, [host]: state.newSiteRulePolicy } });
   state.newSiteRuleHost = "";
@@ -593,11 +571,11 @@ function renderBatterySection(): HTMLElement {
       "Chrome only.",
       toggleControl(b.pauseOnPressure, (checked) => set({ pauseOnPressure: checked })),
     ),
-    fieldRow("Unload models after idle (minutes)", "0 = never.", numberControl(b.unloadAfterMinutes, 0, 120, (v) => set({ unloadAfterMinutes: v }))),
+    fieldRow("Unload models after idle (min)", "0 = never.", numberControl(b.unloadAfterMinutes, 0, 120, (v) => set({ unloadAfterMinutes: v }))),
     fieldRow("Use CPU on battery", "Skips the GPU to save power.", toggleControl(b.useCpuOnBattery, (checked) => set({ useCpuOnBattery: checked }))),
     fieldRow(
       "Battery saver (manual)",
-      "Pauses automatic checks until turned off. Useful where the browser can't read the battery (e.g. Firefox desktop).",
+      "Pauses auto-run. For browsers that can't read the battery.",
       toggleControl(b.manualOverride, (checked) => set({ manualOverride: checked })),
     ),
   );
@@ -622,8 +600,8 @@ function renderSlopFilterSection(): HTMLElement {
   const list = h(
     "div",
     { class: "settings-list" },
-    fieldRow("On", "Dims/collapses flagged comments, posts and reviews.", toggleControl(f.enabled, (checked) => set({ enabled: checked }))),
-    fieldRow("Threshold", "", numberControl(Math.round(f.threshold * 100), 0, 100, (v) => set({ threshold: v / 100 }))),
+    fieldRow("On", "Dims or collapses flagged comments, posts and reviews.", toggleControl(f.enabled, (checked) => set({ enabled: checked }))),
+    fieldRow("Threshold (%)", "", numberControl(Math.round(f.threshold * 100), 0, 100, (v) => set({ threshold: v / 100 }))),
     fieldRow(
       "Style",
       "",
@@ -636,7 +614,7 @@ function renderSlopFilterSection(): HTMLElement {
         (v) => set({ style: v as "dim" | "collapse" }),
       ),
     ),
-    fieldRow("Search-result markers", "Google/Bing/DuckDuckGo/Kagi snippets only -- never fetches the linked page.", toggleControl(f.searchMarkers, (checked) => set({ searchMarkers: checked }))),
+    fieldRow("Search-result markers", "Snippets only; never fetches the result.", toggleControl(f.searchMarkers, (checked) => set({ searchMarkers: checked }))),
     ...(Object.keys(SLOP_SITE_LABEL) as SlopFilterSite[]).map((site) =>
       fieldRow(
         SLOP_SITE_LABEL[site],
@@ -657,7 +635,7 @@ function renderSiteMemorySection(): HTMLElement {
     { class: "settings-list" },
     fieldRow(
       "On",
-      "Local per-domain tally only (e.g. \"7 of the last 10 pages scored high\"). No text or URLs are stored.",
+      "Per-domain tally on this device. No text or URLs.",
       toggleControl(s.siteMemoryEnabled, (checked) => void updateSettings({ siteMemoryEnabled: checked })),
     ),
     fieldRow(
@@ -689,7 +667,7 @@ function renderModelsSection(): HTMLElement {
     h(
       "p",
       { class: "section-intro" },
-      "Every model is pinned to a known revision. Updates are opt-in and reversible: the previous revision is kept until you roll back.",
+      "Pinned revisions. Updates are opt-in; the previous one is kept for rollback.",
     ),
     h("div", { class: "cache-total" }, h("span", null, "Total model cache"), total),
     h("p", { class: "status-line" }, engineLine),
@@ -699,6 +677,15 @@ function renderModelsSection(): HTMLElement {
       { class: "btn-row", style: "margin:0.8em 0 1.2em" },
       h("button", { class: "btn", type: "button", onclick: () => void checkAllUpdates() }, "Check for updates"),
       h("button", { class: "btn btn-ghost", type: "button", onclick: () => void refreshCache() }, "Refresh cache info"),
+    ),
+    h(
+      "div",
+      { class: "settings-list" },
+      fieldRow(
+        "Check for updates daily",
+        "Never installs by itself.",
+        toggleControl(state.settings.autoCheckModelUpdates, (checked) => void updateSettings({ autoCheckModelUpdates: checked })),
+      ),
     ),
     h("div", { class: "settings-list" }, ...SLOTS.map((slot) => renderModelRow(slot))),
   );

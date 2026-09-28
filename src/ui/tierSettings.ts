@@ -1,14 +1,15 @@
-// Self-contained "Two tiers" settings block for the options page (docs/plan.md
-// "Two tiers: Quick (default) and Deep (on demand)"), mounted the same way
-// as Fusion's (src/ui/fusionSettings.ts): `mountTierSettings(el)`. Terse by
-// design (the plan calls for exactly this, no more): which detectors Quick
-// (the automatic pass) and Deep (the ↻ button) each use, and whether Quick
-// runs automatically at all.
+// The options page's detector matrix (docs/plan.md "Two tiers"): one row per
+// detector, one column per use -- Fusion (checks you start in Fusion mode, and
+// the confirmation of a flagged Quick result), Quick (the automatic pass) and
+// Deep (the ↻ button). Replaces three separate detector lists that repeated
+// each other. Mounted once with `mountTierSettings(el)`; reads/writes settings
+// itself and follows changes made elsewhere.
 
 import { DETECTOR_LABELS } from "../engine/models";
 import {
   DEFAULT_TIERS,
   getSettings,
+  sanitizeFusion,
   sanitizeTiers,
   setSettings,
   watchSettings,
@@ -16,90 +17,123 @@ import {
   type Settings,
   type TierSettings,
 } from "../shared/settings";
+import { FUSION_DETECTOR_INFO } from "./fusionSettings";
 
-const ORDER: FusionDetector[] = ["fakespot", "tmr", "modernbert", "lite", "perplexity", "binoculars"];
+export const DETECTOR_ORDER: FusionDetector[] = ["fakespot", "tmr", "modernbert", "lite", "perplexity", "binoculars"];
 
-/** Renders the tiers settings into `el` (replacing its contents). Returns an unmount function. */
+type Column = "fusion" | "quick" | "deep";
+const COLUMNS: { id: Column; label: string; title: string }[] = [
+  { id: "fusion", label: "Fusion", title: "Fusion mode, and confirming a flagged Quick result" },
+  { id: "quick", label: "Quick", title: "The automatic pass on page load" },
+  { id: "deep", label: "Deep", title: "The ↻ button: slower, reads the whole page" },
+];
+
+/** The column's detector list after ticking/unticking `d`; null when that would leave it empty. */
+export function toggleDetector(list: readonly FusionDetector[], d: FusionDetector, on: boolean): FusionDetector[] | null {
+  const next = DETECTOR_ORDER.filter((x) => (x === d ? on : list.includes(x)));
+  return next.length ? next : null;
+}
+
+export function columnList(settings: Pick<Settings, "fusion" | "tiers">, column: Column): FusionDetector[] {
+  if (column === "fusion") return settings.fusion.detectors;
+  return column === "quick" ? settings.tiers.quickDetectors : settings.tiers.deepDetectors;
+}
+
+/** The settings patch for a column's new list. */
+export function columnPatch(settings: Pick<Settings, "fusion" | "tiers">, column: Column, list: FusionDetector[]): Partial<Settings> {
+  if (column === "fusion") return { fusion: sanitizeFusion({ ...settings.fusion, detectors: list }) };
+  const key = column === "quick" ? "quickDetectors" : "deepDetectors";
+  return { tiers: sanitizeTiers({ ...settings.tiers, [key]: list }) };
+}
+
+/** Renders the matrix into `el` (replacing its contents). Returns an unmount function. */
 export function mountTierSettings(el: HTMLElement): () => void {
   el.replaceChildren();
   const root = document.createElement("div");
   root.className = "lad-tiers";
   root.innerHTML = `
     <style>
-      .lad-tiers { display: grid; gap: 10px; font: inherit; color: var(--ink, inherit); }
-      .lad-tiers fieldset { border: 1px solid var(--border, #ccc); border-radius: var(--radius-md, 6px); padding: 8px 10px; margin: 0; }
-      .lad-tiers legend { font-weight: 600; padding: 0 4px; }
-      .lad-tiers label.det { display: flex; gap: 8px; align-items: baseline; padding: 2px 0; }
-      .lad-tiers .row { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; }
+      .lad-tiers { display: grid; gap: 6px; font: inherit; color: var(--ink, inherit); }
+      .lad-tiers table { border-collapse: collapse; width: 100%; }
+      .lad-tiers th, .lad-tiers td { padding: 4px 6px; text-align: center; border-bottom: 1px solid var(--border, #ddd); }
+      .lad-tiers th:first-child, .lad-tiers td:first-child { text-align: left; }
+      .lad-tiers thead th { font-weight: 600; font-size: 0.85em; color: var(--ink-soft, #555); }
+      .lad-tiers .tag { font-size: 0.75em; color: var(--ink-soft, #555); margin-left: 4px; }
+      .lad-tiers .row { display: flex; gap: 8px; align-items: center; padding: 3px 0; }
+      .lad-tiers .row input[type=number] { width: 7em; }
       .lad-tiers .blurb { color: var(--ink-soft, #555); font-size: 0.9em; }
     </style>
-    <fieldset class="quick"><legend>Quick detectors</legend></fieldset>
-    <label class="row"><input type="checkbox" class="confirm"><span>Confirm high Quick scores with Fusion</span></label>
-    <fieldset class="deep"><legend>Deep detectors</legend></fieldset>
-    <label class="row budget"><span>Quick check length</span> <input type="number" min="128" max="32000" step="128" /> <span class="blurb">tokens</span></label>`;
-  // Whether the quick check runs automatically is controlled in one place only:
-  // Presence → Auto-run. (A second checkbox here contradicted it.)
+    <table><thead><tr><th>Detector</th></tr></thead><tbody></tbody></table>
+    <label class="row"><input type="checkbox" class="confirm"><span>Confirm flagged Quick results with Fusion</span></label>
+    <label class="row budget"><span>Quick reads up to</span> <input type="number" min="128" max="32000" step="128" /> <span class="blurb">tokens</span></label>`;
+  // Whether Quick runs automatically is controlled in one place only: Presence → Auto-run.
   el.append(root);
 
-  const quickEl = root.querySelector<HTMLElement>(".quick")!;
-  const deepEl = root.querySelector<HTMLElement>(".deep")!;
+  const headRow = root.querySelector("thead tr")!;
+  for (const c of COLUMNS) {
+    const th = document.createElement("th");
+    th.textContent = c.label;
+    th.title = c.title;
+    headRow.append(th);
+  }
 
   let settings: Settings | null = null;
-
-  const save = (tiers: TierSettings) => {
-    void setSettings({ tiers: sanitizeTiers(tiers) }).then((s) => {
+  const save = (patch: Partial<Settings>) => {
+    void setSettings(patch).then((s) => {
       settings = s;
       render();
     });
   };
 
-  function boxesFor(container: HTMLElement, key: "quickDetectors" | "deepDetectors"): Map<FusionDetector, HTMLInputElement> {
-    const boxes = new Map<FusionDetector, HTMLInputElement>();
-    for (const d of ORDER) {
-      const label = document.createElement("label");
-      label.className = "det";
+  const boxes: { column: Column; d: FusionDetector; box: HTMLInputElement }[] = [];
+  const body = root.querySelector("tbody")!;
+  for (const d of DETECTOR_ORDER) {
+    const tr = document.createElement("tr");
+    const name = document.createElement("td");
+    name.textContent = DETECTOR_LABELS[d];
+    name.title = FUSION_DETECTOR_INFO[d].blurb;
+    if (FUSION_DETECTOR_INFO[d].experimental) {
+      const tag = document.createElement("span");
+      tag.className = "tag";
+      tag.textContent = "experimental";
+      name.append(tag);
+    }
+    tr.append(name);
+    for (const c of COLUMNS) {
+      const td = document.createElement("td");
       const box = document.createElement("input");
       box.type = "checkbox";
-      box.value = d;
+      box.setAttribute("aria-label", `${DETECTOR_LABELS[d]}: ${c.label}`);
       box.addEventListener("change", () => {
         if (!settings) return;
-        const current = settings.tiers[key];
-        const next = ORDER.filter((x) => (x === d ? box.checked : current.includes(x)));
-        if (next.length === 0) {
-          box.checked = true; // keep at least one
+        const next = toggleDetector(columnList(settings, c.id), d, box.checked);
+        if (!next) {
+          box.checked = true; // keep at least one per column
           return;
         }
-        save({ ...settings.tiers, [key]: next });
+        save(columnPatch(settings, c.id, next));
       });
-      boxes.set(d, box);
-      const text = document.createElement("span");
-      text.textContent = DETECTOR_LABELS[d];
-      label.append(box, text);
-      container.append(label);
+      boxes.push({ column: c.id, d, box });
+      td.append(box);
+      tr.append(td);
     }
-    return boxes;
+    body.append(tr);
   }
 
-  const budgetBox = root.querySelector<HTMLInputElement>(".budget input")!;
-  budgetBox.addEventListener("change", () => {
-    if (!settings) return;
-    save({ ...settings.tiers, quickMaxTokens: Number(budgetBox.value) });
-  });
-
-  const quickBoxes = boxesFor(quickEl, "quickDetectors");
   const confirmBox = root.querySelector<HTMLInputElement>("input.confirm")!;
   confirmBox.addEventListener("change", () => {
-    if (settings) save({ ...settings.tiers, confirmQuick: confirmBox.checked });
+    if (settings) save({ tiers: sanitizeTiers({ ...settings.tiers, confirmQuick: confirmBox.checked }) });
   });
-  const deepBoxes = boxesFor(deepEl, "deepDetectors");
+  const budgetBox = root.querySelector<HTMLInputElement>(".budget input")!;
+  budgetBox.addEventListener("change", () => {
+    if (settings) save({ tiers: sanitizeTiers({ ...settings.tiers, quickMaxTokens: Number(budgetBox.value) }) });
+  });
 
   function render(): void {
     if (!settings) return;
-    const t = settings.tiers;
-    for (const [d, box] of quickBoxes) box.checked = t.quickDetectors.includes(d);
-    confirmBox.checked = t.confirmQuick;
-    for (const [d, box] of deepBoxes) box.checked = t.deepDetectors.includes(d);
-    if (document.activeElement !== budgetBox) budgetBox.value = String(t.quickMaxTokens);
+    for (const { column, d, box } of boxes) box.checked = columnList(settings, column).includes(d);
+    confirmBox.checked = settings.tiers.confirmQuick;
+    if (document.activeElement !== budgetBox) budgetBox.value = String(settings.tiers.quickMaxTokens);
   }
 
   let alive = true;

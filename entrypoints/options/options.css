@@ -53,7 +53,7 @@ body {
 }
 
 .options-main > section {
-  padding-top: 2.6em;
+  padding-top: 2em;
   padding-bottom: 0.4em;
 }
 .options-main > section:first-of-type {
@@ -77,7 +77,7 @@ section > .section-intro {
   flex-direction: column;
 }
 .settings-list > .field-row {
-  padding: 0.9em 0;
+  padding: 0.55em 0;
   border-bottom: 1px solid var(--border);
 }
 .settings-list > .field-row:last-child {
@@ -86,7 +86,7 @@ section > .section-intro {
 .field-row .field-main {
   display: flex;
   flex-direction: column;
-  gap: 0.2em;
+  gap: 0.1em;
   max-width: 44ch;
 }
 .field-row .control {
@@ -249,4 +249,14 @@ section > .section-intro {
   .options-nav a {
     padding: 0.4em 0.6em;
   }
+}
+
+/* Sub-blocks inside a section (Fusion, Quick/Deep, per-site rules). */
+.options-main section > .settings-list + .settings-list {
+  margin-top: 1em;
+}
+.options-main .card-subtitle {
+  font-weight: 600;
+  font-size: 0.92rem;
+  padding: 0.3em 0;
 }

@@ -83,11 +83,13 @@ describe("settings migration: tiers", () => {
 
   it("a corrupted/foreign stored `tiers` value is sanitized rather than kept verbatim", () => {
     const out = migrated({ tiers: { quickDetectors: ["nope" as FusionDetector], deepDetectors: [], autoRunQuick: false, confirmQuick: true, quickMaxTokens: 1024 } });
-    expect(out.tiers).toEqual({ quickDetectors: DEFAULT_TIERS.quickDetectors, deepDetectors: DEFAULT_TIERS.deepDetectors, autoRunQuick: false, confirmQuick: true, quickMaxTokens: 1024 });
+    // autoRunQuick: false folds into the single Auto-run control (Presence > Auto-run: Never).
+    expect(out.tiers).toEqual({ quickDetectors: DEFAULT_TIERS.quickDetectors, deepDetectors: DEFAULT_TIERS.deepDetectors, autoRunQuick: true, confirmQuick: true, quickMaxTokens: 1024 });
+    expect(out.autoRunPolicy).toBe("never");
   });
 
   it("a valid stored choice survives migration untouched", () => {
-    const custom: TierSettings = { quickDetectors: ["tmr", "lite"], deepDetectors: ["fakespot", "tmr"], autoRunQuick: false, confirmQuick: true, quickMaxTokens: 1024 };
+    const custom: TierSettings = { quickDetectors: ["tmr", "lite"], deepDetectors: ["fakespot", "tmr"], autoRunQuick: true, confirmQuick: false, quickMaxTokens: 2048 };
     expect(migrated({ tiers: custom }).tiers).toEqual(custom);
   });
 });

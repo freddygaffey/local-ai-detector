@@ -21,6 +21,7 @@ import type { AnalyzeResult, ProgressEvent, TabAnalysisStatus } from "@/src/shar
 import { clearChildren, h } from "@/src/ui/dom";
 import { derivePopupState, isCacheLoad, isUnsupportedUrl, progressPercent } from "@/src/ui/state";
 import type { PopupState } from "@/src/ui/state";
+import { offerShowOnPage } from "@/src/ui/optionsLogic";
 import { classifyProbe, classifyUrl, parseUnreadable, unreadableMessage, type UnreadableKind } from "@/src/shared/unreadable";
 import { BAND_LABEL, bandClassName, bandFromResult, DETAILS_NOTE } from "@/src/ui/verdict";
 import { displayScore, formatScoreOrDash } from "@/src/ui/probability";
@@ -726,7 +727,7 @@ function renderButtons(): HTMLElement {
       "Selection",
     ),
   ];
-  if (ctx.settings.presence === "onClick") {
+  if (offerShowOnPage(ctx.settings)) {
     buttons.push(h("button", { class: "btn", type: "button", onclick: () => void showOnPage() }, "Show on page"));
   }
   buttons.push(

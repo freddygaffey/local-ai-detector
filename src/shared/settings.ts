@@ -430,6 +430,17 @@ function mergeSettings(stored: Partial<Settings> | undefined): Settings {
  */
 export function migrateSettings(merged: Settings, stored: Partial<Settings> | undefined): Settings {
   const out: Settings = { ...merged, fusion: sanitizeFusion(merged.fusion), tiers: sanitizeTiers(merged.tiers) };
+  // Auto-run has one control (Options > Presence > Auto-run). The old hidden
+  // "Run quick check automatically" box and the never-built "ask" policy both
+  // meant "off": fold them into autoRunPolicy "never" so the UI tells the truth.
+  if (out.tiers.autoRunQuick === false) {
+    out.autoRunPolicy = "never";
+    out.tiers = { ...out.tiers, autoRunQuick: true };
+  }
+  if (out.autoRunPolicy === "ask") out.autoRunPolicy = "never";
+  if (Object.values(out.siteRules ?? {}).includes("ask")) {
+    out.siteRules = Object.fromEntries(Object.entries(out.siteRules).map(([h, p]) => [h, p === "ask" ? "never" : p]));
+  }
   if (stored && (stored.settingsVersion ?? 1) < 2) {
     // v1 had no Fusion: its Ensemble was one classifier + perplexity, and
     // WebGPU was an opt-in. Carry an explicit lite choice over; everything

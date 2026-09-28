@@ -4,7 +4,7 @@
 // estimate for the chosen set on this device. Reads/writes settings itself
 // and follows changes made elsewhere (watchSettings).
 
-import { DEFAULT_MODELS, DETECTOR_LABELS, DETECTOR_SLOTS, estimateFusion } from "../engine/models";
+import { DETECTOR_LABELS, estimateFusion } from "../engine/models";
 import { sendMessage } from "../shared/messages";
 import {
   DEFAULT_FUSION,
@@ -49,7 +49,6 @@ export const FUSION_PRESETS: { id: string; name: string; fusion: FusionSettings 
   },
 ];
 
-const ORDER: FusionDetector[] = ["fakespot", "tmr", "modernbert", "lite", "perplexity", "binoculars"];
 
 function mb(bytes: number): string {
   return `${Math.round(bytes / 1e6)} MB`;
@@ -88,7 +87,7 @@ export function mountFusionSettings(el: HTMLElement): () => void {
       .lad-fusion { display: grid; gap: 10px; font: inherit; color: var(--ink, inherit); }
       .lad-fusion fieldset { border: 1px solid var(--border, #ccc); border-radius: var(--radius-md, 6px); padding: 8px 10px; margin: 0; }
       .lad-fusion legend { font-weight: 600; padding: 0 4px; }
-      .lad-fusion label { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; }
+      .lad-fusion label { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; flex-wrap: wrap; }
       .lad-fusion .blurb { color: var(--ink-soft, #555); font-size: 0.9em; }
       .lad-fusion .tag { font-size: 0.75em; border: 1px solid var(--border-strong, #999); border-radius: 3px; padding: 0 4px; margin-left: 4px; }
       .lad-fusion .presets { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -98,17 +97,14 @@ export function mountFusionSettings(el: HTMLElement): () => void {
       .lad-fusion .warn { color: var(--danger, #a40); }
     </style>
     <div class="presets" role="group" aria-label="Presets"></div>
-    <fieldset class="dets"><legend>Detectors</legend></fieldset>
-    <fieldset class="methods"><legend>Combine scores by</legend></fieldset>
-    <div class="summary" aria-live="polite"></div>
-    <div class="device blurb"></div>`;
+    <label class="method-row"><span>Combine by</span> <select class="methods"></select> <span class="blurb method-blurb"></span></label>
+    <div class="summary blurb" aria-live="polite"></div>`;
   el.append(root);
 
   const presetsEl = root.querySelector<HTMLElement>(".presets")!;
-  const detsEl = root.querySelector<HTMLElement>(".dets")!;
-  const methodsEl = root.querySelector<HTMLElement>(".methods")!;
+  const methodsEl = root.querySelector<HTMLSelectElement>(".methods")!;
+  const methodBlurb = root.querySelector<HTMLElement>(".method-blurb")!;
   const summaryEl = root.querySelector<HTMLElement>(".summary")!;
-  const deviceEl = root.querySelector<HTMLElement>(".device")!;
 
   let settings: Settings | null = null;
   let device: "webgpu" | "wasm" = "webgpu";
@@ -131,82 +127,29 @@ export function mountFusionSettings(el: HTMLElement): () => void {
     return { p, b };
   });
 
-  const boxes = new Map<FusionDetector, HTMLInputElement>();
-  for (const d of ORDER) {
-    const info = FUSION_DETECTOR_INFO[d];
-    const label = document.createElement("label");
-    const box = document.createElement("input");
-    box.type = "checkbox";
-    box.value = d;
-    box.addEventListener("change", () => {
-      if (!settings) return;
-      const next = ORDER.filter((x) => (x === d ? box.checked : settings!.fusion.detectors.includes(x)));
-      if (next.length === 0) {
-        box.checked = true; // keep at least one
-        return;
-      }
-      save({ ...settings.fusion, detectors: next });
-    });
-    boxes.set(d, box);
-    const text = document.createElement("span");
-    const name = document.createElement("strong");
-    name.textContent = info.name;
-    text.append(name);
-    if (info.experimental) {
-      const tag = document.createElement("span");
-      tag.className = "tag";
-      tag.textContent = "experimental";
-      text.append(tag);
-    }
-    const blurb = document.createElement("span");
-    blurb.className = "blurb";
-    const slots = DETECTOR_SLOTS[d].map((s) => DEFAULT_MODELS[s].repo).join(" + ");
-    blurb.textContent = ` — ${info.blurb}`;
-    blurb.title = slots;
-    text.append(blurb);
-    label.append(box, text);
-    detsEl.append(label);
-  }
-
-  const radios = new Map<FusionMethod, HTMLInputElement>();
+  // The detectors themselves are ticked in the detector matrix (tierSettings.ts).
   for (const m of Object.keys(FUSION_METHOD_INFO) as FusionMethod[]) {
-    const info = FUSION_METHOD_INFO[m];
-    const label = document.createElement("label");
-    const r = document.createElement("input");
-    r.type = "radio";
-    r.name = "lad-fusion-method";
-    r.value = m;
-    r.addEventListener("change", () => {
-      if (settings && r.checked) save({ ...settings.fusion, method: m });
-    });
-    radios.set(m, r);
-    const text = document.createElement("span");
-    const name = document.createElement("strong");
-    name.textContent = info.name;
-    const blurb = document.createElement("span");
-    blurb.className = "blurb";
-    blurb.textContent = ` — ${info.blurb}`;
-    text.append(name, blurb);
-    label.append(r, text);
-    methodsEl.append(label);
+    const opt = document.createElement("option");
+    opt.value = m;
+    opt.textContent = FUSION_METHOD_INFO[m].name;
+    methodsEl.append(opt);
   }
+  methodsEl.addEventListener("change", () => {
+    if (settings) save({ ...settings.fusion, method: methodsEl.value as FusionMethod });
+  });
 
   function render() {
     if (!settings) return;
     const f = settings.fusion;
-    for (const [d, box] of boxes) box.checked = f.detectors.includes(d);
-    for (const [m, r] of radios) r.checked = f.method === m;
-    methodsEl.toggleAttribute("disabled", f.detectors.length < 2);
+    methodsEl.value = f.method;
+    methodsEl.disabled = f.detectors.length < 2;
+    methodBlurb.textContent = FUSION_METHOD_INFO[f.method].blurb;
     for (const { p, b } of presetButtons) b.setAttribute("aria-pressed", String(sameFusion(p.fusion, f)));
     const dev = settings.useWebGPU ? device : "wasm";
-    summaryEl.textContent = fusionSummary(f, dev, settings.modelOverrides);
     const e = estimateFusion(f.detectors, dev, settings.modelOverrides);
-    const notes: string[] = [];
-    if (!deviceKnown) notes.push("Device not checked yet; estimate assumes the GPU.");
-    else notes.push(dev === "webgpu" ? "Runs on this device's GPU (WebGPU)." : "Runs on the CPU (WebGPU is off or unavailable here).");
-    if (dev === "webgpu" && e.wasmOnly.length) notes.push("Binoculars always runs on the CPU.");
-    if (settings.mode !== "ensemble") notes.push("Fusion is used when the detector mode is Fusion.");
-    deviceEl.textContent = notes.join(" ");
+    const notes = [fusionSummary(f, dev, settings.modelOverrides)];
+    if (deviceKnown && dev === "webgpu" && e.wasmOnly.length) notes.push("Binoculars runs on the CPU.");
+    summaryEl.textContent = notes.join(" · ");
   }
 
   let alive = true;

@@ -155,3 +155,32 @@ manifest). Both builds, typecheck and unit tests pass after every change.
   is ~35 s. A smaller Quick token budget on Firefox would help but changes results; left as a decision
   (it could be a setting).
 - YouTube and Google bot-wall WebDriver-driven Firefox; both were tested without WebDriver instead.
+
+## Options audit (2026-09-28)
+Every control traced to its reader, then exercised live in Chrome (options page in its own tab):
+each one saved, survived a reload, and showed the new value; the page height stayed at one
+value across all changes (no jumping). The user's settings were snapshotted and restored.
+
+| Control (before) | Problem found | After |
+|---|---|---|
+| Mode | Worked. Fusion detectors hidden unless Mode = Fusion, but Quick confirmation also uses them | Kept; hint "For checks you start." |
+| Fusion: presets, detector list, method radios with blurbs | Third copy of the detector list; long | Presets + "Combine by" select + one summary line; detectors moved to the matrix |
+| Tiers: Quick detectors, Deep detectors (two lists) | Duplicated the Fusion list; separate section | One detector matrix (Fusion / Quick / Deep columns) in Detection; keep-one-per-column guard |
+| Tiers: hidden `autoRunQuick` (no UI since an earlier fix) | Dead-end: if ever off, auto-run stayed off with no control to turn it on | Migrated into Auto-run = Never; one auto-run control |
+| Highlight style, Min words, Max tokens, Hidden-Unicode, GPU | Worked | Terse labels |
+| Check images for provenance | Worked | "Image provenance" |
+| Auto-check model updates (in Detection) | Worked, wrong section | Moved to Models: "Check for updates daily" |
+| Presence preset | Kept showing the old preset after a toggle was changed | Shows "Custom" when toggles differ; picking a preset resets them |
+| Auto-run: Always / Never / Ask | "Ask" never built (behaved as Never) | Always / Never; stored "ask" migrated to "never" |
+| Surface: Popup | Dead: nothing read it | Removed |
+| Surface: Side panel | Dead: behaviour keyed off the preset name, so the toggle did nothing | Toggle now drives "toolbar icon opens the side panel" (Chrome and Firefox) |
+| Popup "Show on page" | Only for the On click preset name | Shown whenever neither highlights nor the card paint the page |
+| Surface: Toolbar badge, Corner chip, Page highlights | Worked | Labels "Corner card" etc. |
+| Chip corner, Chip auto-hide | Worked | "Card corner", "Card shrinks below (%)" (defaults owned by the card work) |
+| Per-site rules | "Ask" offered; `https://Example.com/x` stored verbatim and never matched | Always / Never; host normalised; titled "Auto-run per site" |
+| Page type per site | Worked | Shared host normaliser; one-line hint |
+| Battery (6), Slop filter (10), Voice (5), Site memory (2) | Worked | Terse hints; "(%)" units |
+| Whole page | Rows keyed by label, so the three "On" rows collided: focus was restored to the wrong control after a re-render | Keys prefixed with the section |
+| Whole page | Didn't follow changes made elsewhere (popup), and could write back stale nested values | Follows `watchSettings` |
+
+Removed/moved nav entry: "Tiers" (now inside Detection). Row padding reduced.
