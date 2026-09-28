@@ -89,11 +89,6 @@ export function visibleVideoTitle(doc: Document = document): Element | null {
   return null;
 }
 
-/** A YouTube Short: the corner card alone summarises it; inline chips would sit on the video. */
-export function onShorts(): boolean {
-  return location.hostname.endsWith("youtube.com") && /^\/shorts(\/|$)/.test(location.pathname);
-}
-
 /** Where the chip goes: under the video title; null = a fixed corner (unknown layouts, other sites). */
 function anchor(): Element | null {
   return visibleVideoTitle();
@@ -157,10 +152,6 @@ export function createTranscriptChip(cb: TranscriptChipCallbacks): TranscriptChi
 
   const place = () => {
     host.classList.toggle("dark", theme() === "dark");
-    if (onShorts()) {
-      host.style.cssText = "display:none !important;";
-      return;
-    }
     const a = anchor();
     if (a) {
       host.style.cssText = "visibility:visible !important;";

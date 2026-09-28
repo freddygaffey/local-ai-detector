@@ -6,7 +6,7 @@
 // Closed shadow DOM. The lead may later merge this into the transcript chip.
 
 import { scoreColor } from "../content/colors";
-import { onShorts, visibleVideoTitle } from "../content/youtube/ui";
+import { visibleVideoTitle } from "../content/youtube/ui";
 import { formatVoice } from "./aggregate";
 import type { VoiceState } from "./capture";
 import { VOICE_MODELS } from "../engine/voiceModels";
@@ -114,10 +114,6 @@ export function createVoiceChip(cb: VoiceChipCallbacks, opts: { fixedOnly?: bool
 
   const place = () => {
     host.classList.toggle("dark", theme() === "dark");
-    if (onShorts()) {
-      host.style.cssText = "display:none !important;";
-      return;
-    }
     const a = opts.fixedOnly ? null : anchor();
     if (a) {
       host.style.cssText = "visibility:visible !important;";
