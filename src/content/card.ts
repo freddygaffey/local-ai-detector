@@ -615,7 +615,11 @@ export function createCard(initialPos: CardPos, cb: CardCallbacks): CardApi {
     if (!drag.moved) {
       if (Math.hypot(dx, dy) < 5) return;
       drag.moved = true;
-      card.setPointerCapture(e.pointerId);
+      try {
+        card.setPointerCapture(e.pointerId);
+      } catch {
+        // synthetic/stale pointer: drag without capture
+      }
       card.classList.add("dragging");
       hover.hidden = true;
       if (open) closePanel(false);
@@ -638,6 +642,16 @@ export function createCard(initialPos: CardPos, cb: CardCallbacks): CardApi {
   };
   card.addEventListener("pointerup", endDrag);
   card.addEventListener("pointercancel", endDrag);
+  // A release anywhere ends a press that never became a drag: one released off
+  // the card (the panel opening under it, another window) used to linger and
+  // turn plain hovering into dragging.
+  const releaseAnywhere = (e: PointerEvent) => {
+    if (drag && e.pointerId === drag.id && !drag.moved) drag = null;
+  };
+  window.addEventListener("pointerup", releaseAnywhere, true);
+  window.addEventListener("blur", () => {
+    if (drag && !drag.moved) drag = null;
+  });
   card.addEventListener("click", (e) => {
     if (suppressClick) {
       suppressClick = false;
@@ -694,6 +708,7 @@ export function createCard(initialPos: CardPos, cb: CardCallbacks): CardApi {
     },
     destroy() {
       clearTimeout(hideTimer);
+      window.removeEventListener("pointerup", releaseAnywhere, true);
       try {
         host.remove();
       } catch {
