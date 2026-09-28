@@ -8,7 +8,7 @@
 
 import { onAnalysisStatus, registerHandlers, sendMessage } from "../shared/messages";
 import type { AnalyzeResult, SentenceScore, TextBlock } from "../shared/messages";
-import { autoRunPolicyForSite, DEFAULT_SETTINGS, getSettings, setSettings, watchSettings, type CardPosition } from "../shared/settings";
+import { autoRunPolicyForSite, DEFAULT_SETTINGS, getSettings, isPaused, setSettings, watchSettings, type CardPosition } from "../shared/settings";
 import type { HighlightStyle, Settings } from "../shared/settings";
 import { fusionForTier } from "../engine/models";
 import { FLAGGED_THRESHOLD } from "./colors";
@@ -273,6 +273,11 @@ async function boot(): Promise<void> {
     ) {
       reconcileSurfaces();
     }
+    if ((prev.pausedUntil ?? 0) !== (next.pausedUntil ?? 0)) {
+      refreshCard();
+      // Resumed: this page's skipped automatic check runs now.
+      if (isPaused(prev) && !isPaused(next) && !lastResult && !cardRunning) void maybeAutoRun();
+    }
     // Slop filter switched on/off or retuned in Options: apply to what's already scored.
     if (JSON.stringify(prev.slopFilter) !== JSON.stringify(next.slopFilter) && lastResult) applyStructuredExtras(lastResult);
   });
@@ -460,6 +465,7 @@ function cardState(): CardState {
     error: cardError,
     images: imageSummary,
     search: searchSummary,
+    pausedUntil: isPaused(settings) ? settings.pausedUntil : undefined,
   };
   if (page.type === "video" || page.type === "subtitles") st.video = videoStatus;
   const r = lastResult;

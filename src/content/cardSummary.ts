@@ -54,6 +54,8 @@ export interface CardState {
   images?: ImageProvenanceSummary;
   hidden?: { count: number; message: boolean };
   meta?: CardMeta;
+  /** Automatic checks paused (popup ⏸) until this time, ms since epoch. */
+  pausedUntil?: number;
 }
 
 export interface SummaryLine {
@@ -214,6 +216,10 @@ export function hoverLines(s: CardState): HoverLine[] {
   for (const m of markers(s)) out.push({ label: markerTitle(m.code), value: m.label.replace(/^.*?: /, "") });
   if (s.error) out.push({ label: "Error", value: s.error });
   if (s.running) out.push({ label: "Status", value: s.progress !== undefined ? `checking ${pct(s.progress)}` : "checking…" });
+  if (s.pausedUntil) {
+    const until = new Date(s.pausedUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    out.push({ label: "Auto", value: `paused until ${until} (click to check)`, dim: true });
+  }
 
   const m = s.meta;
   if (m?.agreement) out.push({ label: "Detectors", value: `${m.agreement.agree}/${m.agreement.total} agree${m.agreement.disagree ? ", split" : ""}` });
