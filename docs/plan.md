@@ -226,7 +226,7 @@ default (it no longer hides below a threshold):
   per-detector numbers, a link to settings.
 Other presence modes remain as settings. Unobtrusive but always functional.
 
-## Next: "AI-built site" detection (user idea, queued after the corner card + PDF/settings agents)
+## v2 (after the v0.2.0 release): "AI-built site" detection (user idea)
 A new corner-card signal: "Site: AI-built (Lovable)" / "Site: likely AI-built 78%". Local page
 inspection only, with no new models:
 1. **Builder fingerprints** (near-certain): deploy subdomains (*.lovable.app, *.bolt.new,
