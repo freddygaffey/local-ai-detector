@@ -11,7 +11,7 @@
 // Pause/seek handling and all sampling rules live in ./capture.ts.
 
 import { browser } from "wxt/browser";
-import { DEFAULT_SETTINGS, getSettings, setSettings, watchSettings, type Settings } from "../shared/settings";
+import { DEFAULT_SETTINGS, getSettings, isPaused, setSettings, watchSettings, type Settings } from "../shared/settings";
 import { decidePowerAction, readBatteryState, readPressureState } from "../power/battery";
 import { publishVoiceStatus } from "../content/videoStatus";
 import { VoiceSession, type VoiceState } from "./capture";
@@ -195,7 +195,7 @@ async function onYouTubeLocation(): Promise<void> {
     return;
   }
   ensureChip(false).setState(null, { settings: voice(), rate: rate() });
-  if (voice().run !== "autoYouTube") return;
+  if (voice().run !== "autoYouTube" || isPaused(settings)) return;
   // Pending until it starts: a later tick retries (a momentary CPU-pressure
   // spike while the page loads, or a player that loads late, used to cancel
   // the automatic check for the whole video).

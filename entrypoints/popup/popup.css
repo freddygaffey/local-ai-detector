@@ -1,11 +1,11 @@
 /* Popup-specific layout. Tokens/components come from src/ui/styles.css. */
 
 html {
-  font-size: 14px;
+  font-size: 13px;
 }
 
 body {
-  width: 300px;
+  width: 232px;
 }
 
 .popup-root {
@@ -428,7 +428,7 @@ body {
   gap: 0.5em;
 }
 .score-line .score-value {
-  font-size: 1.6rem;
+  font-size: 1.3rem;
   font-weight: 600;
   line-height: 1.1;
 }
@@ -466,3 +466,26 @@ body {
 .tier-tag.is-refining { animation: lad-tier-pulse 1.4s ease-in-out infinite; }
 @keyframes lad-tier-pulse { 50% { opacity: 0.5; } }
 @media (prefers-reduced-motion: reduce) { .tier-tag.is-refining { animation: none; } }
+
+/* Compact: the popup sits over the page, so keep it small. */
+.popup-header { padding: 0.35em 0.4em 0.35em 0.6em; gap: 0.35em; }
+.popup-header h1 { font-size: 0.85rem; }
+.popup-body { padding: 0.45em 0.6em 0.55em; gap: 0.4em; }
+.btn-row { gap: 0.3em; }
+.btn-row > .btn { padding: 0.3em 0.55em; font-size: 0.9em; }
+.more-disclosure[open] > :not(summary) { font-size: 0.92em; }
+
+.pause-btn { font-size: 0.8rem; line-height: 1; }
+.pause-btn.is-paused { color: var(--accent); }
+.pause-row {
+  display: flex;
+  align-items: center;
+  gap: 0.3em;
+  padding: 0.3em 0.6em;
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-sunken);
+}
+.pause-row .grow { flex: 1; }
+.pause-row .btn { padding: 0.15em 0.45em; }

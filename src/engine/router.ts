@@ -7,6 +7,7 @@
 
 import { browser } from "wxt/browser";
 import {
+  CANCELLED_ERROR,
   CONSENT_REQUIRED_ERROR,
   NO_SELECTION_ERROR,
   registerHandlers,
@@ -236,7 +237,8 @@ async function runAnalyze(
     return tagged;
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
-    if (tabId >= 0) {
+    // A failed or cancelled Deep refinement leaves the Quick result up (runManualCheck restores it).
+    if (quietTab) {
       broadcastStatus(tabId, { state: "error", mode, error });
       if (showBadge) badge.error(tabId);
     }
@@ -442,13 +444,37 @@ export async function runManualCheck(
   }
   if (!ready) return quick;
   broadcastStatus(tabId, { state: "done", mode: "ensemble", result: { ...quick, refining: true }, finishedAt: Date.now() });
+  cancelled.delete(tabId);
+  refining.add(tabId);
   try {
-    return await runTabAnalysis(tabId, target, requestId, "ensemble", undefined, "deep", deepSet, undefined, reveal, true);
+    const deep = await runTabAnalysis(tabId, target, requestId, "ensemble", undefined, "deep", deepSet, undefined, reveal, true);
+    // Cancelled while another tab kept the host busy: the late Deep result is dropped.
+    if (cancelled.has(tabId)) throw new Error(CANCELLED_ERROR);
+    return deep;
   } catch (e) {
     // The Quick result stands.
     broadcastStatus(tabId, { state: "done", mode: "ensemble", result: quick, finishedAt: Date.now() });
+    if (cancelled.delete(tabId)) throw new Error(CANCELLED_ERROR);
     throw e;
+  } finally {
+    refining.delete(tabId);
   }
+}
+
+/** Tabs whose Deep refinement is running, and those the user cancelled. */
+const refining = new Set<number>();
+const cancelled = new Set<number>();
+
+/**
+ * Stops a tab's Deep refinement. Inference can't be interrupted mid-op, so the
+ * host is torn down (models reload from the cache, in seconds, on the next
+ * run), unless another tab's check is using it: then the result is just dropped.
+ */
+async function cancelAnalysis(tabId: number): Promise<void> {
+  if (!refining.has(tabId)) return;
+  cancelled.add(tabId);
+  const othersRunning = [...inflight.keys()].some((id) => id !== tabId);
+  if (!othersRunning) await getHostClient().reset().catch(() => {});
 }
 
 const MENU_ID = "lad-analyze-selection";
@@ -541,6 +567,10 @@ export function startEngineRouter(): void {
     // src/power/idle.ts). Frees every model session; the next analysis
     // reloads from the cache. Never starts an inference host just to unload.
     unloadIdleModels: () => unloadIdleModels(),
+    cancelAnalysis: async (req) => {
+      await cancelAnalysis(req.tabId);
+      return { ok: true };
+    },
     getTabStatus: (req) => {
       const status = tabStatus.get(req.tabId) ?? { state: "idle" };
       const images = imageSummaries.get(req.tabId);

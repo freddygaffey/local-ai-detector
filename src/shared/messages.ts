@@ -238,6 +238,16 @@ export type TabAnalysisStatus =
   | { state: "done"; mode: Mode; result: AnalyzeResult; finishedAt: number }
   | { state: "error"; mode: Mode; error: string };
 
+/** Popup -> background: stop the tab's running check (the Deep pass of a manual check). */
+export interface CancelAnalysisMessage {
+  type: "cancelAnalysis";
+  request: { tabId: number };
+  response: ActionResult;
+}
+
+/** A run stopped by `cancelAnalysis`: callers treat it as quiet, not an error. */
+export const CANCELLED_ERROR = "Check cancelled";
+
 export interface GetTabStatusMessage {
   type: "getTabStatus";
   request: { tabId: number };
@@ -640,6 +650,7 @@ export type RuntimeMessage =
   | ProvenanceHostVerifyTextMessage
   | ValidateCustomModelMessage
   | GetTabStatusMessage
+  | CancelAnalysisMessage
   | GetEngineInfoMessage
   | AnalyzeMessage
   | CheckModelUpdatesMessage

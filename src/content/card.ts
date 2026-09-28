@@ -10,7 +10,7 @@
 //              page, the Deep check ↻, per-detector numbers, Settings, close.
 // The text of every layer comes from ./cardSummary.ts (pure, unit-tested).
 
-import type { Corner } from "../shared/settings";
+import type { CardPosition, Corner } from "../shared/settings";
 import { bandWeight, scoreColor } from "./colors";
 import { collapsedSummary, hoverLines, type CardState, type HoverLine } from "./cardSummary";
 
@@ -24,27 +24,49 @@ export interface CardPanelState {
   current: number;
   total: number;
   deepBusy: boolean;
+  /** Detector whose sentence scores the highlights show; null = the combined score. */
+  highlightBy: string | null;
   /** The page's own text can be checked here (article / thread / app). */
   canCheckText: boolean;
   /** A video page with the inline transcript/voice chips to jump to. */
   hasMediaChips: boolean;
 }
 
+/**
+ * Where the card sits: anchored to its nearest corner, `dx`/`dy` px in from
+ * that corner's side and top/bottom edges (so it stays put across resizes).
+ */
+export type CardPos = CardPosition;
+
+export const defaultCardPos = (corner: Corner): CardPos => ({ corner, dx: MARGIN, dy: MARGIN });
+
 export interface CardCallbacks {
   onOpen(): void;
   onClose(): void;
   onNavigate(direction: 1 | -1): void;
   onToggleHighlights(): void;
+  onHighlightBy(detectorId: string | null): void;
   onDeepCheck(): void;
   onCheckPage(): void;
   onSettings(): void;
   onJumpToMedia(): void;
+  /** The user dragged the card to `pos` (persist it for this site). */
+  onMoved(pos: CardPos): void;
+  /** Panel: make this site's position the default for sites without one. */
+  onUsePositionEverywhere(): void;
+  /** Panel: forget this site's position (back to the default). */
+  onResetPosition(): void;
 }
 
 export interface CardApi {
   render(state: CardState, panel: CardPanelState): void;
   updateCounter(current: number, total: number): void;
-  setCorner(corner: Corner): void;
+  /**
+   * `exact`: a spot the user chose (kept exactly, no automatic lift over
+   * corner widgets); `ownSite`: chosen on this site (the panel offers
+   * "Use everywhere" / "Reset").
+   */
+  setPosition(pos: CardPos, exact: boolean, ownSite: boolean): void;
   isOpen(): boolean;
   /** Opens the panel (e.g. the context menu asked to reveal a result). */
   open(): void;
@@ -183,6 +205,12 @@ function css(): string {
     .note { color: var(--dim); font-size: 10.5px; }
     .det { display: grid; grid-template-columns: 1fr auto; column-gap: 10px; row-gap: 1px; }
     .det .k { color: var(--dim); }
+    .card { touch-action: none; }
+    .card.dragging { cursor: grabbing; opacity: 0.85; }
+    .det.filter { align-items: center; }
+    .det .head { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .det button.pick { justify-self: start; padding: 1px 6px; color: var(--dim); }
+    .det button.pick[aria-pressed="true"] { color: var(--ink); }
     .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
     @media (prefers-reduced-motion: reduce) {
       .bar i.indet, .spin { animation: none; }
@@ -230,11 +258,26 @@ function cornerObstacleOffset(host: Element, corner: Corner): number {
   return Math.max(0, Math.round(lift));
 }
 
-function place(el: HTMLElement, corner: Corner, offset = 0): void {
+function place(el: HTMLElement, pos: CardPos, offset = 0): void {
   el.style.left = el.style.right = el.style.top = el.style.bottom = "";
-  const [v, h] = corner.split("-") as ["top" | "bottom", "left" | "right"];
-  el.style[v] = `${MARGIN + offset}px`;
-  el.style[h] = `${MARGIN}px`;
+  const [v, h] = pos.corner.split("-") as ["top" | "bottom", "left" | "right"];
+  el.style[v] = `${pos.dy + offset}px`;
+  el.style[h] = `${pos.dx}px`;
+}
+
+/** The corner-anchored position for a card whose top-left is at (x, y). */
+function posFromRect(x: number, y: number, w: number, h: number): CardPos {
+  const W = window.innerWidth;
+  const H = window.innerHeight;
+  const cx = Math.min(Math.max(x, 0), Math.max(0, W - w));
+  const cy = Math.min(Math.max(y, 0), Math.max(0, H - h));
+  const right = cx + w / 2 > W / 2;
+  const bottom = cy + h / 2 > H / 2;
+  return {
+    corner: `${bottom ? "bottom" : "top"}-${right ? "right" : "left"}` as Corner,
+    dx: Math.round(right ? W - cx - w : cx),
+    dy: Math.round(bottom ? H - cy - h : cy),
+  };
 }
 
 function rowsEl(lines: HoverLine[]): HTMLDivElement {
@@ -259,7 +302,7 @@ function rowsEl(lines: HoverLine[]): HTMLDivElement {
 
 let cardSeq = 0;
 
-export function createCard(initialCorner: Corner, cb: CardCallbacks): CardApi {
+export function createCard(initialPos: CardPos, cb: CardCallbacks): CardApi {
   const id = `aid-card-${++cardSeq}`;
   const host = document.createElement("ai-detector-card-host");
   // Never-defined custom element: some sites hide `:not(:defined)`, hence the inline !important.
@@ -298,33 +341,37 @@ export function createCard(initialCorner: Corner, cb: CardCallbacks): CardApi {
   shadow.append(style, root);
   (document.body ?? document.documentElement).appendChild(host);
 
-  let corner = initialCorner;
+  let pos = initialPos;
+  let custom = false;
+  let ownSite = false;
   let open = false;
   let hideTimer: ReturnType<typeof setTimeout> | undefined;
   let state: CardState = { pageType: "article" };
-  let pstate: CardPanelState = { highlights: false, current: -1, total: 0, deepBusy: false, canCheckText: true, hasMediaChips: false };
+  let pstate: CardPanelState = { highlights: false, current: -1, total: 0, deepBusy: false, highlightBy: null, canCheckText: true, hasMediaChips: false };
   let lastSpoken = "";
   let userHidden = false;
 
   let lift = 0;
   const dockOffset = () => lift + card.getBoundingClientRect().height + GAP;
   function layout(): void {
-    lift = cornerObstacleOffset(host, corner);
-    place(card, corner, lift);
+    // A position the user chose is kept exactly; the default corner steps around site widgets.
+    lift = custom ? 0 : cornerObstacleOffset(host, pos.corner);
+    place(card, pos, lift);
     const off = dockOffset();
-    place(hover, corner, off);
-    place(panel, corner, off);
+    place(hover, pos, off);
+    place(panel, pos, off);
   }
   // Sites add corner widgets late (reCAPTCHA, chat, cookie bars): re-check now and then.
   let checks = 0;
   const recheck = window.setInterval(() => {
     if (!host.isConnected) return window.clearInterval(recheck);
     if (host.style.display === "none") return;
-    const next = cornerObstacleOffset(host, corner);
+    if (custom) return;
+    const next = cornerObstacleOffset(host, pos.corner);
     if (next !== lift) layout();
     if (++checks > 30) {
       window.clearInterval(recheck);
-      window.setInterval(() => host.isConnected && cornerObstacleOffset(host, corner) !== lift && layout(), 10000);
+      window.setInterval(() => host.isConnected && !custom && cornerObstacleOffset(host, pos.corner) !== lift && layout(), 10000);
     }
   }, 2000);
 
@@ -438,16 +485,31 @@ export function createCard(initialCorner: Corner, cb: CardCallbacks): CardApi {
 
     const dets = state.meta?.detectors ?? [];
     if (dets.length) {
+      // Per-detector scores; with 2+ (and text on the page) each is a filter:
+      // highlight by that model's sentence scores, or "All" (combined).
+      const filter = dets.length > 1 && hasText;
       const sec = document.createElement("div");
-      sec.className = "det sec";
+      sec.className = `det sec${filter ? " filter" : ""}`;
+      if (filter) {
+        const head = document.createElement("span");
+        head.className = "k head";
+        head.textContent = "Highlight by";
+        sec.append(head, document.createElement("span"));
+        sec.append(button("Highlight by the combined score", "All", () => cb.onHighlightBy(null), { pressed: pstate.highlightBy === null, cls: "pick" }), document.createElement("span"));
+      }
       for (const d of dets) {
-        const k = document.createElement("span");
-        k.className = "k";
-        k.textContent = d.label;
         const v = document.createElement("span");
         v.textContent = `${Math.round(d.overall * 100)}`;
         v.title = "Raw detector score (0-100), before calibration";
-        sec.append(k, v);
+        if (filter && d.id) {
+          const id = d.id;
+          sec.append(button(`Highlight by ${d.label} only`, d.label, () => cb.onHighlightBy(id), { pressed: pstate.highlightBy === id, cls: "pick" }), v);
+        } else {
+          const k = document.createElement("span");
+          k.className = "k";
+          k.textContent = d.label;
+          sec.append(k, v);
+        }
       }
       kids.push(sec);
     }
@@ -461,6 +523,19 @@ export function createCard(initialCorner: Corner, cb: CardCallbacks): CardApi {
     note.textContent = "Probability, not proof.";
     foot.append(note, button("Open settings", "Settings", cb.onSettings, { cls: "text" }));
     kids.push(foot);
+    if (ownSite) {
+      const where = document.createElement("div");
+      where.className = "row sec";
+      const label = document.createElement("span");
+      label.className = "note grow";
+      label.textContent = "Moved on this site";
+      where.append(
+        label,
+        button("Put the card here on every site you haven't moved it on", "Use everywhere", cb.onUsePositionEverywhere, { cls: "text" }),
+        button("Back to the default spot on this site", "Reset", cb.onResetPosition, { cls: "text" }),
+      );
+      kids.push(where);
+    }
     panel.replaceChildren(...kids);
   }
 
@@ -505,7 +580,49 @@ export function createCard(initialCorner: Corner, cb: CardCallbacks): CardApi {
     if (card.matches(":focus-visible")) showHover();
   });
   card.addEventListener("blur", scheduleHide);
+  // Drag to move (a press that travels > 4 px); a plain click still opens the panel.
+  let drag: { id: number; sx: number; sy: number; ox: number; oy: number; moved: boolean } | null = null;
+  let suppressClick = false;
+  card.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    const r = card.getBoundingClientRect();
+    drag = { id: e.pointerId, sx: e.clientX, sy: e.clientY, ox: r.left, oy: r.top, moved: false };
+  });
+  card.addEventListener("pointermove", (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const dx = e.clientX - drag.sx;
+    const dy = e.clientY - drag.sy;
+    if (!drag.moved) {
+      if (Math.hypot(dx, dy) < 5) return;
+      drag.moved = true;
+      card.setPointerCapture(e.pointerId);
+      card.classList.add("dragging");
+      hover.hidden = true;
+      if (open) closePanel(false);
+    }
+    const r = card.getBoundingClientRect();
+    pos = posFromRect(drag.ox + dx, drag.oy + dy, r.width, r.height);
+    custom = true;
+    ownSite = true;
+    layout();
+  });
+  const endDrag = (e: PointerEvent) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const moved = drag.moved;
+    drag = null;
+    card.classList.remove("dragging");
+    if (moved) {
+      suppressClick = true;
+      cb.onMoved(pos);
+    }
+  };
+  card.addEventListener("pointerup", endDrag);
+  card.addEventListener("pointercancel", endDrag);
   card.addEventListener("click", (e) => {
+    if (suppressClick) {
+      suppressClick = false;
+      return;
+    }
     if (open) closePanel(false);
     else openPanel(e.detail === 0);
   });
@@ -537,9 +654,13 @@ export function createCard(initialCorner: Corner, cb: CardCallbacks): CardApi {
       const c = panel.querySelector<HTMLSpanElement>('[data-role="counter"]');
       if (c) c.textContent = fmtCount(current, total);
     },
-    setCorner(c) {
-      corner = c;
+    setPosition(p, exact, site) {
+      if (drag?.moved) return;
+      pos = p;
+      custom = exact;
+      ownSite = site;
       layout();
+      if (open) renderPanel();
     },
     isOpen: () => open,
     open() {

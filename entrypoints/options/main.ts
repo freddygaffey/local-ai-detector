@@ -7,7 +7,7 @@ import { renderVoiceSection } from "@/src/voice/options";
 import "../../src/ui/styles.css";
 import "./options.css";
 
-import { getSettings, setSettings, watchSettings } from "@/src/shared/settings";
+import { DEFAULT_SETTINGS, getSettings, setSettings, watchSettings } from "@/src/shared/settings";
 import { PAGE_TYPE_OVERRIDES, type PageTypeOverride } from "@/src/content/pageType";
 import type {
   AutoRunPolicy,
@@ -149,6 +149,65 @@ async function updateSettings(partial: Partial<Settings>): Promise<void> {
   render();
 }
 
+// ---- Reset a section to defaults (↺ by each heading, confirmed inline) ----
+
+let resetOpen: string | null = null;
+
+/** ↺ button that, after an inline "Reset … to defaults?" confirm, restores `keys` from DEFAULT_SETTINGS. */
+function resetControl(label: string, keys: (keyof Settings)[]): HTMLElement {
+  const button = h(
+    "button",
+    {
+      class: "icon-btn reset-btn",
+      type: "button",
+      title: `Reset ${label} to defaults`,
+      "aria-label": `Reset ${label} to defaults`,
+      "aria-expanded": String(resetOpen === label),
+      onclick: () => {
+        resetOpen = resetOpen === label ? null : label;
+        render();
+      },
+    },
+    "↺",
+  );
+  if (resetOpen !== label) return h("span", { class: "reset-wrap" }, button);
+  const confirm = h(
+    "span",
+    { class: "reset-confirm", role: "dialog", "aria-label": `Reset ${label}` },
+    h("span", null, `Reset ${label} to defaults?`),
+    h("button", { class: "btn btn-small btn-danger", type: "button", onclick: () => void resetSection(keys) }, "Reset"),
+    h(
+      "button",
+      {
+        class: "btn btn-ghost btn-small",
+        type: "button",
+        onclick: () => {
+          resetOpen = null;
+          render();
+        },
+      },
+      "Cancel",
+    ),
+  );
+  return h("span", { class: "reset-wrap" }, button, confirm);
+}
+
+async function resetSection(keys: (keyof Settings)[]): Promise<void> {
+  resetOpen = null;
+  const patch = Object.fromEntries(keys.map((k) => [k, structuredClone(DEFAULT_SETTINGS[k])])) as Partial<Settings>;
+  // The Fusion and tier editors keep their own state: remount them on the new values.
+  if (keys.includes("fusion")) {
+    fusionUnmount?.();
+    fusionUnmount = null;
+  }
+  if (keys.includes("tiers")) {
+    tiersUnmount?.();
+    tiersUnmount = null;
+  }
+  await updateSettings(patch);
+  showToast("Reset to defaults");
+}
+
 /** Identifies the focused control across re-renders (controls are recreated). */
 function focusKey(): string | null {
   const el = document.activeElement as HTMLElement | null;
@@ -256,19 +315,19 @@ function renderDetectionSection(): HTMLElement {
   return h(
     "section",
     { id: "detection" },
-    h("h2", null, "Detection"),
+    h("h2", { class: "with-reset" }, "Detection", resetControl("Detection", ["mode", "highlightStyle", "minWords", "maxTokens", "showUnicode", "checkImages", "useWebGPU"])),
     list,
     h(
       "div",
       { class: "settings-list" },
-      h("div", { class: "card-subtitle" }, "Fusion detectors"),
+      h("div", { class: "card-subtitle with-reset" }, "Fusion detectors", resetControl("Fusion detectors", ["fusion"])),
       h("p", { class: "field-hint" }, "Used by Fusion mode and to confirm Quick results."),
       fusionHost,
     ),
     h(
       "div",
       { class: "settings-list", id: "tiers" },
-      h("div", { class: "card-subtitle" }, "Quick (automatic) and Deep (↻)"),
+      h("div", { class: "card-subtitle with-reset" }, "Quick (automatic) and Deep (↻)", resetControl("Quick and Deep", ["tiers"])),
       tiersHost,
     ),
   );
@@ -402,7 +461,12 @@ function renderPresenceSection(): HTMLElement {
   return h(
     "section",
     { id: "presence" },
-    h("h2", null, "Presence"),
+    h(
+      "h2",
+      { class: "with-reset" },
+      "Presence",
+      resetControl("Presence", ["presence", "autoRunPolicy", "surfaces", "chipCorner", "chipAutoHideThreshold", "cardDefaultPosition"]),
+    ),
     list,
     renderSiteRules(),
     renderPageTypeRules(),
@@ -580,7 +644,7 @@ function renderBatterySection(): HTMLElement {
       toggleControl(b.manualOverride, (checked) => set({ manualOverride: checked })),
     ),
   );
-  return h("section", { id: "battery" }, h("h2", null, "Battery"), list);
+  return h("section", { id: "battery" }, h("h2", { class: "with-reset" }, "Battery", resetControl("Battery", ["battery"])), list);
 }
 
 // ---- Slop filter ----
@@ -624,7 +688,7 @@ function renderSlopFilterSection(): HTMLElement {
       ),
     ),
   );
-  return h("section", { id: "slop-filter" }, h("h2", null, "Slop filter"), list);
+  return h("section", { id: "slop-filter" }, h("h2", { class: "with-reset" }, "Slop filter", resetControl("Slop filter", ["slopFilter"])), list);
 }
 
 // ---- Site memory ----
@@ -655,7 +719,7 @@ function renderSiteMemorySection(): HTMLElement {
       h("button", { class: "btn btn-ghost btn-small", type: "button", onclick: () => void clearCached().then(() => showToast("Cleared")) }, "Clear"),
     ),
   );
-  return h("section", { id: "site-memory" }, h("h2", null, "Site memory"), list);
+  return h("section", { id: "site-memory" }, h("h2", { class: "with-reset" }, "Site memory", resetControl("Site memory", ["siteMemoryEnabled", "rememberResults"])), list);
 }
 
 async function doClearSiteMemory(): Promise<void> {

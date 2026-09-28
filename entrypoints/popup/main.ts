@@ -14,9 +14,9 @@ import "../../src/ui/styles.css";
 import "./popup.css";
 
 import { browser } from "wxt/browser";
-import { getSettings, setSettings, watchSettings } from "@/src/shared/settings";
+import { getSettings, isPaused, setSettings, watchSettings } from "@/src/shared/settings";
 import type { HighlightStyle, Mode, Settings } from "@/src/shared/settings";
-import { CONSENT_REQUIRED_ERROR, NO_SELECTION_ERROR, onAnalysisStatus, sendMessage, sendTabMessage } from "@/src/shared/messages";
+import { CANCELLED_ERROR, CONSENT_REQUIRED_ERROR, NO_SELECTION_ERROR, onAnalysisStatus, sendMessage, sendTabMessage } from "@/src/shared/messages";
 import type { AnalyzeResult, ProgressEvent, TabAnalysisStatus } from "@/src/shared/messages";
 import { clearChildren, h } from "@/src/ui/dom";
 import { derivePopupState, isCacheLoad, isUnsupportedUrl, progressPercent } from "@/src/ui/state";
@@ -56,8 +56,8 @@ interface Ctx {
   error: string | null;
   lastTarget: "page" | "selection" | null;
   pasteOpen: boolean;
+  pauseMenu: boolean;
   moreOpen: boolean;
-  detailsOpen: boolean;
   pasteBusy: boolean;
   pasteError: string | null;
   /** null until the content script answers (or fails to). Dims "Selection" only once we know it's empty. */
@@ -91,8 +91,8 @@ const ctx: Ctx = {
   error: null,
   lastTarget: null,
   pasteOpen: false,
+  pauseMenu: false,
   moreOpen: false,
-  detailsOpen: false,
   pasteBusy: false,
   pasteError: null,
   hasSelection: null,
@@ -262,6 +262,8 @@ function render(): void {
   clearChildren(root);
   const state = currentState();
   root.append(renderHeader());
+  const pause = renderPauseRow();
+  if (pause) root.append(pause);
   if (ctx.setup) {
     root.append(renderConsentChecklist());
     return;
@@ -298,10 +300,57 @@ function renderHeader(): HTMLElement {
     h("h1", null, "Local AI Detector"),
     h(
       "button",
+      {
+        class: `icon-btn pause-btn${isPaused(ctx.settings) ? " is-paused" : ""}`,
+        type: "button",
+        "aria-label": "Pause automatic checks",
+        "aria-expanded": String(ctx.pauseMenu),
+        title: "Pause automatic checks (saves battery)",
+        onclick: () => {
+          ctx.pauseMenu = !ctx.pauseMenu;
+          render();
+        },
+      },
+      "⏸",
+    ),
+    h(
+      "button",
       { class: "icon-btn", type: "button", "aria-label": "Settings", title: "Settings", onclick: openOptions },
       gearIcon(),
     ),
   );
+}
+
+/** "Paused until 18:40 · Resume", or the ⏸ menu's 1 h / 5 h / 12 h choices. */
+function renderPauseRow(): HTMLElement | null {
+  const paused = isPaused(ctx.settings);
+  if (paused) {
+    const until = new Date(ctx.settings.pausedUntil);
+    const sameDay = until.toDateString() === new Date().toDateString();
+    const when = until.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) + (sameDay ? "" : " tomorrow");
+    return h(
+      "div",
+      { class: "pause-row" },
+      h("span", { class: "grow" }, `Automatic checks paused until ${when}`),
+      h("button", { class: "btn btn-ghost btn-small", type: "button", onclick: () => void setPause(0) }, "Resume"),
+    );
+  }
+  if (!ctx.pauseMenu) return null;
+  return h(
+    "div",
+    { class: "pause-row" },
+    h("span", { class: "grow", title: "Pause automatic checks (manual checks still work)" }, "Pause for"),
+    ...[1, 5, 12].map((hours) =>
+      h("button", { class: "btn btn-ghost btn-small", type: "button", onclick: () => void setPause(hours) }, `${hours} h`),
+    ),
+  );
+}
+
+async function setPause(hours: number): Promise<void> {
+  ctx.pauseMenu = false;
+  ctx.settings = await setSettings({ pausedUntil: hours > 0 ? Date.now() + hours * 3_600_000 : 0 });
+  render();
+  if (hours > 0) showToast(`Paused for ${hours} h. Manual checks still work.`);
 }
 
 function openOptions(): void {
@@ -551,10 +600,12 @@ function renderMain(): HTMLElement {
   const deepPrompt = renderDeepPrompt();
   if (deepPrompt) body.append(deepPrompt);
   body.append(renderButtons());
+  // One disclosure: the result's breakdown, then mode/style, page type, site rule, paste.
   const more = h(
     "details",
     { class: "more-disclosure", open: ctx.moreOpen || ctx.pasteOpen || undefined, ontoggle: (e: Event) => (ctx.moreOpen = (e.target as HTMLDetailsElement).open) },
-    h("summary", null, "More"),
+    h("summary", null, "Details"),
+    ...(ctx.result && !useCard ? renderDetails(ctx.result) : []),
     renderQuickSelects(),
     renderPageTypeRow(),
     renderNeverOnSite(),
@@ -632,7 +683,6 @@ function renderResultSection(): HTMLElement {
   if (tier) wrap.append(tier);
 
   const container = h("div", { class: "result" }, wrap);
-  if (result) container.append(renderDetails(result));
   return container;
 }
 
@@ -649,7 +699,7 @@ function tierTag(result: AnalyzeResult | null): HTMLElement | null {
   );
 }
 
-function renderDetails(result: AnalyzeResult): HTMLElement {
+function renderDetails(result: AnalyzeResult): (Node | null)[] {
   const flagged = countFlaggedSentences(result.sentences);
   const sources = aggregateSources(result.sentences);
   const entries = Object.entries(sources) as [keyof typeof SOURCE_LABEL, number][];
@@ -686,12 +736,7 @@ function renderDetails(result: AnalyzeResult): HTMLElement {
   if (unicode) rows.push(unicode);
   // Pasted / dropped text has no page, so no images to report.
   if (!isPastedResult(result)) rows.push(renderImagesCard(result));
-  return h(
-    "details",
-    { class: "details-disclosure", open: ctx.detailsOpen || undefined, ontoggle: (e: Event) => (ctx.detailsOpen = (e.target as HTMLDetailsElement).open) },
-    h("summary", null, "Details"),
-    ...rows,
-  );
+  return rows;
 }
 
 const PASTE_BLOCK_ID = "paste-1";
@@ -756,13 +801,17 @@ async function grantImageAccess(patterns: string[]): Promise<void> {
 function renderButtons(): HTMLElement {
   const selectionDimmed = ctx.hasSelection === false;
   const known = !!ctx.result || cardHasResult(ctx.card);
-  const label = ctx.deepBusy ? "Checking…" : !known ? "Check page" : isDeepResult(ctx.result) ? "Check again" : "Deep check";
+  const label = !known ? "Check page" : isDeepResult(ctx.result) ? "Check again" : "Deep check";
+  // While the Deep pass runs (the Quick result on show), the primary button stops it.
+  const refiningNow = (ctx.deepBusy && !!ctx.result) || !!ctx.result?.refining;
   const buttons = [
-    h(
-      "button",
-      { class: "btn btn-primary", type: "button", title: DEEP_CHECK_TOOLTIP, disabled: ctx.deepBusy || undefined, onclick: () => void onManualCheck("page") },
-      label,
-    ),
+    refiningNow
+      ? h("button", { class: "btn", type: "button", title: "Stop the Deep check and keep the Quick result", onclick: () => void onCancelDeep() }, "Cancel deep check")
+      : h(
+          "button",
+          { class: "btn btn-primary", type: "button", title: DEEP_CHECK_TOOLTIP, disabled: ctx.deepBusy || undefined, onclick: () => void onManualCheck("page") },
+          ctx.deepBusy ? "Checking…" : label,
+        ),
     h(
       "button",
       {
@@ -1007,6 +1056,11 @@ async function onManualCheck(target: "page" | "selection"): Promise<void> {
   await runAnalyze(target, true);
 }
 
+async function onCancelDeep(): Promise<void> {
+  if (ctx.tabId === null) return;
+  await sendMessage("cancelAnalysis", { tabId: ctx.tabId }).catch(() => {});
+}
+
 async function runAnalyze(target: "page" | "selection", manual = false): Promise<void> {
   const tabId = ctx.tabId;
   if (tabId === null) {
@@ -1038,6 +1092,13 @@ async function runAnalyze(target: "page" | "selection", manual = false): Promise
   } catch (err) {
     ctx.progress = null;
     ctx.deepBusy = false;
+    if (err instanceof Error && err.message === CANCELLED_ERROR) {
+      // Back to the Quick result (the background re-broadcasts it too).
+      if (ctx.result) ctx.result = { ...ctx.result, refining: false };
+      render();
+      showToast("Deep check cancelled");
+      return;
+    }
     if (err instanceof Error && err.message === NO_SELECTION_ERROR) {
       // Expected, not an error: put the popup back as it was and toast.
       Object.assign(ctx, previous);

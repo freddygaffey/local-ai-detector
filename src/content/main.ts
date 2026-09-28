@@ -8,7 +8,7 @@
 
 import { onAnalysisStatus, registerHandlers, sendMessage } from "../shared/messages";
 import type { AnalyzeResult, SentenceScore, TextBlock } from "../shared/messages";
-import { autoRunPolicyForSite, DEFAULT_SETTINGS, getSettings, setSettings, watchSettings } from "../shared/settings";
+import { autoRunPolicyForSite, DEFAULT_SETTINGS, getSettings, setSettings, watchSettings, type CardPosition } from "../shared/settings";
 import type { HighlightStyle, Settings } from "../shared/settings";
 import { fusionForTier } from "../engine/models";
 import { FLAGGED_THRESHOLD } from "./colors";
@@ -26,7 +26,8 @@ import { clearImageBadgesIfAvailable, resetImageBadges, scanImagesAndReport } fr
 import { checkImageAtUrl } from "./imageContextCheck";
 import { orderFlagged, stepIndex, type FlaggedKey } from "./navigation";
 import { startObserving } from "./observe";
-import { createCard, type CardApi } from "./card";
+import { createCard, defaultCardPos, type CardApi } from "./card";
+import { getCardPosition, setCardPosition, watchCardPosition } from "./cardPositions";
 import type { CardState } from "./cardSummary";
 import { onVideoStatus, type VideoStatus } from "./videoStatus";
 import type { ImageProvenanceSummary } from "../shared/messages";
@@ -67,6 +68,10 @@ export function bootContentScript(): void {
 let blocksById = new Map<string, BlockRecord>();
 let blockOrder: string[] = [];
 let activeSentences: ActiveSentence[] = [];
+// Where the user dragged the card on this site (./cardPositions.ts); null = the default spot.
+let sitePosition: CardPosition | null = null;
+// Card panel "Highlight by": paint one detector's sentence scores instead of the combined ones (per visit).
+let highlightBy: string | null = null;
 let flaggedOrder: FlaggedKey[] = [];
 let flaggedCursor = -1;
 let hoverIndex: HoverIndex | null = null;
@@ -166,6 +171,16 @@ async function boot(): Promise<void> {
   settings = await getSettings().catch(() => DEFAULT_SETTINGS);
   currentStyle = settings.highlightStyle;
   hostname = safeHostname();
+  if (hostname) {
+    void getCardPosition(hostname).then((p) => {
+      sitePosition = p;
+      if (p) reconcileSurfaces();
+    });
+    watchCardPosition(hostname, (p) => {
+      sitePosition = p;
+      reconcileSurfaces();
+    });
+  }
 
   page = classifyNow();
 
@@ -177,6 +192,12 @@ async function boot(): Promise<void> {
       return { blocks, items: target === "page" && structuredMatch !== null };
     },
     renderHighlights: async ({ result, style, reveal }) => {
+      // A selection's result goes next to the selection (above its top-left), not in the corner panel.
+      if (result.sentences.length && result.sentences.every((sc) => sc.blockId.startsWith("sel-"))) {
+        applyResult(result, style);
+        showSelectionResult(result);
+        return { ok: true };
+      }
       if (reveal) {
         // Context menu / keyboard shortcut: the user asked, so show the answer
         // even where Presence keeps the page quiet (an app page, a hidden chip).
@@ -247,7 +268,8 @@ async function boot(): Promise<void> {
       prev.surfaces.chip !== next.surfaces.chip ||
       prev.chipAutoHideThreshold !== next.chipAutoHideThreshold ||
       prev.surfaces.highlights !== next.surfaces.highlights ||
-      prev.chipCorner !== next.chipCorner
+      prev.chipCorner !== next.chipCorner ||
+      JSON.stringify(prev.cardDefaultPosition) !== JSON.stringify(next.cardDefaultPosition)
     ) {
       reconcileSurfaces();
     }
@@ -294,8 +316,10 @@ async function boot(): Promise<void> {
     },
   );
 
-  document.addEventListener("pointermove", onPointerMove, { passive: true });
-  document.addEventListener("pointerleave", () => hideTooltip());
+  // Details on click, not hover: people move the mouse while they read.
+  document.addEventListener("click", onHighlightClick, { capture: true });
+  document.addEventListener("keydown", (e) => e.key === "Escape" && closeSentenceTooltip());
+  window.addEventListener("scroll", () => closeSentenceTooltip(), { passive: true, capture: true });
 
   if (import.meta.env.MODE === "e2e") {
     void import("../e2e/bridge").then(({ installContentBridge }) => installContentBridge());
@@ -356,7 +380,7 @@ function wantCard(): boolean {
 function reconcileSurfaces(): void {
   try {
     if (wantCard() && !card) {
-      card = createCard(settings.chipCorner, {
+      card = createCard(defaultCardPos(settings.chipCorner), {
         onOpen: () => {
           // Nothing checked yet (auto-run off, paused, or an app page): the click is the request.
           if (!lastResult && !cardRunning && (pageTextRoute() || page.type === "app")) void runFullAnalysis();
@@ -364,6 +388,11 @@ function reconcileSurfaces(): void {
         onClose: () => {},
         onNavigate: (dir) => navigate(dir),
         onToggleHighlights: () => setPageHighlights(!shouldPaintOnPage()),
+        onHighlightBy: (id) => {
+          highlightBy = id;
+          if (lastResult) applyResult(lastResult, currentStyle);
+          refreshCard();
+        },
         onDeepCheck: () => {
           if (pageTextRoute() || lastResult) void runDeepCheck();
           else {
@@ -373,6 +402,18 @@ function reconcileSurfaces(): void {
         },
         onCheckPage: () => void runFullAnalysis(),
         onSettings: () => void sendMessage("openOptions", undefined).catch(() => {}),
+        onMoved: (pos) => {
+          sitePosition = pos;
+          if (hostname) void setCardPosition(hostname, pos);
+        },
+        onUsePositionEverywhere: () => {
+          if (sitePosition) void setSettings({ cardDefaultPosition: sitePosition });
+        },
+        onResetPosition: () => {
+          sitePosition = null;
+          if (hostname) void setCardPosition(hostname, null);
+          reconcileSurfaces();
+        },
         onJumpToMedia: () => {
           const target = document.querySelector("ai-detector-transcript") ?? document.querySelector("ai-detector-voice");
           target?.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "center" });
@@ -389,7 +430,10 @@ function reconcileSurfaces(): void {
       card.destroy();
       card = null;
     }
-    card?.setCorner(settings.chipCorner);
+    if (card) {
+      const fallback = settings.cardDefaultPosition;
+      card.setPosition(sitePosition ?? fallback ?? defaultCardPos(settings.chipCorner), !!(sitePosition ?? fallback), !!sitePosition);
+    }
     refreshCard();
     if (wantPill()) ensurePill();
     else teardownPillIfUnwanted();
@@ -442,7 +486,7 @@ function cardState(): CardState {
       confirmed: r.confirmed,
       agreement: r.fusion?.agreement,
       device: r.device,
-      detectors: r.detectors?.map((d) => ({ label: d.label, overall: d.overall, device: d.device })),
+      detectors: r.detectors?.map((d) => ({ id: d.id, label: d.label, overall: d.overall, device: d.device })),
       words: r.words,
     };
   }
@@ -463,6 +507,7 @@ function refreshCard(): void {
       current: flaggedCursor,
       total: flaggedOrder.length,
       deepBusy,
+      highlightBy,
       canCheckText: page.type === "article" || page.type === "thread" || page.type === "app",
       hasMediaChips: !!(document.querySelector("ai-detector-transcript") ?? document.querySelector("ai-detector-voice")),
     });
@@ -685,6 +730,9 @@ function applyResult(result: AnalyzeResult, style: HighlightStyle): void {
     hideTooltip();
 
     activeSentences = [];
+    if (highlightBy && !result.detectors?.some((d) => d.id === highlightBy)) highlightBy = null;
+    const sentenceScore = (sc: AnalyzeResult["sentences"][number]): number =>
+      (highlightBy ? sc.detectors?.[highlightBy as keyof NonNullable<typeof sc.detectors>] : undefined) ?? sc.score;
     const totalWords = result.sentences.reduce((n, sc) => {
       const b = blocksById.get(sc.blockId);
       const sp = b?.sentences[sc.index];
@@ -709,11 +757,11 @@ function applyResult(result: AnalyzeResult, style: HighlightStyle): void {
         index: score.index,
         range,
         text,
-        score: score.score,
+        score: sentenceScore(score),
         sources: score.sources,
         wordCount: wordCount(text),
         muted: lowConfidence,
-        probability: itemProbability(result, score.score),
+        probability: itemProbability(result, sentenceScore(score)),
       });
     }
     if (shouldPaintOnPage()) {
@@ -985,33 +1033,52 @@ function flashRect(rect: DOMRect): void {
   }
 }
 
-// ---- Hover tooltips ----------------------------------------------------------
+// ---- Sentence details (click) --------------------------------------------------
 
-let hoverScheduled = false;
+let openSentence: ActiveSentence | null = null;
+let selectionBubble = false;
 
-function onPointerMove(e: PointerEvent): void {
-  if (hoverScheduled) return;
-  hoverScheduled = true;
-  requestAnimationFrame(() => {
-    hoverScheduled = false;
-    try {
-      if (!hoverIndex) return;
-      const hit = hitTestPoint(e.clientX, e.clientY);
-      if (!hit) {
-        hideTooltip();
-        return;
-      }
-      const sentence = hoverIndex.lookup(hit.node, hit.offset);
-      if (!sentence) {
-        hideTooltip();
-        return;
-      }
-      const rects = sentence.range.getClientRects();
-      const rect = rects[0] ?? sentence.range.getBoundingClientRect();
-      const { title, lines } = formatSentenceTooltip(sentence);
-      showTooltip(rect, title, lines);
-    } catch {
-      // ignore
-    }
-  });
+function closeSentenceTooltip(): void {
+  if (!openSentence && !selectionBubble) return;
+  openSentence = null;
+  selectionBubble = false;
+  hideTooltip();
+}
+
+/** The selected text's score in a bubble just above the selection's top-left. */
+function showSelectionResult(result: AnalyzeResult): void {
+  try {
+    const sel = window.getSelection();
+    const range = sel && sel.rangeCount && !sel.isCollapsed ? sel.getRangeAt(0) : activeSentences[0]?.range;
+    if (!range) return;
+    const rect = range.getClientRects()[0] ?? range.getBoundingClientRect();
+    const p = displayScore(result);
+    const title = p === null ? "Selection: too short to score" : `Selection: ${Math.round(p * 100)}% likely AI`;
+    const lines = [result.tier === "deep" ? "Deep check (all detectors)." : "Quick check.", "Probability, not proof."];
+    openSentence = null;
+    selectionBubble = true;
+    showTooltip(rect, title, lines);
+  } catch {
+    // never break the page over the bubble
+  }
+}
+
+function onHighlightClick(e: MouseEvent): void {
+  try {
+    if (!hoverIndex || e.button !== 0) return;
+    // Links, buttons and form fields keep their own click; a drag-select isn't a click on a sentence.
+    const el = e.target instanceof Element ? e.target : null;
+    if (el?.closest("a, button, input, textarea, select, label, [contenteditable], [role=button]")) return closeSentenceTooltip();
+    if (!(window.getSelection()?.isCollapsed ?? true)) return;
+    const hit = hitTestPoint(e.clientX, e.clientY);
+    const sentence = hit ? hoverIndex.lookup(hit.node, hit.offset) : null;
+    if (!sentence || sentence === openSentence) return closeSentenceTooltip();
+    openSentence = sentence;
+    const rects = sentence.range.getClientRects();
+    const rect = rects[0] ?? sentence.range.getBoundingClientRect();
+    const { title, lines } = formatSentenceTooltip(sentence);
+    showTooltip(rect, title, lines);
+  } catch {
+    // Never break the host page over a tooltip.
+  }
 }

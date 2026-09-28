@@ -108,6 +108,13 @@ export interface ResultSurfaces {
 
 export type Corner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
 
+/** A dragged corner card: anchored to `corner`, `dx`/`dy` px in from its edges. */
+export interface CardPosition {
+  corner: Corner;
+  dx: number;
+  dy: number;
+}
+
 export interface BatterySaverSettings {
   /** What happens while on battery power (Battery Status API, where available). */
   onBatteryAction: "normal" | "lite" | "pause";
@@ -190,6 +197,8 @@ export interface Settings {
   pageTypes: Record<string, PageTypeOverride>;
   surfaces: ResultSurfaces;
   chipCorner: Corner;
+  /** "Use everywhere": the spot for sites without their own (null = `chipCorner`). */
+  cardDefaultPosition: CardPosition | null;
   /** Corner card shrinks to a dim dot below this score (0..1); 0 = always shown. */
   chipAutoHideThreshold: number;
 
@@ -199,6 +208,8 @@ export interface Settings {
   siteMemoryEnabled: boolean;
   /** Reuse a page's result while its text is unchanged (src/engine/resultCache.ts); local only. */
   rememberResults: boolean;
+  /** Automatic checks (page text, transcripts, voice) are off until this time (ms since epoch); 0 = running. */
+  pausedUntil: number;
 }
 
 export const PRESENCE_PRESETS: Record<Presence, { autoRunPolicy: AutoRunPolicy; surfaces: ResultSurfaces }> = {
@@ -239,8 +250,17 @@ export function isPresenceCustom(settings: Pick<Settings, "presence" | "autoRunP
 }
 
 /** Effective auto-run policy for `hostname`, honouring a per-site rule over the global default. */
-export function autoRunPolicyForSite(settings: Pick<Settings, "autoRunPolicy" | "siteRules">, hostname: string): AutoRunPolicy {
+export function autoRunPolicyForSite(
+  settings: Pick<Settings, "autoRunPolicy" | "siteRules"> & Partial<Pick<Settings, "pausedUntil">>,
+  hostname: string,
+): AutoRunPolicy {
+  if (isPaused(settings)) return "never";
   return settings.siteRules[hostname] ?? settings.autoRunPolicy;
+}
+
+/** The user paused automatic checks (popup ⏸) and the pause hasn't run out. */
+export function isPaused(settings: Partial<Pick<Settings, "pausedUntil">>, now = Date.now()): boolean {
+  return (settings.pausedUntil ?? 0) > now;
 }
 
 // ---- Added by T7: Fusion mode (docs/plan.md "T7: Fusion mode") ----
@@ -381,6 +401,7 @@ export const DEFAULT_SETTINGS: Settings = {
   pageTypes: {},
   surfaces: { popup: true, badge: true, chip: true, highlights: false, sidePanel: false },
   chipCorner: "bottom-right",
+  cardDefaultPosition: null,
   chipAutoHideThreshold: CHIP_AUTO_HIDE_DEFAULT,
 
   battery: {
@@ -402,6 +423,7 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   siteMemoryEnabled: false,
   rememberResults: true,
+  pausedUntil: 0,
   voice: DEFAULT_VOICE,
   tiers: DEFAULT_TIERS,
 };

@@ -24,7 +24,7 @@ export interface CardMeta {
   agreement?: Agreement;
   device?: string;
   /** Per-detector raw scores (0..1), in run order. */
-  detectors?: { label: string; overall: number; device?: string }[];
+  detectors?: { id?: string; label: string; overall: number; device?: string }[];
   words?: number;
 }
 
