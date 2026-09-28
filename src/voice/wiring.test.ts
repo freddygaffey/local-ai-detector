@@ -10,7 +10,7 @@ import type { VoiceState } from "./capture";
 
 describe("voice settings", () => {
   test("defaults and sanitising", () => {
-    expect(DEFAULT_VOICE).toMatchObject({ enabled: true, model: "voiceSpectraAasist3", run: "autoYouTube", sensitivity: "strict", rate: "normal" });
+    expect(DEFAULT_VOICE).toMatchObject({ enabled: true, model: "voiceSpectraAasist3", run: "autoAll", sensitivity: "strict", rate: "normal" });
     expect(sanitizeVoice({ rate: "bogus" as never, enabled: false })).toMatchObject({ rate: "normal", enabled: false });
   });
   test("rate: explicit preset wins, else tier, else normal", () => {

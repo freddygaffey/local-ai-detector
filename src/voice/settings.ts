@@ -4,7 +4,8 @@
 import type { VoiceModelId, VoiceSensitivity } from "./aggregate";
 import type { VoiceRate } from "./schedule";
 
-export type VoiceRun = "autoYouTube" | "onClick";
+/** "autoAll": any site's playing video (default); "autoYouTube": YouTube only, elsewhere on click. */
+export type VoiceRun = "autoAll" | "autoYouTube" | "onClick";
 
 export interface VoiceSettings {
   /** On by default (user decision): catches clean TTS narration. */
@@ -18,13 +19,13 @@ export interface VoiceSettings {
 export const DEFAULT_VOICE: VoiceSettings = {
   enabled: true,
   model: "voiceSpectraAasist3",
-  run: "autoYouTube",
+  run: "autoAll",
   sensitivity: "strict",
   rate: "normal",
 };
 
 const MODELS: readonly VoiceModelId[] = ["voiceSpectraAasist3", "voiceW2V2Aasist"];
-const RUNS: readonly VoiceRun[] = ["autoYouTube", "onClick"];
+const RUNS: readonly VoiceRun[] = ["autoAll", "autoYouTube", "onClick"];
 const SENS: readonly VoiceSensitivity[] = ["strict", "balanced", "sensitive"];
 const RATES: readonly VoiceRate[] = ["light", "normal", "thorough", "continuous"];
 

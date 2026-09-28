@@ -8,7 +8,7 @@ Any ❌, or any extension error, means not done.
 | # | Stop | What a user must see |
 |---|---|---|
 | 1 | YouTube watch (captioned), play muted (leave the speed alone) | Corner card shows Script + Voice within ~30 s; hover explains; click opens details; inline chips under the title |
-| 2 | The same video at the user's own speed (their speed extension defaults to 3×; don't change it) | Transcript still scores; voice shows "Voice 1× only" cleanly, no false alarms |
+| 2 | The same video at the user's own speed (their speed extension defaults to 3×; don't change it) | Transcript still scores; voice scores up to 2×; above that the card says "Voice ≤2× only" cleanly, no false alarms |
 | 3 | YouTube Short | Card present, sensible values |
 | 4 | Reddit thread + HN thread | Card shows "n AI"; per-comment markers; slop filter works when on |
 | 5 | News article + Wikipedia | Card shows AI %; low on human text; hover and click work |

@@ -13,7 +13,7 @@
 import { browser } from "wxt/browser";
 import { DEFAULT_SETTINGS, getSettings, isPaused, setSettings, watchSettings, type Settings } from "../shared/settings";
 import { decidePowerAction, readBatteryState, readPressureState } from "../power/battery";
-import { publishVoiceStatus } from "../content/videoStatus";
+import { publishVoiceStatus, voiceRateOk } from "../content/videoStatus";
 import { VoiceSession, type VoiceState } from "./capture";
 import { createVoiceChip, type VoiceChipApi } from "./ui";
 import { isVoiceProgress, VOICE_START_KIND, type VoiceRequest, type VoiceResponse } from "./protocol";
@@ -47,14 +47,16 @@ export function setVoiceGate(fn: () => boolean): void {
 
 /**
  * A non-YouTube video page (src/content/pageMedia.ts): a quiet "Voice" chip
- * in the corner that starts sampling this video when clicked (never
- * automatically).
+ * in the corner; it samples the video automatically under "Auto on any
+ * video" (the default), otherwise when clicked.
  */
 export function offerVoiceOnClick(video: HTMLVideoElement): void {
   if (!voice().enabled || !settings.surfaces.chip || !pageAllowed()) return;
   lastContextVideo = video;
   if (session?.video === video) return;
   ensureChip(true).setState(null, { settings: voice(), rate: rate() });
+  // "Auto on any video": sample it like a YouTube video (only while it plays).
+  if (voice().run === "autoAll" && !isPaused(settings)) void startSession(video, true);
 }
 
 export function withdrawVoiceOffer(): void {
@@ -152,9 +154,9 @@ async function startSession(video: HTMLVideoElement, fixedOnly: boolean): Promis
     batterySaver: power.reason !== null,
     model: v.model,
     sensitivity: v.sensitivity,
-    // Skip ads, and audio played away from normal speed: time-stretched speech
-    // can read as synthetic to the voice detector (false alarms).
-    skip: () => (!fixedOnly && adShowing()) || Math.abs(video.playbackRate - 1) > 0.05,
+    // Skip ads, and speeds the detector can't score as played (voiceRateOk:
+    // past 2x the browser's time-stretch reads as synthetic).
+    skip: () => (!fixedOnly && adShowing()) || !voiceRateOk(video.playbackRate),
     score: (pcmB64) =>
       browser.runtime.sendMessage({ kind: "lad-voice", op: "score", model: v.model, pcmB64 } satisfies VoiceRequest) as Promise<VoiceResponse>,
     onUpdate: (st) => {
@@ -195,7 +197,7 @@ async function onYouTubeLocation(): Promise<void> {
     return;
   }
   ensureChip(false).setState(null, { settings: voice(), rate: rate() });
-  if (voice().run !== "autoYouTube" || isPaused(settings)) return;
+  if (voice().run === "onClick" || isPaused(settings)) return;
   // Pending until it starts: a later tick retries (a momentary CPU-pressure
   // spike while the page loads, or a player that loads late, used to cancel
   // the automatic check for the whole video).
@@ -264,6 +266,21 @@ export function startVoiceContent(): void {
       if (session) void startSession(session.video, chipFixed);
     }
   });
+  // "Auto on any video": any <video> that starts playing with sound, on any
+  // site (YouTube has its own path above). One session at a time; a video
+  // that starts later takes over only if the current one isn't playing.
+  const autoAny = (e: Event) => {
+    const v = e.target;
+    if (!(v instanceof HTMLVideoElement) || v.paused || v.muted || voice().run !== "autoAll" || isPaused(settings)) return;
+    if (/(^|\.)youtube\.com$/.test(location.hostname) || !pageAllowed()) return;
+    if (session?.video === v || (session && !session.video.paused)) return;
+    if (v.getBoundingClientRect().width < 160) return; // previews, ads, background loops
+    lastContextVideo = v;
+    void startSession(v, true);
+  };
+  // "playing" for autoplay, "volumechange" for a muted autoplay the user unmutes.
+  document.addEventListener("playing", autoAny, { capture: true });
+  document.addEventListener("volumechange", autoAny, { capture: true });
   document.addEventListener(
     "contextmenu",
     (e) => {

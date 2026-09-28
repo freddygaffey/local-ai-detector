@@ -12,7 +12,7 @@ export interface VideoStatus {
   /** Voice P(AI); null = not enough clips yet. */
   voice?: number | null;
   voiceClips?: number;
-  /** Playback speed of the sampled video; voice only samples at ~1x. */
+  /** Playback speed of the sampled video; voice samples within VOICE_MIN_RATE..VOICE_MAX_RATE. */
   voiceSpeed?: number;
   /** YouTube's own "Altered or synthetic content" / "Made with AI" label. */
   disclosure?: string | null;
@@ -45,9 +45,21 @@ export function publishVoiceStatus(v: { p: number | null; clips: number; speed?:
   emit();
 }
 
-/** True when voice sampling is paused because the video isn't playing at ~1x. */
+/**
+ * Playback speeds the voice check can score as captured. Measured
+ * (docs/voice-spike.md "Playback speed"): up to 2x no human video was flagged
+ * after per-video aggregation; from 2.5x the browser's pitch-preserving
+ * time-stretch reads as synthetic (34-68% of human windows), and stretching
+ * it back to 1x digitally makes it worse, not better. Faster needs the
+ * original audio, not the played audio.
+ */
+export const VOICE_MIN_RATE = 0.75;
+export const VOICE_MAX_RATE = 2;
+export const voiceRateOk = (rate: number): boolean => rate >= VOICE_MIN_RATE - 0.01 && rate <= VOICE_MAX_RATE + 0.01;
+
+/** True when voice sampling is paused because the video plays outside VOICE_MIN_RATE..VOICE_MAX_RATE. */
 export function voicePausedForSpeed(s: VideoStatus): boolean {
-  return s.voice === null && typeof s.voiceSpeed === "number" && Math.abs(s.voiceSpeed - 1) > 0.05;
+  return s.voice === null && typeof s.voiceSpeed === "number" && !voiceRateOk(s.voiceSpeed);
 }
 
 export function onVideoStatus(fn: (s: VideoStatus) => void): () => void {

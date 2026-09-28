@@ -38,6 +38,7 @@ export function renderVoiceSection(
       "On click: right-click a video → Check voice, or click the Voice chip.",
       kit.selectControl(
         [
+          { value: "autoAll", label: "Auto on any video" },
           { value: "autoYouTube", label: "Auto on YouTube" },
           { value: "onClick", label: "On click" },
         ],
