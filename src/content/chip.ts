@@ -77,6 +77,7 @@ function css(): string {
       transition: ${reducedMotion() ? "none" : "opacity 120ms ease, transform 120ms ease"};
     }
     .chip.visible { opacity: 0.92; transform: scale(1); }
+    .chip.stack { white-space: pre-line; border-radius: 7px; font-size: 10.5px; line-height: 1.25; padding: 3px 6px; text-align: left; }
     .chip:hover, .chip:focus-visible { opacity: 1; }
     @media (prefers-color-scheme: light) {
       .chip { background: #ffffff; color: #1a1a1a; border-color: rgba(0,0,0,0.12); box-shadow: 0 2px 8px rgba(0,0,0,0.12); }
@@ -133,7 +134,9 @@ export function createChip(corner: Corner, callbacks: ChipCallbacks): ChipApi {
     chip.classList.toggle("visible", show);
     const text = current.label ?? current.peekLabel ?? null;
     chip.textContent = text ?? "…";
-    chip.setAttribute("aria-label", text ? `AI detection: ${text}. Click for details.` : "AI detection: no result yet");
+    // Multi-line labels (a video's "Script 23%\nVoice 1%") render as a tiny stacked box.
+    chip.classList.toggle("stack", !!text && text.includes("\n"));
+    chip.setAttribute("aria-label", text ? `AI detection: ${text.replace(/\n/g, ", ")}. Click for details.` : "AI detection: no result yet");
     if (current.score !== undefined && text !== null) {
       chip.style.color = scoreColor(current.score, chipTheme());
       chip.style.fontWeight = String(bandWeight(current.score));

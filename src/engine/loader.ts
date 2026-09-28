@@ -119,7 +119,8 @@ async function doLoad(slot: ModelSlot, ref: ModelRef, onProgress?: FileProgress,
     let gpuFailed = false;
     for (const model_file_name of fileCandidates(spec, ref)) {
       try {
-        const opts = { ...common, config, device: device as "wasm", dtype: dtype as "q8", model_file_name };
+        // logSeverityLevel 3 = errors only: ORT's native warnings otherwise land in chrome://extensions → Errors.
+        const opts = { ...common, config, device: device as "wasm", dtype: dtype as "q8", model_file_name, session_options: { logSeverityLevel: 3 as const } };
         const model =
           spec.task === "text-classification"
             ? await AutoModelForSequenceClassification.from_pretrained(ref.repo, opts)

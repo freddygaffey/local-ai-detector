@@ -32,6 +32,7 @@ import { checkImageAtUrl } from "./imageContextCheck";
 import { orderFlagged, stepIndex, type FlaggedKey } from "./navigation";
 import { startObserving } from "./observe";
 import { createChip, type ChipApi } from "./chip";
+import { onVideoStatus, videoChipContent } from "./videoStatus";
 import { createPill, type PillApi } from "./pill";
 import { extractSelectionBlock } from "./selection";
 import { applySearchMarkers, applySlopFilter, clearSearchMarkers, clearSlopFilter, renderItemLabels, clearItemLabels } from "./slopFilter";
@@ -74,6 +75,9 @@ let currentStyle: HighlightStyle = DEFAULT_SETTINGS.highlightStyle;
 let settings: Settings = DEFAULT_SETTINGS;
 let pill: PillApi | null = null;
 let chip: ChipApi | null = null;
+// Video pages: a tiny stacked corner box summarising the transcript + voice checks.
+let videoChip: ChipApi | null = null;
+let videoChipUnsub: (() => void) | null = null;
 let lastResult: AnalyzeResult | null = null;
 let hostname = "";
 let structuredMatch: AdapterMatch | null = null;
@@ -341,6 +345,26 @@ function reconcileSurfaces(): void {
     }
     if (wantPill()) ensurePill();
     else teardownPillIfUnwanted();
+
+    const wantVideoChip = settings.surfaces.chip && !page.off && page.type === "video";
+    if (wantVideoChip && !videoChip) {
+      const vc = createChip(settings.chipCorner, {
+        // Clicking jumps to the full transcript/voice chips under the video.
+        onExpand: () => {
+          vc.setExpanded(false);
+          const target = document.querySelector("ai-detector-transcript") ?? document.querySelector("ai-detector-voice");
+          target?.scrollIntoView({ behavior: "smooth", block: "center" });
+        },
+        onCollapse: () => {},
+      });
+      videoChip = vc;
+      videoChipUnsub = onVideoStatus((st) => vc.setContent(videoChipContent(st)));
+    } else if (!wantVideoChip && videoChip) {
+      videoChipUnsub?.();
+      videoChipUnsub = null;
+      videoChip.destroy();
+      videoChip = null;
+    }
   } catch {
     // never break the page over presence bookkeeping
   }

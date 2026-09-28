@@ -131,6 +131,10 @@ async function doInit(opts: RuntimeOptions): Promise<RuntimeInfo> {
   }
   onnx.wasm.wasmPaths = { mjs: ortBase + ORT_FILES.mjs, wasm: ortBase + ORT_FILES.wasm };
   onnx.wasm.proxy = false;
+  // ORT's native warnings (e.g. "Some nodes were not assigned to the preferred
+  // execution providers") go to console.error, which lists them under the
+  // extension's Errors in chrome://extensions. Only real errors belong there.
+  (env.backends.onnx as { logLevel?: string }).logLevel = "error";
 
   const coi = (globalThis as { crossOriginIsolated?: boolean }).crossOriginIsolated === true;
   const hw = globalThis.navigator?.hardwareConcurrency ?? 1;

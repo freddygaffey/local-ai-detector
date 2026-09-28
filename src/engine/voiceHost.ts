@@ -128,6 +128,7 @@ function configureOrt(ortBaseUrl: string, firefox: boolean): void {
   ortConfigured = true;
   ort.env.wasm.wasmPaths = { mjs: ortBaseUrl + VOICE_ORT_FILES.mjs, wasm: ortBaseUrl + VOICE_ORT_FILES.wasm };
   ort.env.wasm.proxy = false;
+  ort.env.logLevel = "error"; // keep ORT's native warnings out of the extension's Errors list
   const coi = (globalThis as { crossOriginIsolated?: boolean }).crossOriginIsolated === true;
   const hw = globalThis.navigator?.hardwareConcurrency ?? 1;
   ort.env.wasm.numThreads = !firefox && coi ? Math.max(1, Math.min(4, hw)) : 1;
@@ -137,12 +138,12 @@ async function createSession(bytes: Uint8Array, allowWebGPU: boolean): Promise<L
   const hasGpu = !!(globalThis.navigator as Navigator & { gpu?: unknown })?.gpu;
   if (allowWebGPU && hasGpu) {
     try {
-      return { session: await ort.InferenceSession.create(bytes, { executionProviders: ["webgpu"] }), device: "webgpu" };
+      return { session: await ort.InferenceSession.create(bytes, { executionProviders: ["webgpu"], logSeverityLevel: 3 }), device: "webgpu" };
     } catch (e) {
       console.warn("[voice] WebGPU session failed, using WASM", e);
     }
   }
-  return { session: await ort.InferenceSession.create(bytes, { executionProviders: ["wasm"] }), device: "wasm" };
+  return { session: await ort.InferenceSession.create(bytes, { executionProviders: ["wasm"], logSeverityLevel: 3 }), device: "wasm" };
 }
 
 const sessions = new Map<VoiceModelId, Promise<Loaded>>();

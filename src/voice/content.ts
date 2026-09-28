@@ -13,6 +13,7 @@
 import { browser } from "wxt/browser";
 import { DEFAULT_SETTINGS, getSettings, setSettings, watchSettings, type Settings } from "../shared/settings";
 import { decidePowerAction, readBatteryState, readPressureState } from "../power/battery";
+import { publishVoiceStatus } from "../content/videoStatus";
 import { VoiceSession, type VoiceState } from "./capture";
 import { createVoiceChip, type VoiceChipApi } from "./ui";
 import { isVoiceProgress, VOICE_START_KIND, type VoiceRequest, type VoiceResponse } from "./protocol";
@@ -96,6 +97,7 @@ function adShowing(): boolean {
 
 function render(state: VoiceState | null): void {
   chip?.setState(state, { settings: voice(), rate: rate() });
+  publishVoiceStatus(state ? { p: state.agg.p, clips: state.agg.clips } : null);
 }
 
 function ensureChip(fixedOnly: boolean): VoiceChipApi {
@@ -131,6 +133,7 @@ function ensureChip(fixedOnly: boolean): VoiceChipApi {
 function stopSession(): void {
   session?.stop();
   session = null;
+  publishVoiceStatus(null);
 }
 
 async function startSession(video: HTMLVideoElement, fixedOnly: boolean): Promise<void> {
@@ -144,7 +147,9 @@ async function startSession(video: HTMLVideoElement, fixedOnly: boolean): Promis
     batterySaver: power.reason !== null,
     model: v.model,
     sensitivity: v.sensitivity,
-    skip: fixedOnly ? undefined : adShowing,
+    // Skip ads, and audio played away from normal speed: time-stretched speech
+    // can read as synthetic to the voice detector (false alarms).
+    skip: () => (!fixedOnly && adShowing()) || Math.abs(video.playbackRate - 1) > 0.05,
     score: (pcmB64) =>
       browser.runtime.sendMessage({ kind: "lad-voice", op: "score", model: v.model, pcmB64 } satisfies VoiceRequest) as Promise<VoiceResponse>,
     onUpdate: (st) => {

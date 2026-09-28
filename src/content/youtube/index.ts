@@ -17,6 +17,7 @@
 import { registerHandlers, sendMessage } from "../../shared/messages";
 import { autoRunPolicyForSite, DEFAULT_SETTINGS, getSettings, setSettings, watchSettings, type Settings } from "../../shared/settings";
 import { FLAGGED_THRESHOLD } from "../../shared/thresholds";
+import { publishTranscriptStatus } from "../videoStatus";
 import { QUICK_CONFIRM_AT } from "../../shared/thresholds";
 import { toTranscriptProbability, type TranscriptReport, type TranscriptSegment } from "../../shared/transcript";
 import { fusionForTier } from "../../engine/models";
@@ -49,6 +50,7 @@ function emptyReport(v: VideoRef): TranscriptReport {
 function publish(r: TranscriptReport | null): void {
   report = r;
   chip?.setReport(r);
+  publishTranscriptStatus(r);
 }
 
 function wantChip(): boolean {
