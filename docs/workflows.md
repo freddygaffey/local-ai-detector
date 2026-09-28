@@ -46,13 +46,21 @@ flowchart LR
 ```mermaid
 flowchart TD
   V[Watch page / Short] --> T[Transcript: player's caption track<br/>via page-world API]
-  V --> A[Voice: audio segments YouTube already downloaded<br/>decoded at 1× regardless of playback speed]
+  V --> A[Voice: read-only copy of the audio segments the player downloads<br/>page-world tap, UMP audio parts → decoded at original speed<br/>fallback: the played audio, only at 0.75–2×]
   A --> S[Sample 2 portions → Spectra-AASIST3]
   T --> Q[Quick score, timestamps]
   S --> R[Voice score]
   Q --> K[Card: Script n% / Voice n%<br/>+ inline chips under title<br/>+ YouTube's own synthetic label]
   R --> K
   X[Never changes playback speed,<br/>captions prefs or other extensions' state] -.-> V
+```
+
+### Other sites' videos
+
+```mermaid
+flowchart LR
+  P[Any video starts playing with sound<br/>Voice mode: Auto on any video] --> C[Played audio via captureStream<br/>at 0.75–2× only]
+  C --> S[Spectra-AASIST3] --> K[Voice chip + card]
 ```
 
 ## 4. Popup opens
