@@ -182,7 +182,7 @@ const presets = {
   fast: { detectors: ["lite", "perplexity"], method: "weighted" },
   classic: { detectors: ["tmr", "perplexity"], method: "weighted" },
   everything: { detectors: ["tmr", "modernbert", "lite", "perplexity", "binoculars"], method: "weighted" },
-  // The Deep check's default (DEFAULT_TIERS.deepDetectors in src/shared/settings.ts).
+  // All six (the Deep check's default until v6; kept for comparison).
   deep: { detectors: ["fakespot", "tmr", "modernbert", "lite", "perplexity", "binoculars"], method: "weighted" },
 };
 const profileKey = (dets, method) => (dets.length === 1 ? dets[0] : `${[...dets].sort().join("+")}|${method}`);
@@ -383,7 +383,7 @@ const showList = [
   ...["logodds", "vote", "max"].map((m) => [`Default set, ${m}`, { dets: best.dets, method: m }]),
   ["Classic (tmr + perplexity)", { dets: ["tmr", "perplexity"], method: "weighted" }],
   ["Fast (lite + perplexity)", { dets: ["lite", "perplexity"], method: "weighted" }],
-  ["Deep (all six, weighted)", { dets: presets.deep.detectors, method: "weighted" }],
+  ["All six (old Deep, weighted)", { dets: presets.deep.detectors, method: "weighted" }],
 ];
 for (const dev of devices) reportTable(`Browser, ${dev}`, showList, dev);
 

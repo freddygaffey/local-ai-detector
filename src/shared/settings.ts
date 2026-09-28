@@ -306,9 +306,10 @@ export interface Settings {
  * (docs/calibration.md "Quick tier and false positives"). 4 = the corner
  * card is the default UI and is always present (docs/plan.md "Primary UI:
  * the corner card"): no auto-hide. 5 = highlights default to flagged
- * (AI) sentences only, not the whole-page heatmap.
+ * (AI) sentences only, not the whole-page heatmap. 6 = Deep check is Fakespot
+ * + TMR over the whole page (the measured best), not all six detectors.
  */
-export const SETTINGS_VERSION = 5;
+export const SETTINGS_VERSION = 6;
 
 /**
  * Default Fusion set, chosen on the T7 web eval set (docs/calibration.md):
@@ -371,7 +372,10 @@ export const CHIP_AUTO_HIDE_DEFAULT = 0;
 
 export const DEFAULT_TIERS: TierSettings = {
   quickDetectors: ["tmr"],
-  deepDetectors: [...ALL_TIER_DETECTORS],
+  // Measured (docs/calibration.md "Deep check"): all six averaged ranks no
+  // better than Fakespot + TMR and catches less (63% vs 68% of AI text, filter
+  // recall 11% vs 54%); nothing beat the pair. Deep = the pair on the whole page.
+  deepDetectors: ["fakespot", "tmr"],
   quickMaxTokens: 1024,
   autoRunQuick: true,
   confirmQuick: true,
@@ -504,6 +508,15 @@ export function migrateSettings(merged: Settings, stored: Partial<Settings> | un
     // v5: highlight only the AI (flagged) sentences by default. "heatmap" was
     // the old default, so installs still on it move over.
     if (out.highlightStyle === "heatmap") out.highlightStyle = "flagged";
+    out.settingsVersion = SETTINGS_VERSION;
+  }
+  if (stored && (stored.settingsVersion ?? 1) < 6) {
+    // v6: the old Deep default (all six) moves to the measured best pair; a
+    // hand-picked Deep set is kept.
+    const d = out.tiers?.deepDetectors ?? [];
+    if (d.length === ALL_TIER_DETECTORS.length && ALL_TIER_DETECTORS.every((x) => d.includes(x))) {
+      out.tiers = { ...out.tiers, deepDetectors: [...DEFAULT_TIERS.deepDetectors] };
+    }
     out.settingsVersion = SETTINGS_VERSION;
   }
   return out;

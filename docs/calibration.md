@@ -241,6 +241,26 @@ The WebGPU runs were done locally (Chrome 153, Apple Silicon). The WASM runs wer
 Ubuntu runners (4 vCPU, Chromium from Playwright). The eval set built in CI was identical to
 the local one (all 1,867 ids match).
 
+## Deep check: which detectors (2026-09-28)
+
+The Deep check used to average all six detectors. That set had never been measured, so it
+was re-scored from the saved per-text scores (WASM run, `t7-eval-results` branch), test half:
+
+| Set | AUROC | AI flagged (≥ 0.5) | Human flagged | Slop-filter recall |
+|---|---|---|---|---|
+| Fakespot + TMR (default) | **0.91** | **68%** | 5% | **54%** |
+| All six, weighted | 0.90 | 63% | 3% | 11% |
+
+No subset of the six beats Fakespot + TMR by more than noise on the fit half (the best others
+are 0.89–0.90 AUROC), and Binoculars alone costs about 18 s per 1,000 words. **Deep is now
+Fakespot + TMR over the whole page** (up to `maxTokens`); the Quick pass is TMR over the first
+1,024 tokens, confirmed by the pair when it scores high. Settings v6 moves installs still on
+the all-six default; a hand-picked Deep set is kept.
+
+Voice: Spectra-AASIST3 stays the only voice model offered by default; W2V2-AASIST is clearly
+worse on the same clips (EER 7–9% and 37–65% of human clips flagged, against 2–3% and 0%;
+docs/voice-spike.md), so a "deeper" voice check samples more of the video instead.
+
 ## Quick tier and false positives (QA pass, 2026-09-28)
 
 The release QA found the automatic Quick check putting high numbers on plainly human

@@ -27,10 +27,17 @@ describe("fusionForTier", () => {
     expect(fusionForTier("deep", tiers)).toEqual({ detectors: ["binoculars"], method: "weighted" });
   });
 
-  it("defaults: quick is lite only, deep is every detector", () => {
+  it("defaults: quick is TMR, deep is the measured best pair (Fakespot + TMR)", () => {
     expect(fusionForTier("quick", DEFAULT_TIERS).detectors).toEqual(["tmr"]);
-    expect(fusionForTier("deep", DEFAULT_TIERS).detectors).toEqual(ALL_TIER_DETECTORS);
-    expect(fusionForTier("deep", DEFAULT_TIERS).detectors).toHaveLength(6);
+    expect(fusionForTier("deep", DEFAULT_TIERS).detectors).toEqual(["fakespot", "tmr"]);
+  });
+
+  it("v6 moves the old all-six Deep default to the pair, keeps a hand-picked set", () => {
+    const merged = (stored: Partial<Settings>) => migrateSettings({ ...DEFAULT_SETTINGS, ...stored } as Settings, stored);
+    const allSix = { ...DEFAULT_TIERS, deepDetectors: [...ALL_TIER_DETECTORS] };
+    expect(merged({ settingsVersion: 5, tiers: allSix }).tiers.deepDetectors).toEqual(["fakespot", "tmr"]);
+    const picked = { ...DEFAULT_TIERS, deepDetectors: ["fakespot", "binoculars"] as Settings["tiers"]["deepDetectors"] };
+    expect(merged({ settingsVersion: 5, tiers: picked }).tiers.deepDetectors).toEqual(["fakespot", "binoculars"]);
   });
 
   it("falls back to the tier's own default if given an empty list (never an empty Fusion)", () => {
