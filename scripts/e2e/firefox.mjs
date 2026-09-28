@@ -119,7 +119,7 @@ await step("consent", async () => {
 });
 
 // Same as scripts/e2e/chrome.mjs: the highlight assertions below predate
-// Presence modes, and the default Status chip paints nothing until expanded.
+// Presence modes, and the default corner card paints nothing until its highlights toggle.
 await step("presence: force Inspector (highlights on), auto-run off, for the fixture runs", async (note) => {
   await setSettings({
     presence: "inspector",

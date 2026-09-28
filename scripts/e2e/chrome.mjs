@@ -870,41 +870,46 @@ await step("presence modes: onClick / badge / statusChip / inspector / sidePanel
   await presenceTab.close();
 });
 
-await step("status chip: label, colour graduation, expand/collapse", async (note) => {
+await step("corner card: always present, hover card, click panel, highlights toggle", async (note) => {
+  // docs/plan.md "Primary UI: the corner card": the default presence. The
+  // card is always there (no auto-hide), hovering shows the essentials and a
+  // click opens the supplementary panel; highlights stay off until toggled.
   await setPresence("statusChip");
+  await mergeSettings({ chipAutoHideThreshold: 0 });
   await pages.news.reload({ waitUntil: "load" });
-  // The chip host mounts at content-script boot (before any analysis
-  // finishes), but boot itself can lag behind Puppeteer's own "load" event
-  // under system load, so poll rather than a single timed check.
-  const chip = await waitFor(() => piercedCenter(pages.news, (tag, a) => a["aria-label"]?.startsWith("AI detection")), {
-    timeout: 10_000,
-    what: "chip host",
-  });
-  if (!chip.length) throw new Error("chip not found on the default (Status chip) preset");
-  const before = await piercedTexts(pages.news, (tag, a) => a["aria-label"]?.startsWith("AI detection"));
-  note(`chip label: "${before.join("")}"`);
-  await shot(pages.news, "page-chip.jpg");
-  await pages.news.mouse.click(chip[0].x, chip[0].y);
+  const isCard = (tag, a) => a["aria-label"]?.startsWith("AI detection");
+  const card = await waitFor(() => piercedCenter(pages.news, isCard), { timeout: 10_000, what: "corner card" });
+  if (!card.length) throw new Error("corner card not found on the default preset");
+  // The quick pass lands a number on the card itself.
+  await waitFor(async () => /\d+%|\d+ AI/.test((await piercedTexts(pages.news, isCard)).join(" ")), { timeout: 30_000, what: "card score" });
+  const label = (await piercedTexts(pages.news, isCard)).join(" ");
+  note(`card label: "${label}"`);
+  await shot(pages.news, "page-card.jpg");
+  const paintedBefore = await highlightCount(pages.news);
+  await pages.news.mouse.move(card[0].x, card[0].y);
+  await sleep(300);
+  const hoverText = (await piercedTexts(pages.news, (tag, a) => a.role === "tooltip")).join(" ");
+  note(`hover card: ${hoverText.replace(/\s+/g, " ").slice(0, 120)}`);
+  if (!/Page/.test(hoverText)) throw new Error("hover card should list the page type");
+  await pages.news.mouse.click(card[0].x, card[0].y);
+  await sleep(400);
+  const panel = await piercedCenter(pages.news, (tag, a) => a.role === "dialog" && a["aria-label"] === "Detector details");
+  if (!panel.length) throw new Error("clicking the card should open its panel");
+  const toggle = await piercedCenter(pages.news, (tag, a) => a["aria-label"] === "Highlights on this page");
+  if (!toggle.length) throw new Error("panel has no highlights toggle");
+  note(`highlighted ranges before toggle: ${paintedBefore}`);
+  await pages.news.mouse.click(toggle[0].x, toggle[0].y);
   await sleep(500);
-  const pillAfterExpand = (await piercedCenter(pages.news, (tag, a) => a.role === "region" && a["aria-label"] === "AI text detector")).length > 0;
-  note(`chip click -> pill visible: ${pillAfterExpand}`);
-  if (!pillAfterExpand) throw new Error("clicking the chip should expand the full inspector");
-  // Expanding kicks off a real analysis (runFullAnalysis()); while it's
-  // running the pill's "Analyzing… N%" panel occupies the same bottom-right
-  // corner as the chip (both default to it) and, painted after the chip in
-  // DOM order, sits on top of it -- a click "on the chip" during that window
-  // actually lands on the pill. Wait for the run to finish (same corner,
-  // smaller resting panel) before going for the collapse control.
-  await waitFor(async () => (await ext(popup, "getTabStatus", { tabId: newsTabId })).state === "done", { timeout: 20_000, what: "chip-triggered analysis to finish" });
-  const collapse = await piercedCenter(pages.news, (tag, a) => a["aria-label"] === "Hide the AI detection panel");
-  if (!collapse.length) throw new Error("no collapse (\"×\") control on the expanded chip");
-  // The pill docks above the expanded chip (pill.dockToChip), so the chip's
-  // "×" is reachable by a real mouse click in the shared corner.
-  await pages.news.mouse.click(collapse[0].x, collapse[0].y);
-  await sleep(500);
-  const pillAfterCollapse = (await piercedCenter(pages.news, (tag, a) => a.role === "region" && a["aria-label"] === "AI text detector")).length > 0;
-  note(`collapse control -> pill visible: ${pillAfterCollapse}`);
-  if (pillAfterCollapse) throw new Error("the collapse control should hide the pill again");
+  const paintedAfter = await highlightCount(pages.news);
+  note(`highlighted ranges after toggle: ${paintedAfter}`);
+  if (paintedAfter <= 0) throw new Error("the panel's highlights toggle should paint the page");
+  await shot(pages.news, "page-card-panel.jpg");
+  const close = await piercedCenter(pages.news, (tag, a) => a["aria-label"] === "Close");
+  if (!close.length) throw new Error("no close control on the card panel");
+  await pages.news.mouse.click(close[0].x, close[0].y);
+  await sleep(300);
+  const stillOpen = (await piercedCenter(pages.news, (tag, a) => a.role === "dialog" && a["aria-label"] === "Detector details")).length > 0;
+  if (stillOpen) throw new Error("close should hide the card panel");
   await setPresence("inspector");
   await pages.news.reload({ waitUntil: "load" });
   await sleep(800);

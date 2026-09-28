@@ -261,7 +261,6 @@ export function createCard(initialCorner: Corner, cb: CardCallbacks): CardApi {
 
   let corner = initialCorner;
   let open = false;
-  let hoverWanted = false;
   let hideTimer: ReturnType<typeof setTimeout> | undefined;
   let state: CardState = { pageType: "article" };
   let pstate: CardPanelState = { highlights: false, current: -1, total: 0, deepBusy: false, canCheckText: true, hasMediaChips: false };
@@ -415,7 +414,6 @@ export function createCard(initialCorner: Corner, cb: CardCallbacks): CardApi {
   function showHover(): void {
     clearTimeout(hideTimer);
     if (open) return;
-    hoverWanted = true;
     renderHover();
     hover.hidden = false;
     layout();
@@ -423,7 +421,6 @@ export function createCard(initialCorner: Corner, cb: CardCallbacks): CardApi {
   function scheduleHide(): void {
     clearTimeout(hideTimer);
     hideTimer = setTimeout(() => {
-      hoverWanted = false;
       hover.hidden = true;
     }, 140);
   }
@@ -474,7 +471,7 @@ export function createCard(initialCorner: Corner, cb: CardCallbacks): CardApi {
       state = next;
       pstate = p;
       renderCard();
-      if (hoverWanted && !hover.hidden) renderHover();
+      renderHover(); // also the card's aria-describedby text, so keep it current while hidden
       if (open) {
         const focusedLabel = (shadow.activeElement as HTMLElement | null)?.getAttribute("aria-label");
         renderPanel();
