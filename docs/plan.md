@@ -226,6 +226,21 @@ default (it no longer hides below a threshold):
   per-detector numbers, a link to settings.
 Other presence modes remain as settings. Unobtrusive but always functional.
 
+## Next: "AI-built site" detection (user idea, queued after the corner card + PDF/settings agents)
+A new corner-card signal: "Site: AI-built (Lovable)" / "Site: likely AI-built 78%". Local page
+inspection only, with no new models:
+1. **Builder fingerprints** (near-certain): deploy subdomains (*.lovable.app, *.bolt.new,
+   *.v0.app, *.base44.app, *.replit.app…), generator meta, builder CDN references, tool-specific
+   DOM attributes and badges. Name the tool.
+2. **Design fingerprints** (weak individually, calibrated combined score): Inter, purple→blue
+   gradient hero, "Now in Beta" pill, identical icon-topped feature cards, shadcn/ui default
+   tokens, Tailwind utility soup, Lucide icons, dark-by-default, gradient-letter avatars…
+   Reuse slop-detect's (github.com/ravidsrk/slop-detect) pattern engine if its licence allows.
+   Only flag strong matches: many human devs use shadcn/Tailwind.
+3. Code-level ML (DetectCodeGPT etc.) is out of scope: shipped JS is minified.
+Calibrate on AI-builder showcase galleries vs hand-made sites, and report precision. Owner: Opus
+(research + calibration).
+
 ## Display rules (approved)
 - Every displayed % comes from `toDisplayProbability()`, a calibrated probability on web text.
 - Threads and comment pages show a count in the chip ("3 AI") plus per-item %. Articles show a
