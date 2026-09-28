@@ -931,7 +931,8 @@ function changeStyle(style: HighlightStyle): void {
   try {
     currentStyle = style;
     if (shouldPaintOnPage()) renderPageHighlights(activeSentences, style);
-    hoverIndex = buildHoverIndex(activeSentences);
+    // Click-for-details only where highlights are painted.
+    hoverIndex = shouldPaintOnPage() ? buildHoverIndex(activeSentences) : null;
     if (lastResult) {
       pill?.setDone({
         overall: displayScore(lastResult),
@@ -1073,6 +1074,8 @@ function onHighlightClick(e: MouseEvent): void {
     const hit = hitTestPoint(e.clientX, e.clientY);
     const sentence = hit ? hoverIndex.lookup(hit.node, hit.offset) : null;
     if (!sentence || sentence === openSentence) return closeSentenceTooltip();
+    // "Flagged only" paints just the flagged sentences: the rest aren't clickable.
+    if (currentStyle === "flagged" && !flaggedOrder.some((k) => k.blockId === sentence.blockId && k.index === sentence.index)) return closeSentenceTooltip();
     openSentence = sentence;
     const rects = sentence.range.getClientRects();
     const rect = rects[0] ?? sentence.range.getBoundingClientRect();
