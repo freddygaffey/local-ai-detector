@@ -196,6 +196,11 @@ function css(): string {
       border-radius: 6px; cursor: pointer; font: inherit; color: inherit;
     }
     .panel button:hover { background: var(--hover); }
+    .panel button.primary {
+      justify-content: center; min-height: 26px; padding: 0 10px; border-radius: 7px;
+      background: var(--focus); color: #fff; font-weight: 600;
+    }
+    .panel button.primary:hover { filter: brightness(1.08); background: var(--focus); }
     .panel button[aria-pressed="true"] { background: var(--press); }
     .panel button:disabled { opacity: 0.45; cursor: default; }
     .panel button.text { color: var(--focus); padding: 0 4px; }
@@ -457,11 +462,14 @@ export function createCard(initialPos: CardPos, cb: CardCallbacks): CardApi {
     title.className = "grow";
     title.style.fontWeight = "600";
     title.textContent = "AI detector";
-    const deep = button("Deep check: all models, slower, more battery", "↻", cb.onDeepCheck, { disabled: pstate.deepBusy });
-    if (pstate.deepBusy) deep.classList.add("spin");
-    top.append(title, deep, button("Close", "×", () => closePanel(true)));
+    top.append(title, button("Close", "×", () => closePanel(true)));
     kids.push(top);
     kids.push(rowsEl(hoverLines(state)));
+    // Deep check: a labelled button, not an icon (all models, whole page/transcript).
+    const isDeep = state.meta?.tier === "deep";
+    const deepLabel = pstate.deepBusy ? "Deep check running…" : isDeep ? "Deep check again" : "Deep check";
+    const deep = button("Deep check: all models, slower, more battery", deepLabel, cb.onDeepCheck, { disabled: pstate.deepBusy, cls: "primary" });
+    kids.push(deep);
 
     const hasText = !!(state.article || state.thread);
     if (hasText) {
