@@ -34,7 +34,9 @@ flowchart TD
 ```mermaid
 flowchart LR
   C[Collapsed card<br/>AI 12% / 3 AI of 24 /<br/>Script 23% · Voice 7%<br/>+ CR/WM/U+ markers] -- hover or focus --> H[Hover card:<br/>per-signal verdicts, page type + why,<br/>n/m agree, Quick/Deep, device]
-  C -- click --> P[Panel: flagged items ▲▼,<br/>highlights toggle, Deep ↻,<br/>per-detector numbers, Settings, ×]
+  C -- click --> P[Panel: flagged items ▲▼,<br/>highlights toggle, Deep ↻,<br/>highlight by: All / one detector, Settings, ×]
+  C -- drag --> W[Moved: remembered for this site<br/>Use everywhere / Reset in the panel]
+  H2[Highlighted sentence] -- click --> T2[Its score + per-detector lines<br/>Esc / scroll / click away closes]
   P -- Deep ↻ --> D[All detectors, whole page/transcript,<br/>voice Thorough] --> C
   P -- "× / Esc" --> C
 ```
@@ -57,14 +59,30 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-  O[Popup opens on tab] --> R{Readable?}
+  O[Popup opens on tab<br/>232px, never blocked by inference:<br/>models run in Workers] --> R{Readable?}
   R -- no --> Q[One quiet line]
   R -- yes --> S[Ask the page for the card state]
   S --> K{Already checked?}
-  K -- yes --> L[Lead with the result, same as the card.<br/>Primary button: Deep check]
-  K -- running --> M[Progress]
-  K -- no --> N[Primary button: Check page]
-  L --> X[Secondary: selection, paste, mode, page type, site memory]
+  K -- yes --> L[Score + verdict + tier tag<br/>Quick / Deep check running… / Deep, · saved if remembered.<br/>Primary: Deep check / Check again]
+  K -- no --> N[Primary: Check page]
+  L --> X[Details ▸: breakdown, mode/style, page type, site rule, paste]
+  O --> P[⏸ → pause automatic checks 1 / 5 / 12 h<br/>Paused until … · Resume]
+```
+
+## 4b. Manual check (popup, context menu, shortcut)
+
+```mermaid
+flowchart TD
+  M[User asks for a check] --> C{Same text + setup<br/>remembered?}
+  C -- yes --> D[Show it at once, tagged saved]
+  C -- no --> Q[Quick pass → shown at once,<br/>tagged Deep check running…]
+  Q --> G{Deep models downloaded?}
+  G -- no --> S[Quick stands; Deep check offers the download]
+  G -- yes --> P[Deep pass over the top<br/>Quick stays on show]
+  P -- Cancel deep check --> X[Worker torn down, Quick stands]
+  P --> R[Deep result replaces it, remembered]
+  M -- selection --> B[Result bubble above the selection's top-left]
+  M -- nothing selected --> T[Toast: No text selected]
 ```
 
 ## 5. First run
