@@ -72,7 +72,7 @@ describe("settings migration", () => {
     const out = merged({ mode: "ensemble", useWebGPU: false });
     expect(out.useWebGPU).toBe(true);
     expect(out.fusion).toEqual(DEFAULT_FUSION);
-    expect(out.settingsVersion).toBe(3);
+    expect(out.settingsVersion).toBe(4);
   });
   it("keeps a v1 lite ensemble choice", () => {
     expect(merged({ ensembleClassifier: "classifierLite" }).fusion.detectors).toEqual(["lite", "perplexity"]);
@@ -82,12 +82,18 @@ describe("settings migration", () => {
     expect(out.useWebGPU).toBe(false);
     expect(out.fusion).toEqual({ detectors: ["tmr"], method: "max" });
   });
-  it("v2 settings on the old Quick defaults move to TMR and a 70% chip", () => {
+  it("v2 settings on the old Quick defaults move to TMR and the always-present card", () => {
     const out = merged({ settingsVersion: 2, tiers: { quickDetectors: ["lite"], deepDetectors: ["tmr"], autoRunQuick: true, confirmQuick: true, quickMaxTokens: 1024 }, chipAutoHideThreshold: 0.35 });
     expect(out.tiers.quickDetectors).toEqual(["tmr"]);
     expect(out.tiers.deepDetectors).toEqual(["tmr"]);
-    expect(out.chipAutoHideThreshold).toBe(0.7);
-    expect(out.settingsVersion).toBe(3);
+    expect(out.chipAutoHideThreshold).toBe(0);
+    expect(out.settingsVersion).toBe(4);
+  });
+  it("v3 settings on the 70% default move to the always-present card (v4)", () => {
+    expect(merged({ settingsVersion: 3, chipAutoHideThreshold: 0.7 }).chipAutoHideThreshold).toBe(0);
+    expect(merged({ settingsVersion: 3 }).chipAutoHideThreshold).toBe(0);
+    expect(merged({ settingsVersion: 3, chipAutoHideThreshold: 0.5 }).chipAutoHideThreshold).toBe(0.5);
+    expect(merged({ settingsVersion: 4, chipAutoHideThreshold: 0.7 }).chipAutoHideThreshold).toBe(0.7);
   });
   it("v2 settings keep a deliberate Quick set and chip threshold", () => {
     const out = merged({ settingsVersion: 2, tiers: { quickDetectors: ["lite", "perplexity"], deepDetectors: ["tmr"], autoRunQuick: true, confirmQuick: true, quickMaxTokens: 1024 }, chipAutoHideThreshold: 0.5 });

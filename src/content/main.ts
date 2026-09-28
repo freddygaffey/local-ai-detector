@@ -1,7 +1,7 @@
 // Orchestrates the content script: idempotent boot, extraction, the
 // extractText/renderHighlights/clearHighlights message handlers T3's popup
-// calls (see src/shared/messages.ts), the Presence surfaces (chip, pill,
-// side panel has no page-side component), battery-gated auto-run, chat/
+// calls (see src/shared/messages.ts), the Presence surfaces (corner card,
+// pill; the side panel has no page-side component), battery-gated auto-run, chat/
 // comment-adapter per-item scoring, the slop filter, site memory, and
 // SPA/mutation staleness handling. Everything is wrapped in try/catch so a
 // bug here never breaks the host page.
@@ -22,17 +22,14 @@ import { capBlockWords, extractVisibleBlocks, getRangeForOffsets, nextBlockId, p
 import { extractElementText } from "./adapters/dom";
 import { renderHighlights as renderPageHighlights, clearHighlights as clearPageHighlights } from "./highlightStyles";
 import { buildHoverIndex, hitTestPoint, type HoverIndex } from "./hover";
-import {
-  clearImageBadgesIfAvailable,
-  renderImageBadgesIfAvailable,
-  resetImageBadges,
-  scanImagesAndReport,
-} from "./imageBadgesHook";
+import { clearImageBadgesIfAvailable, resetImageBadges, scanImagesAndReport } from "./imageBadgesHook";
 import { checkImageAtUrl } from "./imageContextCheck";
 import { orderFlagged, stepIndex, type FlaggedKey } from "./navigation";
 import { startObserving } from "./observe";
-import { createChip, type ChipApi } from "./chip";
-import { onVideoStatus, videoChipContent } from "./videoStatus";
+import { createCard, type CardApi } from "./card";
+import type { CardState } from "./cardSummary";
+import { onVideoStatus, type VideoStatus } from "./videoStatus";
+import type { ImageProvenanceSummary } from "../shared/messages";
 import { createPill, type PillApi } from "./pill";
 import { extractSelectionBlock } from "./selection";
 import { applySearchMarkers, applySlopFilter, clearSearchMarkers, clearSlopFilter, renderItemLabels, clearItemLabels } from "./slopFilter";
@@ -76,21 +73,27 @@ let hoverIndex: HoverIndex | null = null;
 let currentStyle: HighlightStyle = DEFAULT_SETTINGS.highlightStyle;
 let settings: Settings = DEFAULT_SETTINGS;
 let pill: PillApi | null = null;
-let chip: ChipApi | null = null;
-// Video pages: a tiny stacked corner box summarising the transcript + voice checks.
-let videoChip: ChipApi | null = null;
-let videoChipUnsub: (() => void) | null = null;
+// The corner card (docs/plan.md "Primary UI: the corner card"): the default UI on every page type.
+let card: CardApi | null = null;
+let cardUnsub: (() => void) | null = null;
+let videoStatus: VideoStatus = {};
+let imageSummary: ImageProvenanceSummary | undefined;
+let searchSummary: CardState["search"];
+let cardRunning = false;
+let cardProgress: number | undefined;
+let cardError: string | undefined;
 let lastResult: AnalyzeResult | null = null;
 let hostname = "";
 let structuredMatch: AdapterMatch | null = null;
 let searchMatch: AdapterMatch | null = null;
 let lastEditableTarget: Element | null = null;
 
-// Transient (per-visit, never persisted) reasons the pill should be showing
-// even though Settings.surfaces.highlights is off: the chip was expanded, or
-// the popup's "Show on page" (On click preset) was used.
-let chipExpanded = false;
+// Transient (per-visit, never persisted) reason the pill should be showing
+// even though Settings.surfaces.highlights is off: the popup's "Show on
+// page" (On click preset) was used.
 let sessionShowOnPage = false;
+// The card panel's highlights toggle for this visit (null = follow settings).
+let highlightOverride: boolean | null = null;
 // Tiers task (docs/plan.md "Two tiers"): whether a Deep run is in flight, so
 // the pill's ↻ can spin; cleared once its `renderHighlights` call lands.
 let deepBusy = false;
@@ -177,8 +180,13 @@ async function boot(): Promise<void> {
       if (reveal) {
         // Context menu / keyboard shortcut: the user asked, so show the answer
         // even where Presence keeps the page quiet (an app page, a hidden chip).
-        sessionShowOnPage = true;
-        ensurePill();
+        if (card) {
+          highlightOverride = true;
+          card.open();
+        } else {
+          sessionShowOnPage = true;
+          ensurePill();
+        }
       }
       applyResult(result, style);
       return { ok: true };
@@ -207,10 +215,11 @@ async function boot(): Promise<void> {
       return { ok: true };
     },
     toggleVisibility: () => {
-      if (wantPill()) {
+      if (card) {
+        cardHidden = !cardHidden;
+        card.setHidden(cardHidden);
+      } else if (wantPill()) {
         sessionShowOnPage = false;
-        chipExpanded = false;
-        chip?.setExpanded(false);
         teardownPillIfUnwanted();
       } else {
         enablePageDisplayForSession();
@@ -235,6 +244,7 @@ async function boot(): Promise<void> {
     if (JSON.stringify(prev.pageTypes ?? {}) !== JSON.stringify(next.pageTypes ?? {})) reroute({ autoRun: true });
     if (
       prev.surfaces.chip !== next.surfaces.chip ||
+      prev.chipAutoHideThreshold !== next.chipAutoHideThreshold ||
       prev.surfaces.highlights !== next.surfaces.highlights ||
       prev.chipCorner !== next.chipCorner
     ) {
@@ -250,8 +260,12 @@ async function boot(): Promise<void> {
   onAnalysisStatus((_tabId, status) => {
     if (status.state === "running") {
       pill?.setAnalyzing(status.progress ?? { phase: "download", loaded: 0, total: 0, message: "Starting…" });
+      const pr = status.progress;
+      setCardRunning(true, pr && pr.total > 0 ? pr.loaded / pr.total : undefined);
     } else if (status.state === "error") {
       pill?.setError(status.error.replace(/^consent-required:\s*/, ""));
+      cardError = status.error.replace(/^consent-required:\s*/, "");
+      setCardRunning(false);
     }
   });
 
@@ -267,6 +281,11 @@ async function boot(): Promise<void> {
         resetImageBadges();
         structuredMatch = null;
         searchMatch = null;
+        searchSummary = undefined;
+        imageSummary = undefined;
+        cardError = undefined;
+        cardRunning = false;
+        highlightOverride = null;
         // An SPA navigation (YouTube, Reddit, ...) can change the page type:
         // re-classify, and re-evaluate the chip (docs/plan.md "T4"/"T9").
         reroute({ autoRun: false });
@@ -290,11 +309,13 @@ async function boot(): Promise<void> {
   if (page.via === "fallback") setTimeout(() => reroute({ autoRun: true }), 2500);
 }
 
-// ---- Presence surfaces (chip / pill) ---------------------------------------
+// ---- Presence surfaces (corner card / pill) ---------------------------------
 
 function wantPill(): boolean {
-  const highlightsWanted = settings.surfaces.highlights && !(!pageTextRoute());
-  return highlightsWanted || chipExpanded || sessionShowOnPage;
+  // The card's panel has everything the pill offers: never both.
+  if (wantCard()) return false;
+  const highlightsWanted = settings.surfaces.highlights && pageTextRoute();
+  return highlightsWanted || sessionShowOnPage;
 }
 
 function ensurePill(): PillApi {
@@ -316,64 +337,173 @@ function ensurePill(): PillApi {
 
 function teardownPillIfUnwanted(): void {
   if (!wantPill() && pill) {
-    doClearVisualsOnly();
+    if (!shouldPaintOnPage()) doClearVisualsOnly();
     pill.destroy();
     pill = null;
   }
 }
 
+// "Toggle visibility" shortcut with the card: hides/shows the whole card for this visit.
+let cardHidden = false;
+
+function wantCard(): boolean {
+  if (!settings.surfaces.chip || page.off) return false;
+  // App pages run nothing automatically: no card until something was checked (popup, context menu).
+  return page.type !== "app" || lastResult !== null;
+}
+
 function reconcileSurfaces(): void {
   try {
-    const wantChip = settings.surfaces.chip && pageTextRoute();
-    if (wantChip && !chip) {
-      chip = createChip(settings.chipCorner, {
-        onExpand: () => {
-          chipExpanded = true;
-          ensurePill();
-          pill?.dockToChip(settings.chipCorner);
-          chip?.setExpanded(true);
-          void runFullAnalysis();
+    if (wantCard() && !card) {
+      card = createCard(settings.chipCorner, {
+        onOpen: () => {
+          // Nothing checked yet (auto-run off, paused, or an app page): the click is the request.
+          if (!lastResult && !cardRunning && (pageTextRoute() || page.type === "app")) void runFullAnalysis();
         },
-        onCollapse: () => {
-          chipExpanded = false;
-          pill?.dockToChip(null);
-          chip?.setExpanded(false);
-          teardownPillIfUnwanted();
+        onClose: () => {},
+        onNavigate: (dir) => navigate(dir),
+        onToggleHighlights: () => setPageHighlights(!shouldPaintOnPage()),
+        onDeepCheck: () => {
+          if (pageTextRoute() || lastResult) void runDeepCheck();
+          else {
+            void runDeepTranscriptCheck().catch(() => {});
+            runDeepVoiceCheck();
+          }
+        },
+        onCheckPage: () => void runFullAnalysis(),
+        onSettings: () => void sendMessage("openOptions", undefined).catch(() => {}),
+        onJumpToMedia: () => {
+          const target = document.querySelector("ai-detector-transcript") ?? document.querySelector("ai-detector-voice");
+          target?.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "center" });
         },
       });
-    } else if (!wantChip && chip) {
-      chip.destroy();
-      chip = null;
+      if (cardHidden) card.setHidden(true);
+      cardUnsub = onVideoStatus((st) => {
+        videoStatus = st;
+        refreshCard();
+      });
+    } else if (!wantCard() && card) {
+      cardUnsub?.();
+      cardUnsub = null;
+      card.destroy();
+      card = null;
     }
+    card?.setCorner(settings.chipCorner);
+    refreshCard();
     if (wantPill()) ensurePill();
     else teardownPillIfUnwanted();
-
-    const wantVideoChip = settings.surfaces.chip && !page.off && page.type === "video";
-    if (wantVideoChip && !videoChip) {
-      const vc = createChip(settings.chipCorner, {
-        // Clicking jumps to the full transcript/voice chips under the video.
-        onExpand: () => {
-          vc.setExpanded(false);
-          const target = document.querySelector("ai-detector-transcript") ?? document.querySelector("ai-detector-voice");
-          target?.scrollIntoView({ behavior: "smooth", block: "center" });
-        },
-        onCollapse: () => {},
-      });
-      videoChip = vc;
-      videoChipUnsub = onVideoStatus((st) => vc.setContent(videoChipContent(st)));
-    } else if (!wantVideoChip && videoChip) {
-      videoChipUnsub?.();
-      videoChipUnsub = null;
-      videoChip.destroy();
-      videoChip = null;
-    }
   } catch {
     // never break the page over presence bookkeeping
   }
 }
 
+function setCardRunning(running: boolean, progress?: number): void {
+  cardRunning = running;
+  cardProgress = running ? progress : undefined;
+  if (running) cardError = undefined;
+  refreshCard();
+}
+
+/** Everything the card shows, from what this content script knows right now. */
+function cardState(): CardState {
+  const st: CardState = {
+    pageType: page.type,
+    pageReason: page.reason,
+    off: page.off,
+    running: cardRunning || videoStatus.transcriptState === "running",
+    progress: cardProgress,
+    error: cardError,
+    images: imageSummary,
+    search: searchSummary,
+  };
+  if (page.type === "video" || page.type === "subtitles") st.video = videoStatus;
+  const r = lastResult;
+  if (r) {
+    if (structuredMatch) {
+      const items = perBlockScores(r).filter((i) => !i.tooShort && !i.unscored);
+      const probs = items.map((i) => i.probability).filter((p): p is number => p !== undefined);
+      st.thread = {
+        flagged: items.filter((i) => i.score >= filterThreshold()).length,
+        total: items.length,
+        maxProbability: probs.length ? Math.max(...probs) : undefined,
+      };
+    } else {
+      st.article = {
+        probability: r.probability === undefined ? null : displayScore(r),
+        flagged: countFlaggedSentences(r.sentences),
+        sentences: r.sentences.length,
+        band: bandFromResult(r, settings),
+      };
+    }
+    if (r.unicode?.totalSuspicious) st.hidden = { count: r.unicode.totalSuspicious, message: !!r.unicode.hiddenMessage };
+    st.meta = {
+      tier: r.tier,
+      confirmed: r.confirmed,
+      agreement: r.fusion?.agreement,
+      device: r.device,
+      detectors: r.detectors?.map((d) => ({ label: d.label, overall: d.overall, device: d.device })),
+      words: r.words,
+    };
+  }
+  // A user-set auto-hide threshold (Options; 0 = the default, never) shrinks a low result to a dot.
+  const t = settings.chipAutoHideThreshold;
+  if (t > 0 && !st.running && st.article && (st.article.probability ?? 0) < t && !st.hidden) {
+    st.pageType = "app";
+    st.article = undefined;
+  }
+  return st;
+}
+
+function refreshCard(): void {
+  if (!card) return;
+  try {
+    card.render(cardState(), {
+      highlights: shouldPaintOnPage(),
+      current: flaggedCursor,
+      total: flaggedOrder.length,
+      deepBusy,
+      canCheckText: page.type === "article" || page.type === "thread" || page.type === "app",
+      hasMediaChips: !!(document.querySelector("ai-detector-transcript") ?? document.querySelector("ai-detector-voice")),
+    });
+  } catch {
+    // never break the page over the card
+  }
+}
+
+/** The card panel's highlights toggle: paints (or clears) the last result on this page, this visit only. */
+function setPageHighlights(on: boolean): void {
+  highlightOverride = on;
+  try {
+    if (on) {
+      renderPageHighlights(activeSentences, currentStyle);
+      if (settings.showUnicode) for (const block of blocksById.values()) renderUnicodeMarkers(block);
+      hoverIndex = buildHoverIndex(activeSentences);
+    } else {
+      clearPageHighlights();
+      clearUnicodeMarkers();
+      hideTooltip();
+      hoverIndex = null;
+    }
+    if (lastResult) applyStructuredExtras(lastResult);
+  } catch {
+    // ignore
+  }
+  refreshCard();
+}
+
 /** Popup's "Show on page" (On click preset): turns the pill + highlights on for this visit only. */
 export function enablePageDisplayForSession(): void {
+  if (card) {
+    // The card is the page UI: open its panel with highlights on, rather than a second surface.
+    card.setHidden((cardHidden = false));
+    card.open();
+    if (lastResult) setPageHighlights(true);
+    else {
+      highlightOverride = true;
+      if (!cardRunning) void runFullAnalysis();
+    }
+    return;
+  }
   sessionShowOnPage = true;
   ensurePill();
   void runFullAnalysis();
@@ -435,9 +565,13 @@ function textOnlyRecord(text: string, owner: Element, segments: BlockRecord["seg
 async function runFullAnalysis(): Promise<void> {
   try {
     pill?.setAnalyzing({ phase: "download", loaded: 0, total: 0, message: "Starting…" });
+    setCardRunning(true);
     await sendMessage("analyzeTab", { target: "page" });
   } catch (err) {
-    pill?.setError((err instanceof Error ? err.message : String(err)).replace(/^consent-required:\s*/, ""));
+    const msg = (err instanceof Error ? err.message : String(err)).replace(/^consent-required:\s*/, "");
+    pill?.setError(msg);
+    cardError = msg;
+    setCardRunning(false);
   }
 }
 
@@ -458,7 +592,9 @@ async function runDeepCheck(): Promise<void> {
     const deep = fusionForTier("deep", settings.tiers);
     await sendMessage("analyzeTab", { target: "page", mode: "ensemble", fusionOverride: deep.detectors, tier: "deep" });
   } catch (err) {
-    pill?.setError((err instanceof Error ? err.message : String(err)).replace(/^consent-required:\s*/, ""));
+    const msg = (err instanceof Error ? err.message : String(err)).replace(/^consent-required:\s*/, "");
+    pill?.setError(msg);
+    cardError = msg;
   } finally {
     deepBusy = false;
     reRenderPillDone();
@@ -467,6 +603,7 @@ async function runDeepCheck(): Promise<void> {
 
 /** Re-renders the pill's current done view (if any) to pick up `deepBusy`/tier changes without a new analysis. */
 function reRenderPillDone(): void {
+  refreshCard();
   if (!lastResult) return;
   pill?.setDone({
     overall: displayScore(lastResult),
@@ -492,13 +629,14 @@ async function maybeAutoRun(attempt = 0): Promise<void> {
     const [battery, pressure] = await Promise.all([readBatteryState(), readPressureState()]);
     const decision = decidePowerAction(battery, pressure, settings.battery);
     if (decision.pauseAutoRun) {
-      chip?.setContent({ label: null });
+      setCardRunning(false);
       // A CPU-pressure spike while the page loads is momentary: try again shortly.
       const at = location.href;
       if (decision.reason === "cpu-pressure" && attempt < 3) setTimeout(() => location.href === at && void maybeAutoRun(attempt + 1), 5000);
       return;
     }
     pill?.setAnalyzing({ phase: "download", loaded: 0, total: 0, message: "Starting…" });
+    setCardRunning(true);
     // The service worker (and Firefox's event page) can't read the Battery
     // Status API themselves, so this content script's own read has to be
     // forwarded (docs/plan.md "T8: Battery saver").
@@ -521,6 +659,7 @@ async function maybeAutoRun(attempt = 0): Promise<void> {
   } catch (err) {
     // Auto-run is best-effort; a manual run still works. Single-page apps
     // (shared chats, some forums) render their text after load: try again.
+    setCardRunning(false);
     const at = location.href;
     if (/readable text/i.test(String(err)) && attempt < 3) {
       setTimeout(() => location.href === at && !lastResult && void maybeAutoRun(attempt + 1), 3000 * (attempt + 1));
@@ -531,8 +670,9 @@ async function maybeAutoRun(attempt = 0): Promise<void> {
 // ---- Rendering --------------------------------------------------------------
 
 function shouldPaintOnPage(): boolean {
-  const highlightsWanted = settings.surfaces.highlights && !(!pageTextRoute());
-  return highlightsWanted || chipExpanded || sessionShowOnPage;
+  if (highlightOverride !== null) return highlightOverride;
+  const highlightsWanted = settings.surfaces.highlights && pageTextRoute();
+  return highlightsWanted || sessionShowOnPage;
 }
 
 function applyResult(result: AnalyzeResult, style: HighlightStyle): void {
@@ -600,43 +740,23 @@ function applyResult(result: AnalyzeResult, style: HighlightStyle): void {
       deepBusy,
     });
 
-    updateChip(result);
+    cardRunning = false;
+    cardProgress = undefined;
+    cardError = undefined;
+    if (!card) reconcileSurfaces(); // an app page's first result (popup, context menu)
+    refreshCard();
     applyStructuredExtras(result);
     void maybeRecordSiteMemory(result);
 
-    renderImageBadgesIfAvailable();
+    void scanImagesAndReport()
+      .then((summary) => {
+        imageSummary = summary;
+        refreshCard();
+      })
+      .catch(() => {});
   } catch (err) {
     pill?.setError(err instanceof Error ? err.message : String(err));
   }
-}
-
-function updateChip(result: AnalyzeResult): void {
-  if (!chip) return;
-  if (chipExpanded) {
-    chip.setExpanded(true);
-    return;
-  }
-  if (structuredMatch) {
-    const items = perBlockScores(result);
-    const flagged = items.filter((i) => !i.tooShort && i.score >= filterThreshold()).length;
-    chip.setContent({ label: flagged > 0 ? `${flagged} AI` : null, peekLabel: `${flagged} AI` });
-    return;
-  }
-  const score = displayScore(result);
-  if (score === null || result.probability === undefined) {
-    chip.setContent({ label: null });
-    return;
-  }
-  const pct = Math.round(score * 100);
-  const band = bandFromResult(result, settings);
-  const show = pct / 100 >= settings.chipAutoHideThreshold;
-  if (band === "mixed") {
-    const flagged = countFlaggedSentences(result.sentences);
-    const text = `AI ${pct}% · ${flagged}/${result.sentences.length}`;
-    chip.setContent({ label: show ? text : null, peekLabel: text, score });
-    return;
-  }
-  chip.setContent({ label: show ? `AI ${pct}%` : null, peekLabel: `AI ${pct}%`, score });
 }
 
 interface BlockScoreItem {
@@ -746,6 +866,13 @@ async function maybeMarkSearchResults(): Promise<void> {
       };
     });
     applySearchMarkers(items, filterThreshold());
+    const scored = items.filter((i) => !i.tooShort);
+    searchSummary = {
+      flagged: scored.filter((i) => i.score >= filterThreshold()).length,
+      total: scored.length,
+      maxProbability: scored.length ? Math.max(...scored.map((i) => i.probability)) : undefined,
+    };
+    refreshCard();
   } catch {
     // Search markers are a small bonus feature; never disrupt the results page over it.
   }
@@ -794,9 +921,9 @@ function doClear(): void {
   hoverIndex = null;
   lastResult = null;
   sessionShowOnPage = false;
-  chipExpanded = false;
-  chip?.setExpanded(false);
-  chip?.setContent({ label: null });
+  highlightOverride = null;
+  cardRunning = false;
+  refreshCard();
   pill?.setIdle();
   teardownPillIfUnwanted();
 }
@@ -808,6 +935,7 @@ function navigate(direction: 1 | -1): void {
     if (flaggedOrder.length === 0) return;
     flaggedCursor = stepIndex(flaggedCursor, flaggedOrder.length, direction);
     pill?.updateCounter(flaggedCursor, flaggedOrder.length);
+    card?.updateCounter(flaggedCursor, flaggedOrder.length);
     const key = flaggedOrder[flaggedCursor];
     if (!key) return;
     const sentence = activeSentences.find((s) => s.blockId === key.blockId && s.index === key.index);

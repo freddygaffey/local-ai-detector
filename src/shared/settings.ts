@@ -190,7 +190,7 @@ export interface Settings {
   pageTypes: Record<string, PageTypeOverride>;
   surfaces: ResultSurfaces;
   chipCorner: Corner;
-  /** Chip shows a neutral/hidden state below this score (0..1). */
+  /** Corner card shrinks to a dim dot below this score (0..1); 0 = always shown. */
   chipAutoHideThreshold: number;
 
   battery: BatterySaverSettings;
@@ -281,9 +281,11 @@ export interface Settings {
 /**
  * Current `settingsVersion`. 2 = T7: Fusion replaces Ensemble, WebGPU on by
  * default. 3 = Quick check uses TMR instead of lite, chip shows from 70%
- * (docs/calibration.md "Quick tier and false positives").
+ * (docs/calibration.md "Quick tier and false positives"). 4 = the corner
+ * card is the default UI and is always present (docs/plan.md "Primary UI:
+ * the corner card"): no auto-hide.
  */
-export const SETTINGS_VERSION = 3;
+export const SETTINGS_VERSION = 4;
 
 /**
  * Default Fusion set, chosen on the T7 web eval set (docs/calibration.md):
@@ -337,8 +339,12 @@ export interface Settings {
 /** Deep's default: every detector the registry has (docs/plan.md: "Deep detectors (default: all)"). */
 export const ALL_TIER_DETECTORS: FusionDetector[] = ["fakespot", "tmr", "modernbert", "lite", "perplexity", "binoculars"];
 
-/** The chip shows only from this displayed P(AI) up ("chip only if high"). */
-export const CHIP_AUTO_HIDE_DEFAULT = 0.7;
+/**
+ * Below this displayed P(AI) the corner card shrinks to a dim dot. 0 = never
+ * (the default since v4: the card is always present, docs/plan.md "Primary
+ * UI: the corner card"). The old "chip only if high" default was 0.7.
+ */
+export const CHIP_AUTO_HIDE_DEFAULT = 0;
 
 export const DEFAULT_TIERS: TierSettings = {
   quickDetectors: ["tmr"],
@@ -458,6 +464,14 @@ export function migrateSettings(merged: Settings, stored: Partial<Settings> | un
     const q = stored.tiers?.quickDetectors;
     if (!q || (q.length === 1 && q[0] === "lite")) out.tiers = { ...out.tiers, quickDetectors: [...DEFAULT_TIERS.quickDetectors] };
     if (stored.chipAutoHideThreshold === undefined || stored.chipAutoHideThreshold === 0.35) out.chipAutoHideThreshold = CHIP_AUTO_HIDE_DEFAULT;
+    out.settingsVersion = SETTINGS_VERSION;
+  }
+  if (stored && (stored.settingsVersion ?? 1) < 4) {
+    // v4: the corner card is the default UI and always present. Anyone still
+    // on an old default auto-hide threshold moves to "never hide"; a
+    // deliberately chosen threshold is kept.
+    // (After the v3 step, so a v2 install still on 35% lands here as 0.7.)
+    if (stored.chipAutoHideThreshold === undefined || out.chipAutoHideThreshold === 0.7) out.chipAutoHideThreshold = CHIP_AUTO_HIDE_DEFAULT;
     out.settingsVersion = SETTINGS_VERSION;
   }
   return out;

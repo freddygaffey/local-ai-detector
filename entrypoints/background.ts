@@ -176,6 +176,11 @@ export default defineBackground(() => {
 
   registerHandlers({
     ping: () => ({ ok: true, ts: Date.now() }),
+    // The corner card's "Settings" (content scripts can't open it themselves).
+    openOptions: async () => {
+      await browser.runtime.openOptionsPage();
+      return { ok: true as const };
+    },
   });
 
   startEngineRouter();

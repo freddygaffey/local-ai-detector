@@ -585,8 +585,16 @@ export interface GetSentenceTextsMessage {
   response: { texts: (string | null)[] };
 }
 
+/** Content script (the corner card's "Settings") -> background: open the options page. */
+export interface OpenOptionsMessage {
+  type: "openOptions";
+  request: undefined;
+  response: ActionResult;
+}
+
 /** Every request/response message kind, as a discriminated union. */
 export type RuntimeMessage =
+  | OpenOptionsMessage
   | GetSentenceTextsMessage
   | GetTranscriptReportMessage
   | GetPageTypeMessage
