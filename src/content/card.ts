@@ -490,17 +490,24 @@ export function createCard(initialPos: CardPos, cb: CardCallbacks): CardApi {
       const filter = dets.length > 1 && hasText;
       const sec = document.createElement("div");
       sec.className = `det sec${filter ? " filter" : ""}`;
+      const total = state.article?.sentences;
       if (filter) {
         const head = document.createElement("span");
         head.className = "k head";
-        head.textContent = "Highlight by";
-        sec.append(head, document.createElement("span"));
-        sec.append(button("Highlight by the combined score", "All", () => cb.onHighlightBy(null), { pressed: pstate.highlightBy === null, cls: "pick" }), document.createElement("span"));
+        head.textContent = "Highlight by model";
+        const of = document.createElement("span");
+        of.className = "k";
+        of.textContent = total !== undefined ? `of ${total} sentences` : "";
+        const all = document.createElement("span");
+        all.textContent = total !== undefined ? `${state.article?.flagged ?? 0} flagged` : "";
+        sec.append(head, of);
+        sec.append(button("Highlight by the combined score", "All", () => cb.onHighlightBy(null), { pressed: pstate.highlightBy === null, cls: "pick" }), all);
       }
       for (const d of dets) {
         const v = document.createElement("span");
-        v.textContent = `${Math.round(d.overall * 100)}`;
-        v.title = "Raw detector score (0-100), before calibration";
+        // Sentences this model alone flags as AI, of the page's sentences.
+        v.textContent = d.flagged !== undefined ? `${d.flagged} flagged` : "";
+        v.title = total !== undefined ? `${d.label} flags ${d.flagged ?? 0} of ${total} sentences as AI` : d.label;
         if (filter && d.id) {
           const id = d.id;
           sec.append(button(`Highlight by ${d.label} only`, d.label, () => cb.onHighlightBy(id), { pressed: pstate.highlightBy === id, cls: "pick" }), v);

@@ -354,7 +354,12 @@ async function setPause(hours: number): Promise<void> {
 }
 
 function openOptions(): void {
-  void browser.runtime.openOptionsPage();
+  // Fallback: open the page as a tab if the options API fails (it has in the wild).
+  void browser.runtime
+    .openOptionsPage()
+    .catch(() => browser.tabs.create({ url: browser.runtime.getURL("/options.html") }))
+    .then(() => window.close())
+    .catch(() => {});
 }
 
 // ---- Consent (model download checklist; no paragraphs) ----
@@ -664,12 +669,21 @@ async function setPageTypeOverride(hostname: string, value: PageTypeOverride): P
   render();
 }
 
+/** The verdict next to the "N% AI" number. */
+const VERDICT_WORDS: Record<ReturnType<typeof bandFromResult>, string> = {
+  human: "· likely human",
+  mixed: "· mixed",
+  ai: "· likely AI",
+  insufficient: "· too short to judge",
+};
+
 function bandWord(result: AnalyzeResult | null): { band: ReturnType<typeof bandFromResult>; text: string; score: number | null } {
   if (!result) return { band: "insufficient", text: "—", score: null };
   const band = bandFromResult(result, ctx.settings);
   const score = displayScore(result);
   if (band === "insufficient" || score === null) return { band, text: "—", score: null };
-  return { band, text: `${Math.round(score * 100)}%`, score };
+  // The number is always P(AI): "44% AI", never read as "44% human".
+  return { band, text: `${Math.round(score * 100)}% AI`, score };
 }
 
 function renderResultSection(): HTMLElement {
@@ -677,7 +691,7 @@ function renderResultSection(): HTMLElement {
   const { band, text, score } = bandWord(result);
   const valueEl = h("span", { class: `score-value mono ${bandClassName(band)}` }, result ? text : "—");
   if (score !== null) valueEl.style.color = `hsl(${scoreHue(score).toFixed(0)}, 75%, 42%)`;
-  const verdictLabel = h("span", { class: `verdict-label ${bandClassName(band)}` }, result ? BAND_LABEL[band] : "Not checked yet");
+  const verdictLabel = h("span", { class: `verdict-label ${bandClassName(band)}` }, result ? VERDICT_WORDS[band] : "Not checked yet");
   const wrap = h("div", { class: "score-line" }, valueEl, verdictLabel);
   const tier = tierTag(result);
   if (tier) wrap.append(tier);
@@ -806,7 +820,7 @@ function renderButtons(): HTMLElement {
   const refiningNow = (ctx.deepBusy && !!ctx.result) || !!ctx.result?.refining;
   const buttons = [
     refiningNow
-      ? h("button", { class: "btn", type: "button", title: "Stop the Deep check and keep the Quick result", onclick: () => void onCancelDeep() }, "Cancel deep check")
+      ? h("button", { class: "btn btn-cancel", type: "button", title: "Stop the Deep check and keep the Quick result", onclick: () => void onCancelDeep() }, "Cancel deep check")
       : h(
           "button",
           { class: "btn btn-primary", type: "button", title: DEEP_CHECK_TOOLTIP, disabled: ctx.deepBusy || undefined, onclick: () => void onManualCheck("page") },
@@ -1053,7 +1067,8 @@ async function onManualCheck(target: "page" | "selection"): Promise<void> {
   if (target === "page" && ctx.result && !isDeepResult(ctx.result) && !deepDownloadStatus(ctx.settings, "wasm", ctx.cache).cached) {
     return onDeepCheck();
   }
-  await runAnalyze(target, true);
+  // "Check again" on a Deep result: a fresh run, not the remembered one.
+  await runAnalyze(target, true, target === "page" && isDeepResult(ctx.result));
 }
 
 async function onCancelDeep(): Promise<void> {
@@ -1061,7 +1076,7 @@ async function onCancelDeep(): Promise<void> {
   await sendMessage("cancelAnalysis", { tabId: ctx.tabId }).catch(() => {});
 }
 
-async function runAnalyze(target: "page" | "selection", manual = false): Promise<void> {
+async function runAnalyze(target: "page" | "selection", manual = false, fresh = false): Promise<void> {
   const tabId = ctx.tabId;
   if (tabId === null) {
     ctx.error = "No active tab.";
@@ -1078,7 +1093,7 @@ async function runAnalyze(target: "page" | "selection", manual = false): Promise
   ctx.progress = keep ? null : { phase: "download", loaded: 0, total: 0, message: "Starting…" };
   render();
   try {
-    const result = await sendMessage("analyzeTab", { tabId, target, manual }, (progress) => {
+    const result = await sendMessage("analyzeTab", { tabId, target, manual, fresh }, (progress) => {
       // Once a (Quick) result is on show, the Deep pass's progress stays out of the way.
       if (ctx.result) return;
       ctx.progress = progress;

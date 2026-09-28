@@ -504,6 +504,8 @@ export interface AnalyzeTabRequestT7 {
    * Deep over the top when its models are downloaded (router.runManualCheck).
    */
   manual?: boolean;
+  /** "Check again": skip the remembered result and run the Deep pass afresh. */
+  fresh?: boolean;
 }
 
 // ---- Added by T9 (additive only; see docs/plan.md "Shared contract") ----

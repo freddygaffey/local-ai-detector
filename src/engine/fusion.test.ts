@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { agreementOf, fuseScores } from "./scoring";
 import { detectorsForMode, estimateFusion, estimatedDownloadBytes, fusionFrom, slotsForMode } from "./models";
-import { DEFAULT_FUSION, DEFAULT_SETTINGS, migrateSettings, sanitizeFusion, type Settings } from "../shared/settings";
+import { DEFAULT_FUSION, DEFAULT_SETTINGS, migrateSettings, sanitizeFusion, SETTINGS_VERSION, type Settings } from "../shared/settings";
 import { FILTER_THRESHOLD, FLAGGED_THRESHOLD, MIN_WORDS_FOR_SCORE, needsQuickConfirm, QUICK_CONFIRM_AT, toDisplayProbability } from "../shared/thresholds";
 
 const s = (p: number, weight = 1) => ({ p, weight });
@@ -72,7 +72,7 @@ describe("settings migration", () => {
     const out = merged({ mode: "ensemble", useWebGPU: false });
     expect(out.useWebGPU).toBe(true);
     expect(out.fusion).toEqual(DEFAULT_FUSION);
-    expect(out.settingsVersion).toBe(4);
+    expect(out.settingsVersion).toBe(SETTINGS_VERSION);
   });
   it("keeps a v1 lite ensemble choice", () => {
     expect(merged({ ensembleClassifier: "classifierLite" }).fusion.detectors).toEqual(["lite", "perplexity"]);
@@ -87,7 +87,13 @@ describe("settings migration", () => {
     expect(out.tiers.quickDetectors).toEqual(["tmr"]);
     expect(out.tiers.deepDetectors).toEqual(["tmr"]);
     expect(out.chipAutoHideThreshold).toBe(0);
-    expect(out.settingsVersion).toBe(4);
+    expect(out.settingsVersion).toBe(SETTINGS_VERSION);
+  });
+  it("v4 installs on the old heatmap default highlight only AI sentences (v5)", () => {
+    expect(merged({ settingsVersion: 4, highlightStyle: "heatmap" }).highlightStyle).toBe("flagged");
+    expect(merged({ settingsVersion: 4, highlightStyle: "underline" }).highlightStyle).toBe("underline");
+    expect(merged({ settingsVersion: 5, highlightStyle: "heatmap" }).highlightStyle).toBe("heatmap");
+    expect(DEFAULT_SETTINGS.highlightStyle).toBe("flagged");
   });
   it("v3 settings on the 70% default move to the always-present card (v4)", () => {
     expect(merged({ settingsVersion: 3, chipAutoHideThreshold: 0.7 }).chipAutoHideThreshold).toBe(0);

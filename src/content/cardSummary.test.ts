@@ -100,7 +100,7 @@ describe("hoverLines", () => {
       meta: { tier: "quick", confirmed: true, device: "webgpu", agreement: { agree: 2, total: 2, disagree: false } },
     });
     const byLabel = Object.fromEntries(lines.map((l) => [l.label, l.value]));
-    expect(byLabel.Text).toBe("91% AI");
+    expect(byLabel.Text).toBe("91% AI · likely AI");
     expect(byLabel.Sentences).toBe("7/20 flagged");
     expect(byLabel.Detectors).toBe("2/2 agree");
     expect(byLabel.Check).toBe("Quick, confirmed on WebGPU");

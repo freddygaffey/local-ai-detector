@@ -13,7 +13,7 @@ import type { HighlightStyle, Settings } from "../shared/settings";
 import { fusionForTier } from "../engine/models";
 import { FLAGGED_THRESHOLD } from "./colors";
 // The popup's "Flagged sentences" uses the same function on the same result.
-import { countFlaggedSentences } from "../ui/breakdown";
+import { countFlaggedSentences, FLAG_THRESHOLD } from "../ui/breakdown";
 import { bandFromResult } from "../ui/verdict";
 import { displayScore, filterThreshold } from "../ui/probability";
 import { toDisplayProbability } from "../shared/thresholds";
@@ -522,7 +522,14 @@ function cardState(): CardState {
       confirmed: r.confirmed,
       agreement: r.fusion?.agreement,
       device: r.device,
-      detectors: r.detectors?.map((d) => ({ id: d.id, label: d.label, overall: d.overall, device: d.device })),
+      // Per model: how many sentences it alone would flag (what "Highlight by" shows).
+      detectors: r.detectors?.map((d) => ({
+        id: d.id,
+        label: d.label,
+        overall: d.overall,
+        device: d.device,
+        flagged: r.sentences.filter((sc) => (sc.detectors?.[d.id] ?? -1) >= FLAG_THRESHOLD).length,
+      })),
       words: r.words,
     };
   }

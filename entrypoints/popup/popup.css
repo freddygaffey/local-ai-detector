@@ -489,3 +489,11 @@ body {
 }
 .pause-row .grow { flex: 1; }
 .pause-row .btn { padding: 0.15em 0.45em; }
+
+/* Cancel deep check: red, so it reads as stopping something. */
+.btn.btn-cancel {
+  background: var(--band-ai, #b5482f);
+  border-color: var(--band-ai, #b5482f);
+  color: #fff;
+}
+.btn.btn-cancel:hover { filter: brightness(1.08); }

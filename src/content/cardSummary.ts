@@ -24,7 +24,7 @@ export interface CardMeta {
   agreement?: Agreement;
   device?: string;
   /** Per-detector raw scores (0..1), in run order. */
-  detectors?: { id?: string; label: string; overall: number; device?: string }[];
+  detectors?: { id?: string; label: string; overall: number; device?: string; flagged?: number }[];
   words?: number;
 }
 
@@ -188,13 +188,16 @@ const TYPE_NAME: Record<PageType, string> = {
 };
 
 /** The hover card: every essential line, one fact each. */
+/** The verdict after the "N% AI" number (the number is always P(AI)). */
+const VERDICT = { human: "likely human", mixed: "mixed", ai: "likely AI" } as const;
+
 export function hoverLines(s: CardState): HoverLine[] {
   const out: HoverLine[] = [];
   if (s.article) {
     const a = s.article;
     out.push({
       label: "Text",
-      value: a.probability === null ? `— ${BAND_LABEL.insufficient}` : `${pct(a.probability)}${a.band ? ` ${BAND_LABEL[a.band]}` : ""}`,
+      value: a.probability === null ? `— ${BAND_LABEL.insufficient}` : `${pct(a.probability)} AI${a.band && a.band !== "insufficient" ? ` · ${VERDICT[a.band]}` : ""}`,
       score: a.probability ?? undefined,
     });
     if (a.sentences > 0) out.push({ label: "Sentences", value: `${a.flagged}/${a.sentences} flagged`, dim: true });

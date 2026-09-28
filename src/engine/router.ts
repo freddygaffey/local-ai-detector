@@ -310,6 +310,8 @@ export function runTabAnalysis(
   reveal?: boolean,
   /** Keep the tab's current result on show while this runs (Deep refining Quick). */
   keepResult?: boolean,
+  /** Skip the remembered-results cache ("Check again"). */
+  fresh?: boolean,
 ): Promise<AnalyzeResult> {
   // Same run already going: share it. A different mode/tier (e.g. a Deep
   // click while the auto-run Quick pass is going) queues behind it instead.
@@ -354,7 +356,7 @@ export function runTabAnalysis(
     const ownSig = sig(mode ?? settings.mode, tier, fusionOverride, confirmWith);
     const deepSig = sig("ensemble", "deep", fusionForTier("deep", settings.tiers).detectors, undefined);
     const textHash = settings.rememberResults === false ? null : await textKey(blocks, itemBlocks).catch(() => null);
-    if (textHash) {
+    if (textHash && !fresh) {
       const ids = blocks.map((b) => b.id);
       const hit = (tier !== "deep" ? await getCached(textHash, deepSig, ids) : null) ?? (await getCached(textHash, ownSig, ids));
       if (hit) {
@@ -392,8 +394,8 @@ export function runTabAnalysis(
       }
     }
     if (textHash) void putCached(textHash, ownSig, result, blocks.map((b) => b.id));
-    const fresh = await getSettings();
-    await toTab(tabId, "renderHighlights", { result, style: fresh.highlightStyle, reveal }).catch((e) =>
+    const latest = await getSettings();
+    await toTab(tabId, "renderHighlights", { result, style: latest.highlightStyle, reveal }).catch((e) =>
       console.warn("[engine] renderHighlights failed", e),
     );
     return result;
@@ -428,6 +430,8 @@ export async function runManualCheck(
   target: "page" | "selection" | "editable",
   requestId: string,
   reveal?: boolean,
+  /** "Check again": a fresh Deep pass over the result on show, not the remembered one. */
+  fresh?: boolean,
 ): Promise<AnalyzeResult> {
   const settings = await getSettings();
   // A specific detector picked in Mode: run just that (Quick/Deep are Fusion tiers).
@@ -436,6 +440,23 @@ export async function runManualCheck(
   const deepSet = fusionForTier("deep", settings.tiers).detectors;
   const ready = await deepReady(settings);
   const shown = tabStatus.get(tabId);
+  if (fresh && ready && shown?.state === "done") {
+    // Keep what's on show while the fresh Deep pass runs.
+    broadcastStatus(tabId, { state: "done", mode: "ensemble", result: { ...shown.result, refining: true }, finishedAt: Date.now() });
+    cancelled.delete(tabId);
+    refining.add(tabId);
+    try {
+      const deep = await runTabAnalysis(tabId, target, requestId, "ensemble", undefined, "deep", deepSet, undefined, reveal, true, true);
+      if (cancelled.has(tabId)) throw new Error(CANCELLED_ERROR);
+      return deep;
+    } catch (e) {
+      broadcastStatus(tabId, { state: "done", mode: "ensemble", result: shown.result, finishedAt: Date.now() });
+      if (cancelled.delete(tabId)) throw new Error(CANCELLED_ERROR);
+      throw e;
+    } finally {
+      refining.delete(tabId);
+    }
+  }
   const haveQuick = target === "page" && shown?.state === "done" && shown.result.tier === "quick";
   let quick: AnalyzeResult | null = haveQuick ? shown.result : null;
   if (!quick) {
@@ -546,7 +567,7 @@ export function startEngineRouter(): void {
     analyzeTab: (req, meta) => {
       const tabId = meta.senderTabId ?? req.tabId;
       if (typeof tabId !== "number" || tabId < 0) throw new Error("No tab to analyze.");
-      if (req.manual) return runManualCheck(tabId, req.target, meta.requestId);
+      if (req.manual) return runManualCheck(tabId, req.target, meta.requestId, undefined, req.fresh);
       return runTabAnalysis(tabId, req.target, meta.requestId, req.mode, req.preferCpu, req.tier, req.fusionOverride, req.confirmWith);
     },
     reportImageSummary: (req, meta) => {

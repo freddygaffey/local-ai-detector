@@ -305,9 +305,10 @@ export interface Settings {
  * default. 3 = Quick check uses TMR instead of lite, chip shows from 70%
  * (docs/calibration.md "Quick tier and false positives"). 4 = the corner
  * card is the default UI and is always present (docs/plan.md "Primary UI:
- * the corner card"): no auto-hide.
+ * the corner card"): no auto-hide. 5 = highlights default to flagged
+ * (AI) sentences only, not the whole-page heatmap.
  */
-export const SETTINGS_VERSION = 4;
+export const SETTINGS_VERSION = 5;
 
 /**
  * Default Fusion set, chosen on the T7 web eval set (docs/calibration.md):
@@ -380,7 +381,7 @@ export const DEFAULT_SETTINGS: Settings = {
   fusion: DEFAULT_FUSION,
   settingsVersion: SETTINGS_VERSION,
   mode: "ensemble",
-  highlightStyle: "heatmap",
+  highlightStyle: "flagged",
   autoRun: false,
   minWords: 50,
   maxTokens: 4096,
@@ -497,6 +498,12 @@ export function migrateSettings(merged: Settings, stored: Partial<Settings> | un
     // deliberately chosen threshold is kept.
     // (After the v3 step, so a v2 install still on 35% lands here as 0.7.)
     if (stored.chipAutoHideThreshold === undefined || out.chipAutoHideThreshold === 0.7) out.chipAutoHideThreshold = CHIP_AUTO_HIDE_DEFAULT;
+    out.settingsVersion = SETTINGS_VERSION;
+  }
+  if (stored && (stored.settingsVersion ?? 1) < 5) {
+    // v5: highlight only the AI (flagged) sentences by default. "heatmap" was
+    // the old default, so installs still on it move over.
+    if (out.highlightStyle === "heatmap") out.highlightStyle = "flagged";
     out.settingsVersion = SETTINGS_VERSION;
   }
   return out;
