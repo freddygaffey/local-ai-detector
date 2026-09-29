@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here.
 
-## [0.2.0] — 2026-09-28
+## [0.2.0] — 2026-09-30
 
 - Quick check reads at most ~1,024 tokens (setting: Tiers → Quick check length); the Deep check (↻) still reads the whole page. Keeps long pages fast, notably on Firefox.
 
@@ -17,13 +17,24 @@ below is what ships in this first release.
   search page and an app each get the check that suits them (page text,
   per-item scoring, transcript + voice, timed subtitle scoring, snippet
   markers, or nothing automatic). Per-site override in Options.
-- **Two tiers**: an automatic **Quick** check (TMR; a page that reads ≥ 50%
-  is re-checked with Fusion before anything is shown) and an on-demand
-  **Deep** check (the full Fusion set plus ModernBERT, Binoculars and
-  perplexity). The chip shows only from 70%.
-- **YouTube transcripts and voice check (experimental, on by default)**:
-  reads the transcript through the player's own caption request and,
-  optionally, samples short audio clips for likely synthetic narration.
+- **Two tiers**: an automatic **Quick** check (TMR over the first ~1,024
+  tokens; a page that reads ≥ 50% is re-checked with Fusion before anything
+  is shown) and an on-demand **Deep** check (Fakespot + TMR over the whole
+  page, the best-measured set; docs/calibration.md "Deep check"). A manual
+  check shows Quick at once and refines to Deep; Deep can be cancelled.
+- **Corner card** (default presence): on every page, draggable (position
+  remembered per site), hover for the essentials, click for the panel with
+  Deep check, flagged-item navigation, highlights and "highlight by model".
+  Highlights default to AI sentences only; click a highlighted sentence for
+  its details. Wording reads "N% AI · no strong / some AI signal / likely AI".
+- **Remembered results**: an unchanged page reuses its last result (local,
+  text hash only). **Pause** automatic checks for 1/5/12 h from the popup.
+- **YouTube transcripts, description and voice check (experimental, on by
+  default)**: reads the transcript through the player's own caption request,
+  scores the video description, and samples short audio clips for likely
+  synthetic narration from the audio the player downloads, so it works at
+  any playback speed (other sites: 0.75–2×). Menus under the title for a
+  Deep check, the transcript's AI parts, and the sampled clips.
   Detects AI-written scripts and clean/compressed TTS — not every synthetic
   voice, and not a substitute for a watermark check.
 - **Presence**: one setting (default **Status chip**) for how much the
@@ -54,6 +65,15 @@ below is what ships in this first release.
   checked locally" list (SynthID, Claude's and Gemini's text watermarks,
   Meta Content Seal, Digimarc, TrustMark) rather than staying silent.
 - A hidden-Unicode scan, always shown separately from the AI score.
+
+### Performance and battery
+
+- Inference runs in Workers, never on the popup's thread (the popup opens
+  instantly during a check).
+- Idle unload frees the models' memory after 5 minutes without model use.
+- Background tabs wait for their first showing before the automatic check;
+  per-tab timers pause when hidden; the voice audio graph only runs while a
+  clip is recorded.
 
 ### Fixed (release QA in real Chrome, [`docs/qa-results.md`](docs/qa-results.md))
 

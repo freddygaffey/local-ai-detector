@@ -185,7 +185,8 @@ function css(): string {
     .rows .k { color: var(--dim); }
     .rows .v { text-align: right; overflow-wrap: anywhere; }
     .rows .dim { color: var(--dim); }
-    .panel { width: 236px; display: flex; flex-direction: column; gap: 6px; }
+    .panel { width: 236px; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; overscroll-behavior: contain; }
+    .hover { overflow-y: auto; }
     .panel .sec { border-top: 1px solid var(--line); padding-top: 6px; }
     .row { display: flex; align-items: center; gap: 4px; }
     .row .grow { flex: 1; }
@@ -365,6 +366,11 @@ export function createCard(initialPos: CardPos, cb: CardCallbacks): CardApi {
     const off = dockOffset();
     place(hover, pos, off);
     place(panel, pos, off);
+    // Never taller than the space between the card and the far edge of the
+    // window: on a small screen the panel scrolls instead of running off it.
+    const room = `${Math.max(120, window.innerHeight - pos.dy - off - MARGIN)}px`;
+    panel.style.maxHeight = room;
+    hover.style.maxHeight = room;
   }
   // Sites add corner widgets late (reCAPTCHA, chat, cookie bars): re-check a
   // few times in the first minute (visible tabs only), then only when
@@ -380,7 +386,16 @@ export function createCard(initialPos: CardPos, cb: CardCallbacks): CardApi {
     if (!host.isConnected || ++checks > 12) return window.clearInterval(recheck);
     recheckNow();
   }, 5000);
-  window.addEventListener("resize", recheckNow, { passive: true });
+  let resizeQueued = false;
+  const onResize = () => {
+    if (resizeQueued) return;
+    resizeQueued = true;
+    requestAnimationFrame(() => {
+      resizeQueued = false;
+      if (host.isConnected && host.style.display !== "none") layout();
+    });
+  };
+  window.addEventListener("resize", onResize, { passive: true });
   document.addEventListener("visibilitychange", recheckNow);
 
   function renderCard(): void {
@@ -712,7 +727,7 @@ export function createCard(initialPos: CardPos, cb: CardCallbacks): CardApi {
     destroy() {
       clearTimeout(hideTimer);
       window.clearInterval(recheck);
-      window.removeEventListener("resize", recheckNow);
+      window.removeEventListener("resize", onResize);
       document.removeEventListener("visibilitychange", recheckNow);
       window.removeEventListener("pointerup", releaseAnywhere, true);
       try {

@@ -1,15 +1,13 @@
 import { describe, expect, test } from "vitest";
-import { BAND_LABEL, bandClassName, bandColorVar, bandFromResult, scoreToBand } from "./verdict";
+import { BAND_LABEL, bandClassName, bandColorVar, bandFromResult, scoreToBand, SHOWN_AI_MIN, SHOWN_HUMAN_MAX } from "./verdict";
 import type { AnalyzeResult } from "../shared/messages";
 import { DEFAULT_SETTINGS } from "../shared/settings";
-import { FLAGGED_THRESHOLD, HUMAN_MAX, toDisplayProbability } from "../shared/thresholds";
 
-// The band cut points are T7's calibration curve, not our own constants
-// (see verdict.ts `bandCutoffs`) -- computed here rather than hard-coded so
-// this test doesn't have to know the curve's shape, only that whatever it
-// maps HUMAN_MAX/FLAGGED_THRESHOLD to are the boundaries `scoreToBand` uses.
-const HUMAN_CUT = toDisplayProbability(HUMAN_MAX);
-const AI_CUT = toDisplayProbability(FLAGGED_THRESHOLD);
+// The band cut points are on the shown (calibrated) probability itself
+// (verdict.ts `bandCutoffs`): < 40% no strong signal, >= 75% likely AI.
+// Bands are on the shown (calibrated) number itself.
+const AI_CUT = SHOWN_AI_MIN;
+const HUMAN_CUT = SHOWN_HUMAN_MAX;
 
 function result(overall: number, sentenceCount: number, extra: Partial<AnalyzeResult> = {}): AnalyzeResult {
   return {
@@ -32,6 +30,10 @@ describe("scoreToBand", () => {
   });
   test("high displayed probability is ai", () => {
     expect(scoreToBand({ displayed: Math.min(1, AI_CUT + 0.05) })).toBe("ai");
+  });
+  test("86% shown is always ai, whatever the detector set's curve", () => {
+    expect(scoreToBand({ displayed: 0.86 })).toBe("ai");
+    expect(scoreToBand({ displayed: 0.86, ctx: { detectors: ["tmr", "modernbert", "lite", "perplexity", "binoculars"], method: "weighted" } })).toBe("ai");
   });
   test("in between is mixed", () => {
     if (AI_CUT > HUMAN_CUT) expect(scoreToBand({ displayed: (HUMAN_CUT + AI_CUT) / 2 })).toBe("mixed");
@@ -60,8 +62,8 @@ describe("bandFromResult", () => {
     const ctx = { detectors: ["fakespot", "tmr"] as const, method: "weighted" as const, device: "webgpu" as const, words: 200 };
     const detectors = ctx.detectors.map((id) => ({ id, label: id, overall: 0.5, device: ctx.device, dtype: "q8", weight: 1 }));
     const fusion = { method: ctx.method, agreement: { agree: 2, total: 2, disagree: false } };
-    const aiCut = toDisplayProbability(FLAGGED_THRESHOLD, ctx);
-    const humanCut = toDisplayProbability(HUMAN_MAX, ctx);
+    const aiCut = SHOWN_AI_MIN;
+    const humanCut = SHOWN_HUMAN_MAX;
     // A raw `overall` that reads "mixed" on the old raw-score thresholds,
     // but a calibrated `probability` clearly above the AI cut point: the
     // band shown must match the number shown, not the raw score underneath it.

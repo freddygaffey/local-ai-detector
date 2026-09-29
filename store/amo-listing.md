@@ -4,11 +4,8 @@ For the AMO submission form (listed or unlisted — see
 [`../docs/release.md`](../docs/release.md) for the difference and the exact
 submission steps). Permission justifications and the
 `data_collection_permissions` declaration are in
-[`permissions.md`](permissions.md). Screenshots: the release-QA set in
-[`../docs/qa/shots/`](../docs/qa/shots/) is the current one (Chrome; see
-[`../docs/qa-results.md`](../docs/qa-results.md)); the Firefox-specific ones
-(`firefox-popup.png`, `firefox-options.jpg`, `firefox-page-heatmap.jpg`) are
-in [`../docs/screenshots/`](../docs/screenshots/).
+[`permissions.md`](permissions.md). Screenshots: [`screenshots/`](screenshots/)
+(1280×800, taken in Chrome; the UI is the same in Firefox).
 
 ## Category
 

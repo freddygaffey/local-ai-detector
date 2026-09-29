@@ -11,7 +11,7 @@ import { displayScore } from "./probability";
 
 export type Band = "human" | "mixed" | "ai" | "insufficient";
 
-import { FLAGGED_THRESHOLD as AI_MIN, HUMAN_MAX, toDisplayProbability, type DisplayContext } from "../shared/thresholds";
+import type { DisplayContext } from "../shared/thresholds";
 
 /** Word count under which a result is too thin to score meaningfully. */
 export function countWords(text: string): number {
@@ -21,17 +21,21 @@ export function countWords(text: string): number {
 }
 
 /**
- * The band boundaries, mapped through the *same* calibration curve as the
- * number being shown (T7's `toDisplayProbability`, per `ctx`). HUMAN_MAX/
- * FLAGGED_THRESHOLD are cut points on the raw engine score; running them
- * through the curve keeps the band and the displayed percent from ever
- * disagreeing (e.g. label "Mixed" next to "86%" -- the lead's finding after
- * T7 merged: bands must derive from the *displayed* probability, not the
- * raw score, since the two can differ a lot once a curve is non-linear).
+ * The band boundaries, on the displayed probability itself (the number the
+ * user sees), so the word and the percent can never disagree.
  */
-function bandCutoffs(ctx: DisplayContext): { humanMax: number; aiMin: number } {
-  return { humanMax: toDisplayProbability(HUMAN_MAX, ctx), aiMin: toDisplayProbability(AI_MIN, ctx) };
+function bandCutoffs(_ctx: DisplayContext): { humanMax: number; aiMin: number } {
+  // On the shown number itself: it is already calibrated ("about N% of texts
+  // scoring like this were AI"). The engine-score cut points (HUMAN_MAX 0.35,
+  // FLAGGED_THRESHOLD 0.5) mapped through the curve landed at ~76% / ~93%
+  // shown, so "44% AI" read "no strong AI signal" and "86% AI" only "some".
+  return { humanMax: SHOWN_HUMAN_MAX, aiMin: SHOWN_AI_MIN };
 }
+
+/** Shown P(AI) below this: "no strong AI signal". */
+export const SHOWN_HUMAN_MAX = 0.4;
+/** Shown P(AI) from this: "likely AI". */
+export const SHOWN_AI_MIN = 0.75;
 
 export interface BandInput {
   /** The number actually shown to the user (0..1, e.g. from `displayScore()`), or null when nothing is shown ("—"). */

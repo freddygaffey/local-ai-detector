@@ -3,10 +3,10 @@
 For the Developer Dashboard's listing fields. Permission justifications and
 the data-collection declaration are in [`permissions.md`](permissions.md)
 (copy those into the dashboard's separate "Permissions justification" and
-"Data usage" forms). Promo images: [`promo/`](promo/). Screenshots: the
-release-QA set in [`../docs/qa/shots/`](../docs/qa/shots/) is the current
-one (see [`../docs/qa-results.md`](../docs/qa-results.md)); older feature
-shots are in [`../docs/screenshots/`](../docs/screenshots/).
+"Data usage" forms). Promo images: [`promo/`](promo/). Screenshots (1280×800,
+upload in this order): [`screenshots/`](screenshots/) (card + highlights,
+sentence details, popup, YouTube). Older shots in
+[`../docs/qa/shots/`](../docs/qa/shots/) and [`../docs/screenshots/`](../docs/screenshots/) show earlier UI.
 
 ## Category
 
