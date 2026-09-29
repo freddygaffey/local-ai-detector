@@ -13,6 +13,7 @@
 import { browser } from "wxt/browser";
 import { getSettings } from "../shared/settings";
 import { withOffscreen } from "../engine/offscreen";
+import { trackInference } from "../engine/activity";
 import { sanitizeVoice } from "./settings";
 import {
   isVoiceProgress,
@@ -74,6 +75,16 @@ function workerCall(req: VoiceHostRequest): Promise<VoiceResponse> {
   });
 }
 
+/** Idle unload (Firefox): end the voice worker so its memory is freed; the next clip restarts it. */
+export function stopVoiceWorker(): void {
+  worker?.terminate();
+  worker = null;
+  if (keepAlive) {
+    clearInterval(keepAlive);
+    keepAlive = null;
+  }
+}
+
 async function hostCall(req: VoiceHostRequest): Promise<VoiceResponse> {
   if (import.meta.env.FIREFOX) return workerCall(req);
   return withOffscreen(
@@ -99,7 +110,7 @@ export async function handleVoiceRequest(req: VoiceRequest, tabId: number | unde
   const id = `v${Date.now().toString(36)}-${++counter}`;
   if (tabId !== undefined) tabForRequest.set(id, tabId);
   try {
-    return await hostCall({ ...base, id, op: "score", pcmB64: req.pcmB64 });
+    return await trackInference(() => hostCall({ ...base, id, op: "score", pcmB64: req.pcmB64 }));
   } finally {
     tabForRequest.delete(id);
   }

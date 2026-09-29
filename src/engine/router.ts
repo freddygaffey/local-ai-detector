@@ -23,6 +23,7 @@ import {
 import { getSettings, setSettings, type ModelSlot } from "../shared/settings";
 import { needsQuickConfirm } from "../shared/thresholds";
 import { getCached, putCached, scoreSignature, textKey } from "./resultCache";
+import { trackInference } from "./activity";
 import { isUnscriptableError, kindForUrl, parseUnreadable, unreadableError } from "../shared/unreadable";
 import { badge } from "./badge-hook";
 import { getHostClient } from "./host-client";
@@ -190,7 +191,7 @@ async function runAnalyze(
 
   try {
     hostUsed = true;
-    const result = await getHostClient().call(
+    const result = await trackInference(async () => getHostClient().call(
       "analyze",
       {
         blocks: req.blocks,
@@ -211,7 +212,7 @@ async function runAnalyze(
         },
       },
       relay,
-    );
+    ));
     // Tiers task: echo which pass this was, so the popup/pill can label a
     // Deep result and (once it exists) a YouTube voice check can read the
     // active tier (docs/plan.md "Two tiers").

@@ -11,6 +11,9 @@
 
 import { registerHandlers, sendTabMessage } from "@/src/shared/messages";
 import { logQuietly, runManualCheck, startEngineRouter, unloadIdleModels } from "@/src/engine/router";
+import { idleFor, markUnloaded } from "@/src/engine/activity";
+import { getHostClient } from "@/src/engine/host-client";
+import { stopVoiceWorker } from "@/src/voice/background";
 import { getSettings, watchSettings, type Settings } from "@/src/shared/settings";
 import { sidePanelOnIconClick } from "@/src/ui/optionsLogic";
 import { clearBadge } from "@/src/ui/badge";
@@ -162,28 +165,24 @@ function startSidePanel(): void {
 // ---- Idle-unload alarm (docs/plan.md "T8: Battery saver") -------------------
 
 const IDLE_ALARM = "lad-idle-unload";
-let lastActiveMs = Date.now();
 
+/**
+ * After `battery.unloadAfterMinutes` without model use (text or voice), close
+ * the inference host entirely: its workers end, so their WASM/GPU memory goes
+ * back to the system (unloading sessions alone doesn't shrink a WASM heap).
+ * The next check starts it again and reloads models from the cache.
+ */
 function startIdleUnload(): void {
   if (!browser.alarms) return;
-  const bump = () => {
-    lastActiveMs = Date.now();
-  };
-  // Any of these count as "active" for idle-unload purposes.
-  browser.tabs?.onUpdated?.addListener(bump);
-  browser.runtime.onMessage.addListener(() => {
-    bump();
-    return undefined;
-  });
   browser.alarms.create(IDLE_ALARM, { periodInMinutes: 1 });
   browser.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name !== IDLE_ALARM) return;
-    void getSettings().then((settings) => {
-      if (!isIdleTooLong(lastActiveMs, Date.now(), settings.battery.unloadAfterMinutes)) return;
-      // Best-effort: the engine (T7) may not implement this handler yet.
-      // A background page doesn't receive its own runtime.sendMessage broadcasts,
-      // so this must call the engine directly rather than message itself.
-      void unloadIdleModels();
+    void getSettings().then(async (settings) => {
+      if (!idleFor(settings.battery.unloadAfterMinutes)) return;
+      markUnloaded();
+      await unloadIdleModels();
+      await getHostClient().reset().catch(() => {});
+      stopVoiceWorker(); // Firefox; on Chrome the voice worker lived in the host just closed
     });
   });
 }
