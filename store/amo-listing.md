@@ -104,3 +104,15 @@ extension's Options page.
 - Support/homepage URL: the source repository.
 - Privacy policy: paste in the text of, or a stable link to,
   [`../PRIVACY.md`](../PRIVACY.md).
+
+## Notes to reviewer (paste into the submission form)
+
+```
+Validator warnings, all from the bundled, unmodified onnxruntime-web (the ONNX Runtime used to run the detector models locally):
+
+1. "The Function constructor is eval" in ort/ort-wasm-simd-threaded.asyncify.mjs: Emscripten embind glue inside ONNX Runtime. That code path is not used, and the extension CSP (script-src 'self' 'wasm-unsafe-eval') blocks eval/new Function anyway.
+
+2. "Unsafe call to import" in inference-worker.js and voice-worker.js: ONNX Runtime dynamically imports its own .mjs glue from the extension package (moz-extension://<id>/ort/...). The URL is built from runtime.getURL / the worker's own location; it is never a remote URL.
+
+No remote code is executed. Models (ONNX weights, i.e. data) are downloaded once from Hugging Face / this project's GitHub release after user consent, sha256-pinned where listed, and cached locally. Nothing about pages, text or audio is sent anywhere. Source code: the attached sources zip; build steps in its README (npm ci && npm run build:firefox).
+```

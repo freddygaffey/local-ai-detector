@@ -187,8 +187,8 @@ Classifier decision: the ensemble keeps **TMR**. It ranks better on held-out dat
 - `DANGEROUS_EVAL` in `ort/ort-wasm-simd-threaded.asyncify.mjs`: Emscripten embind's
   `new Function` in ONNX Runtime's vendored glue. The extension CSP (`script-src 'self'
   'wasm-unsafe-eval'`) blocks it anyway, and that code path isn't used.
-- `UNSAFE_VAR_ASSIGNMENT` (dynamic `import()`) in `inference-worker.js`: ORT loading its
-  own bundled `.mjs` glue from `moz-extension://…/ort/`, never a remote URL.
+- `UNSAFE_VAR_ASSIGNMENT` (dynamic `import()`) in `inference-worker.js` and `voice-worker.js`:
+  ORT loading its own bundled `.mjs` glue from `moz-extension://…/ort/`, never a remote URL.
 
 ## Known issues / not covered
 
