@@ -366,19 +366,22 @@ export function createCard(initialPos: CardPos, cb: CardCallbacks): CardApi {
     place(hover, pos, off);
     place(panel, pos, off);
   }
-  // Sites add corner widgets late (reCAPTCHA, chat, cookie bars): re-check now and then.
+  // Sites add corner widgets late (reCAPTCHA, chat, cookie bars): re-check a
+  // few times in the first minute (visible tabs only), then only when
+  // something can have moved -- resize, the tab shown again -- rather than
+  // probing layout on a timer in every tab forever (battery). Never on hover:
+  // the card must not move under the pointer.
+  const recheckNow = () => {
+    if (!host.isConnected || host.style.display === "none" || custom || document.hidden) return;
+    if (cornerObstacleOffset(host, pos.corner) !== lift) layout();
+  };
   let checks = 0;
   const recheck = window.setInterval(() => {
-    if (!host.isConnected) return window.clearInterval(recheck);
-    if (host.style.display === "none") return;
-    if (custom) return;
-    const next = cornerObstacleOffset(host, pos.corner);
-    if (next !== lift) layout();
-    if (++checks > 30) {
-      window.clearInterval(recheck);
-      window.setInterval(() => host.isConnected && !custom && cornerObstacleOffset(host, pos.corner) !== lift && layout(), 10000);
-    }
-  }, 2000);
+    if (!host.isConnected || ++checks > 12) return window.clearInterval(recheck);
+    recheckNow();
+  }, 5000);
+  window.addEventListener("resize", recheckNow, { passive: true });
+  document.addEventListener("visibilitychange", recheckNow);
 
   function renderCard(): void {
     const sum = collapsedSummary(state);
@@ -708,6 +711,9 @@ export function createCard(initialPos: CardPos, cb: CardCallbacks): CardApi {
     },
     destroy() {
       clearTimeout(hideTimer);
+      window.clearInterval(recheck);
+      window.removeEventListener("resize", recheckNow);
+      document.removeEventListener("visibilitychange", recheckNow);
       window.removeEventListener("pointerup", releaseAnywhere, true);
       try {
         host.remove();

@@ -258,7 +258,9 @@ export function startVoiceContent(): void {
         void onYouTubeLocation();
         document.addEventListener("yt-navigate-finish", () => void onYouTubeLocation());
         window.addEventListener("popstate", () => void onYouTubeLocation());
-        setInterval(() => void onYouTubeLocation(), 1500);
+        // Hidden tabs skip the poll (battery) and catch up as soon as they're shown.
+        setInterval(() => !document.hidden && void onYouTubeLocation(), 1500);
+        document.addEventListener("visibilitychange", () => !document.hidden && void onYouTubeLocation());
       }
     });
   watchSettings((s) => {

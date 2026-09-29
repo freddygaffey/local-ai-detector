@@ -77,20 +77,38 @@ export class VoiceSession {
   }
 
   start(): void {
-    const v = this.video as CapturableVideo;
-    try {
-      const cap = v.captureStream ?? v.mozCaptureStream;
-      if (!cap) return this.set("unavailable");
-      this.stream = cap.call(v);
-    } catch {
-      return this.set("unavailable"); // SecurityError: cross-origin media without CORS
-    }
+    // The audio graph is built only when a clip is first recorded, and paused
+    // between clips (battery): on YouTube clips normally come from the
+    // downloaded audio (`source`), so it usually never runs at all.
     this.on(this.video, "timeupdate", () => this.onTime());
     this.on(this.video, "seeking", () => this.abortClip());
     this.on(this.video, "emptied", () => this.abortClip());
+    this.set("listening");
+  }
+
+  /** Captures the element's audio on first use. False when it can't be captured. */
+  private ensureCapture(): boolean {
+    if (this.stream) return true;
+    const v = this.video as CapturableVideo;
+    try {
+      const cap = v.captureStream ?? v.mozCaptureStream;
+      if (!cap) {
+        this.set("unavailable");
+        return false;
+      }
+      this.stream = cap.call(v);
+    } catch {
+      this.set("unavailable"); // SecurityError: cross-origin media without CORS
+      return false;
+    }
     if (this.stream.getAudioTracks().length) this.connect();
     else this.on(this.stream as unknown as EventTarget, "addtrack", () => this.connect());
-    this.set("listening");
+    return true;
+  }
+
+  /** Pause the audio graph between clips (no audio callbacks while idle). */
+  private pauseGraph(): void {
+    if (this.ctx?.state === "running") void this.ctx.suspend().catch(() => {});
   }
 
   stop(): void {
@@ -161,6 +179,8 @@ export class VoiceSession {
 
   private startRecording(t: number): void {
     if (this.opts.canRecord && !this.opts.canRecord()) return;
+    if (!this.ensureCapture()) return;
+    if (this.ctx?.state === "suspended") void this.ctx.resume().catch(() => {});
     this.recording = true;
     this.filled = 0;
     this.clipStartPos = t;
@@ -185,6 +205,7 @@ export class VoiceSession {
     this.recording = false; // never stitch audio across a seek or source change
     this.filled = 0;
     this.lastTime = this.video.currentTime;
+    this.pauseGraph();
   }
 
   private onAudio(x: Float32Array): void {
@@ -195,6 +216,7 @@ export class VoiceSession {
     this.filled += n;
     if (this.filled >= CLIP_SAMPLES) {
       this.recording = false;
+      this.pauseGraph();
       void this.finishClip(this.buf.slice(), this.clipStartPos);
     }
   }

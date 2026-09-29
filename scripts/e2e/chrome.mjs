@@ -833,7 +833,8 @@ await step("presence modes: onClick / badge / statusChip / inspector / sidePanel
       // Fallback: some builds label it differently; apply the full preset directly.
       await setPresence(presence, { autoRunPolicy: "always" });
     });
-    await presenceTab.reload({ waitUntil: "load" });
+    await presenceTab.bringToFront();
+  await presenceTab.reload({ waitUntil: "load" });
     await sleep(2200); // autoRun (classifierLite) + surface reconciliation
     const settings = await getStoredSettings();
     const pillVisible = (await piercedCenter(presenceTab, (tag, a) => a.role === "region" && a["aria-label"] === "AI text detector")).length > 0;
@@ -854,6 +855,7 @@ await step("presence modes: onClick / badge / statusChip / inspector / sidePanel
   // autoRunPolicy/surfaces at whatever the loop's last iteration (sidePanel)
   // set them to, same class of bug as the URL collision above.
   await setPresence("onClick");
+  await presenceTab.bringToFront();
   await presenceTab.reload({ waitUntil: "load" });
   await sleep(800);
   const onClickTabId = await tabIdOf(PRESENCE_URL);
@@ -884,6 +886,7 @@ await step("corner card: always present, hover card, click panel, highlights tog
   // click opens the supplementary panel; highlights stay off until toggled.
   await setPresence("statusChip");
   await mergeSettings({ chipAutoHideThreshold: 0 });
+  await pages.news.bringToFront(); // auto-checks wait for a visible tab
   await pages.news.reload({ waitUntil: "load" });
   const isCard = (tag, a) => a["aria-label"]?.startsWith("AI detection");
   const card = await waitFor(() => piercedCenter(pages.news, isCard), { timeout: 10_000, what: "corner card" });
@@ -919,6 +922,7 @@ await step("corner card: always present, hover card, click panel, highlights tog
   const stillOpen = (await piercedCenter(pages.news, (tag, a) => a.role === "dialog" && a["aria-label"] === "Detector details")).length > 0;
   if (stillOpen) throw new Error("close should hide the card panel");
   await setPresence("inspector");
+  await pages.news.bringToFront(); // auto-checks wait for a visible tab
   await pages.news.reload({ waitUntil: "load" });
   await sleep(800);
 });
@@ -927,6 +931,7 @@ await step("corner card: drag persists per site; click a highlight for details; 
   await setPresence("statusChip");
   await mergeSettings({ chipAutoHideThreshold: 0, pausedUntil: 0, cardDefaultPosition: null });
   await swEval(() => chrome.storage.local.remove("cardPositions"));
+  await pages.news.bringToFront(); // auto-checks wait for a visible tab
   await pages.news.reload({ waitUntil: "load" });
   const isCard = (tag, a) => a["aria-label"]?.startsWith("AI detection");
   await waitFor(async () => /\d+%|\d+ AI/.test((await piercedTexts(pages.news, isCard)).join(" ")), { timeout: 30_000, what: "card score" });
@@ -946,6 +951,7 @@ await step("corner card: drag persists per site; click a highlight for details; 
   const stored = await swEval(async () => (await chrome.storage.local.get("cardPositions")).cardPositions ?? {});
   note(`stored positions: ${JSON.stringify(stored)}`);
   if (Object.keys(stored).length !== 1) throw new Error("the dragged position should be saved for this site");
+  await pages.news.bringToFront(); // auto-checks wait for a visible tab
   await pages.news.reload({ waitUntil: "load" });
   const [after] = await waitFor(async () => {
     const c = await piercedCenter(pages.news, isCard);
@@ -984,6 +990,7 @@ await step("corner card: drag persists per site; click a highlight for details; 
 
   // Pause: no automatic check while paused.
   await mergeSettings({ pausedUntil: Date.now() + 3_600_000 });
+  await pages.news.bringToFront(); // auto-checks wait for a visible tab
   await pages.news.reload({ waitUntil: "load" });
   await sleep(6000);
   const pausedLabel = (await piercedTexts(pages.news, isCard)).join(" ");
@@ -992,6 +999,7 @@ await step("corner card: drag persists per site; click a highlight for details; 
   await mergeSettings({ pausedUntil: 0 });
   await swEval(() => chrome.storage.local.remove("cardPositions"));
   await setPresence("inspector");
+  await pages.news.bringToFront(); // auto-checks wait for a visible tab
   await pages.news.reload({ waitUntil: "load" });
   await sleep(800);
 });

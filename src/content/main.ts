@@ -168,6 +168,16 @@ function reroute(opts: { autoRun: boolean }): void {
   if (page.type === "search") void maybeMarkSearchResults();
 }
 
+/** Runs `fn` once, the next time this tab is visible. */
+function whenShown(fn: () => void): void {
+  const onVis = () => {
+    if (document.hidden) return;
+    document.removeEventListener("visibilitychange", onVis);
+    fn();
+  };
+  document.addEventListener("visibilitychange", onVis);
+}
+
 /** Removes everything this instance drew (a newer instance took over the page). */
 function retireFromPage(): void {
   doClearVisualsOnly();
@@ -712,6 +722,10 @@ function reRenderPillDone(): void {
 
 async function maybeAutoRun(attempt = 0): Promise<void> {
   if (isRetired() || extensionGone()) return;
+  // A tab nobody has looked at yet (restored session, opened in the
+  // background) waits for its first showing: every page you actually see is
+  // still checked, without running the models for dozens of unseen tabs.
+  if (document.hidden) return whenShown(() => void maybeAutoRun(attempt));
   try {
     // Tiers task (docs/plan.md "Two tiers"): "Run quick check automatically"
     // off means no automatic pass at all -- Deep still runs on click.

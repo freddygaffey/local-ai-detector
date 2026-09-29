@@ -222,6 +222,17 @@ async function checkDescription(): Promise<void> {
 
 async function maybeAutoRun(attempt = 0): Promise<void> {
   if (!video || !settings.surfaces.chip || !pageAllowed()) return;
+  // Background tab: wait until it's first shown (see the page check in ../main.ts).
+  if (document.hidden) {
+    const v = video.videoId;
+    const onVis = () => {
+      if (document.hidden) return;
+      document.removeEventListener("visibilitychange", onVis);
+      if (video?.videoId === v) void maybeAutoRun(attempt);
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return;
+  }
   // Tiers task (docs/plan.md "Two tiers"): "Run quick check automatically"
   // off means no automatic pass here either -- the Deep ("full") pass still
   // runs on click, from the chip or `runDeepTranscriptCheck`.
@@ -312,7 +323,9 @@ export function startYouTubeTranscripts(): void {
   document.addEventListener("yt-navigate-finish", () => onLocationMaybeChanged());
   window.addEventListener("popstate", () => onLocationMaybeChanged());
   // Fallback for navigations that don't fire the event (and to re-attach the chip if YouTube re-rendered its title).
-  setInterval(() => onLocationMaybeChanged(), 1500);
+  // Hidden tabs skip the poll (battery) and catch up as soon as they're shown.
+  setInterval(() => !document.hidden && onLocationMaybeChanged(), 1500);
+  document.addEventListener("visibilitychange", () => !document.hidden && onLocationMaybeChanged());
 }
 
 /**
